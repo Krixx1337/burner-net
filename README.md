@@ -20,6 +20,7 @@ It is built for:
 - **Zero-trust transport:** direct HTTPS-focused behavior with strict redirect and header validation
 - **Encrypted DNS:** DNS-over-HTTPS support to reduce dependence on hostile local resolution
 - **Polymorphic binaries:** generated configs randomize `ErrorCode` values and `BURNERNET_ERROR_XOR`
+- **Built-in literal obfuscation:** internal security-anchor strings are masked at compile time out of the box
 - **Ephemeral secrets:** request material can be fetched via providers and wiped after use
 - **Integrity hooks:** synchronous pre-flight, request, verification, and heartbeat hooks
 - **Transport canary:** `SecurityAuditor` can detect local TLS interception paths
@@ -36,6 +37,8 @@ python tools/generate_config.py
 ```
 
 This writes `BurnerNet_Config.h` into the current working directory with fresh `BURNERNET_ERROR_XOR`, `BURNERNET_SECURITY_SEED`, and randomized `ErrorCode` values.
+
+BurnerNet now ships with a built-in `HOSTILE_OBF(...).resolve()` fallback behind `BURNER_OBF_LITERAL(...)`, so a generated config is no longer required just to get basic string hiding. Keep a private config when you want project-specific enum values, hardened error masks, or custom hooks.
 
 2. Integrate it:
 

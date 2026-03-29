@@ -2,6 +2,9 @@
 
 // Copy this file into your own project, rename it, and point BurnerNet at it
 // with BURNERNET_USER_CONFIG_HEADER="MyConfig.h".
+//
+// BurnerNet already provides a built-in compile-time literal obfuscation fallback.
+// Only define BURNER_OBF_LITERAL here if you want to override that default.
 
 #include <string>
 
@@ -18,7 +21,7 @@ struct MySecurity {
 
 } // namespace burner_net_example
 
-// Example string hook. Replace with your own obfuscator if desired.
+// Optional string hook. Remove this macro to use BurnerNet's built-in HOSTILE_OBF fallback.
 #define BURNER_OBF_LITERAL(x) ::burner_net_example::MyXor(x)
 
 // Example hardened error mask for polymorphic numeric output.

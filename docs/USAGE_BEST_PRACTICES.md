@@ -199,7 +199,8 @@ auto init = burner::net::InitializeNetworkingRuntime(boot);
 ## 10. Recommended defaults
 - `BURNERNET_HARDEN_ERRORS=1` for production builds.
 - Set `BURNERNET_ERROR_XOR` in your private BurnerNet config header when you enable hardened errors.
-- If you already have a private string obfuscator, define `BURNER_OBF_LITERAL(...)` in your private BurnerNet config header.
+- BurnerNet now includes a built-in compile-time literal obfuscator by default.
+- If you already have a private string obfuscator, you can still override `BURNER_OBF_LITERAL(...)` in your private BurnerNet config header.
 - Treat `ErrorCode::TlsVerificationFailed` as a distinct trust failure, not a generic connectivity error.
 - Keep login/business logic in app code, not inside `BurnerNet`.
 - Prefer one disposable HTTP client instance per worker/thread or burst of requests.
@@ -269,7 +270,7 @@ auto client = burner::net::ClientBuilder()
 ```
 
 ## 15. Binary Uniqueness (Polymorphism)
-BurnerNet no longer ships built-in obfuscation seeds or verifier witness constants. If you want project-specific binary variation, provide your own hooks through the BurnerNet config header instead of relying on library-owned signatures.
+BurnerNet now ships a built-in compile-time literal obfuscation fallback, but project-specific variation still comes from your private config header. Use that header when you want per-project `ErrorCode` values, a private `BURNERNET_ERROR_XOR`, or a custom string crypter.
 
 Typical knobs to define in that private header:
 
@@ -278,7 +279,7 @@ Typical knobs to define in that private header:
 #define BURNERNET_ERROR_XOR 0x9A4B2C1Du
 ```
 
-That keeps the shared library generic while still letting the application choose its own obfuscation and hardened error mask.
+If you omit `BURNER_OBF_LITERAL`, BurnerNet falls back to its built-in `HOSTILE_OBF(...).resolve()` path.
 
 ## 16. 32-bit and 64-bit Windows builds
 
