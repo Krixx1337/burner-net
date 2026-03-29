@@ -1,0 +1,26 @@
+#pragma once
+
+#include <functional>
+
+#include "export.h"
+#include "http.h"
+
+namespace burner::net {
+
+struct SignatureVerifierConfig {
+    std::string signature_header;
+    std::string secret;
+    std::function<bool(std::string& out)> secret_provider;
+};
+
+class BURNER_API HmacSha256HeaderVerifier final : public IResponseVerifier {
+public:
+    explicit HmacSha256HeaderVerifier(SignatureVerifierConfig config);
+
+    bool Verify(const HttpRequest& request, const HttpResponse& response, ErrorCode* reason) override;
+
+private:
+    SignatureVerifierConfig m_config;
+};
+
+} // namespace burner::net

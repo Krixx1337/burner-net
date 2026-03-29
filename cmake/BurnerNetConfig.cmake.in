@@ -1,0 +1,8 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(CURL REQUIRED)
+
+include("${CMAKE_CURRENT_LIST_DIR}/BurnerNetTargets.cmake")
+
+check_required_components(BurnerNet)

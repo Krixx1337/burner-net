@@ -1,0 +1,35 @@
+#pragma once
+
+// Copy this file into your own project, rename it, and point BurnerNet at it
+// with BURNERNET_USER_CONFIG_HEADER="MyConfig.h".
+
+#include <string>
+
+namespace burner_net_example {
+
+inline std::string MyXor(const char* text) {
+    return std::string(text);
+}
+
+struct MySecurity {
+    static void FlagUser() {}
+    static void OnError(unsigned int, const char*) {}
+};
+
+} // namespace burner_net_example
+
+// Example string hook. Replace with your own obfuscator if desired.
+#define BURNER_OBF_LITERAL(x) ::burner_net_example::MyXor(x)
+
+// Example hardened error mask for polymorphic numeric output.
+#define BURNERNET_ERROR_XOR 0x12345678u
+
+// Example tamper hook. Replace with your own telemetry or enforcement path.
+#define BURNERNET_ON_TAMPER() ::burner_net_example::MySecurity::FlagUser()
+
+// Example stealth UA override. Return "" to keep ClientConfig::user_agent.
+#define BURNERNET_GET_USER_AGENT() std::string("")
+
+// Example transport telemetry hook.
+#define BURNERNET_ON_ERROR(code, url) \
+    ::burner_net_example::MySecurity::OnError(static_cast<unsigned int>(code), url)
