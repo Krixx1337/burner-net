@@ -44,3 +44,7 @@
         (void)(url);                  \
     } while (0)
 #endif
+
+#ifndef BURNERNET_HARDEN_IMPORTS
+#define BURNERNET_HARDEN_IMPORTS 0
+#endif

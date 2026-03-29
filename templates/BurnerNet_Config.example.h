@@ -27,6 +27,9 @@ struct MySecurity {
 // Example hardened error mask for polymorphic numeric output.
 #define BURNERNET_ERROR_XOR 0x12345678u
 
+// Optional: dynamically resolve sensitive Windows APIs in production builds.
+#define BURNERNET_HARDEN_IMPORTS 0
+
 // Example tamper hook. Replace with your own telemetry or enforcement path.
 #define BURNERNET_ON_TAMPER() ::burner_net_example::MySecurity::FlagUser()
 

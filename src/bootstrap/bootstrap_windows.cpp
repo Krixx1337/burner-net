@@ -1,4 +1,5 @@
 #include "burner/net/bootstrap.h"
+#include "burner/net/detail/hostile_imports.h"
 #include "../error_strings.h"
 
 #ifdef _WIN32
@@ -17,6 +18,35 @@ namespace {
 std::mutex g_loader_mutex;
 std::vector<HMODULE> g_loaded_modules;
 DLL_DIRECTORY_COOKIE g_dependency_cookie = nullptr;
+
+using SetDefaultDllDirectoriesFn = BOOL(WINAPI*)(DWORD);
+using AddDllDirectoryFn = DLL_DIRECTORY_COOKIE(WINAPI*)(PCWSTR);
+using LoadLibraryExWFn = HMODULE(WINAPI*)(LPCWSTR, HANDLE, DWORD);
+using GetModuleFileNameWFn = DWORD(WINAPI*)(HMODULE, LPWSTR, DWORD);
+
+struct LoaderImports {
+    SetDefaultDllDirectoriesFn set_default_dll_directories = nullptr;
+    AddDllDirectoryFn add_dll_directory = nullptr;
+    LoadLibraryExWFn load_library_ex_w = nullptr;
+    GetModuleFileNameWFn get_module_file_name_w = nullptr;
+
+    [[nodiscard]] bool Ready() const {
+        return set_default_dll_directories != nullptr && add_dll_directory != nullptr &&
+            load_library_ex_w != nullptr && get_module_file_name_w != nullptr;
+    }
+};
+
+#if BURNERNET_HARDEN_IMPORTS
+const LoaderImports& GetLoaderImports() {
+    static const LoaderImports imports{
+        HOSTILE_IMPORT(SetDefaultDllDirectoriesFn, "kernel32.dll", "SetDefaultDllDirectories"),
+        HOSTILE_IMPORT(AddDllDirectoryFn, "kernel32.dll", "AddDllDirectory"),
+        HOSTILE_IMPORT(LoadLibraryExWFn, "kernel32.dll", "LoadLibraryExW"),
+        HOSTILE_IMPORT(GetModuleFileNameWFn, "kernel32.dll", "GetModuleFileNameW"),
+    };
+    return imports;
+}
+#endif
 
 std::wstring ToLowerWide(const std::wstring& value) {
     std::wstring out = value;
@@ -151,11 +181,26 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
 
     std::lock_guard<std::mutex> lock(g_loader_mutex);
 
+#if BURNERNET_HARDEN_IMPORTS
+    const LoaderImports& loader_imports = GetLoaderImports();
+    if (!loader_imports.Ready()) {
+        return {false, ErrorCode::BootstrapDllDirs};
+    }
+#endif
+
     if (g_dependency_cookie == nullptr) {
+#if BURNERNET_HARDEN_IMPORTS
+        if (!loader_imports.set_default_dll_directories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS)) {
+#else
         if (!SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS)) {
+#endif
             return {false, ErrorCode::BootstrapDllDirs};
         }
+#if BURNERNET_HARDEN_IMPORTS
+        g_dependency_cookie = loader_imports.add_dll_directory(config.dependency_directory.c_str());
+#else
         g_dependency_cookie = AddDllDirectory(config.dependency_directory.c_str());
+#endif
         if (g_dependency_cookie == nullptr) {
             return {false, ErrorCode::BootstrapAddDir};
         }
@@ -190,17 +235,28 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
             }
         }
 
+#if BURNERNET_HARDEN_IMPORTS
+        HMODULE module = loader_imports.load_library_ex_w(
+            full_path.c_str(),
+            nullptr,
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
+#else
         HMODULE module = LoadLibraryExW(
             full_path.c_str(),
             nullptr,
             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
+#endif
 
         if (module == nullptr) {
             return {false, ErrorCode::BootstrapLoad};
         }
 
         wchar_t loaded_path[MAX_PATH] = {};
+#if BURNERNET_HARDEN_IMPORTS
+        const DWORD n = loader_imports.get_module_file_name_w(module, loaded_path, MAX_PATH);
+#else
         const DWORD n = GetModuleFileNameW(module, loaded_path, MAX_PATH);
+#endif
         if (n == 0 || n == MAX_PATH || !PathsEqualCaseInsensitive(std::filesystem::path(loaded_path), full_path)) {
             FreeLibrary(module);
             return {false, ErrorCode::BootstrapModulePath};

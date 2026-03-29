@@ -69,6 +69,10 @@ namespace burnernet_config {{
 // 2. Security Lifecycle Hooks (Weapon Mounts)
 // Override these to plug in your own Anti-RE or Logging.
 
+// Optional import hardening. Enable this in production when you want dynamic
+// resolution for sensitive Windows APIs instead of static IAT entries.
+#define BURNERNET_HARDEN_IMPORTS 1
+
 // Called after signature verification. Use this to report tampered responses.
 #ifndef BURNERNET_ON_SIGNATURE_VERIFIED
     #define BURNERNET_ON_SIGNATURE_VERIFIED(success, reason) \\

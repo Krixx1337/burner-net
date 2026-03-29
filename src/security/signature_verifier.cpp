@@ -104,7 +104,8 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
         return false;
     }
 
-    status = BCryptGetProperty(alg, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&object_size), sizeof(object_size), &cb_result, 0);
+    status = BCryptGetProperty(
+        alg, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&object_size), sizeof(object_size), &cb_result, 0);
     if (status < 0 || object_size == 0) {
         BCryptCloseAlgorithmProvider(alg, 0);
         return false;
