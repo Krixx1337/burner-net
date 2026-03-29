@@ -295,18 +295,33 @@ CurlHttpClient::CurlHttpClient(const ClientConfig& config)
             m_init_error = ErrorCode::CurlApiUntrusted;
             return;
         }
-    } else if (m_config.verify_curl_api_pointers) {
+    } else {
+#if BURNERNET_HARDEN_IMPORTS
         m_curl_api = MakeResolvedCurlApi();
         if (!IsCurlApiComplete(m_curl_api)) {
             m_init_error = ErrorCode::CurlApiIncomplete;
             return;
         }
-        if (!IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
+        if (m_config.verify_curl_api_pointers &&
+            !IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
             m_init_error = ErrorCode::CurlApiUntrusted;
             return;
         }
-    } else {
-        m_curl_api = MakeWrappedCurlApi();
+#else
+        if (m_config.verify_curl_api_pointers) {
+            m_curl_api = MakeResolvedCurlApi();
+            if (!IsCurlApiComplete(m_curl_api)) {
+                m_init_error = ErrorCode::CurlApiIncomplete;
+                return;
+            }
+            if (!IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
+                m_init_error = ErrorCode::CurlApiUntrusted;
+                return;
+            }
+        } else {
+            m_curl_api = MakeWrappedCurlApi();
+        }
+#endif
     }
 
     m_easy = m_curl_api.easy_init();

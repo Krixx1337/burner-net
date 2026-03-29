@@ -16,6 +16,7 @@ option(BURNERNET_BUILD_INTEGRATION_TESTS "Build BurnerNet live network integrati
 option(BURNERNET_BUILD_EXAMPLES "Build BurnerNet examples" ${PROJECT_IS_TOP_LEVEL})
 option(BURNERNET_OBFUSCATE_STRINGS "Obfuscate BurnerNet security-anchor string literals" ON)
 option(BURNERNET_HARDEN_ERRORS "Emit numeric error codes instead of symbolic strings" OFF)
+option(BURNERNET_HARDEN_IMPORTS "Resolve libcurl dynamically instead of linking it into the import table" OFF)
 
 if(BURNERNET_OBFUSCATE_STRINGS)
     set(BURNERNET_OBFUSCATE_STRINGS_VALUE 1)
@@ -126,6 +127,7 @@ set_target_properties(BurnerNet PROPERTIES
 target_compile_definitions(BurnerNet
     PUBLIC
         BURNER_ENABLE_CURL=1
+        BURNERNET_HARDEN_IMPORTS=$<IF:$<BOOL:${BURNERNET_HARDEN_IMPORTS}>,1,0>
         BURNERNET_HARDEN_ERRORS=$<IF:$<BOOL:${BURNERNET_HARDEN_ERRORS}>,1,0>
     PRIVATE
         BURNER_BUILDING_LIBRARY
@@ -151,10 +153,18 @@ else()
     target_compile_options(BurnerNet PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
-target_link_libraries(BurnerNet
-    PUBLIC
-        CURL::libcurl
-)
+if(BURNERNET_HARDEN_IMPORTS)
+    get_target_property(BURNERNET_CURL_INCLUDE_DIRS CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)
+    if(BURNERNET_CURL_INCLUDE_DIRS)
+        target_include_directories(BurnerNet PUBLIC ${BURNERNET_CURL_INCLUDE_DIRS})
+    endif()
+    target_compile_definitions(BurnerNet PRIVATE CURL_STATICLIB)
+else()
+    target_link_libraries(BurnerNet
+        PUBLIC
+            CURL::libcurl
+    )
+endif()
 
 if(WIN32)
     target_link_libraries(BurnerNet
