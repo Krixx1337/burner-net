@@ -40,7 +40,7 @@ python tools/generate_config.py
 
 This writes `BurnerNet_Config.h` into the current working directory with fresh `BURNERNET_ERROR_XOR`, `BURNERNET_SECURITY_SEED`, and randomized `ErrorCode` values.
 
-BurnerNet now ships with a built-in `HOSTILE_OBF(...).resolve()` fallback behind `BURNER_OBF_LITERAL(...)`, so a generated config is no longer required just to get basic string hiding. Keep a private config when you want project-specific enum values, hardened error masks, or custom hooks.
+BurnerNet now ships with a built-in `BURNER_OBF_LITERAL(...).resolve()` fallback, so a generated config is no longer required just to get basic string hiding. Keep a private config when you want project-specific enum values, hardened error masks, or custom hooks.
 
 2. Integrate it:
 

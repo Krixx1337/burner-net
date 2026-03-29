@@ -39,10 +39,10 @@ struct LoaderImports {
 #if BURNERNET_HARDEN_IMPORTS
 const LoaderImports& GetLoaderImports() {
     static const LoaderImports imports{
-        HOSTILE_IMPORT(SetDefaultDllDirectoriesFn, "kernel32.dll", "SetDefaultDllDirectories"),
-        HOSTILE_IMPORT(AddDllDirectoryFn, "kernel32.dll", "AddDllDirectory"),
-        HOSTILE_IMPORT(LoadLibraryExWFn, "kernel32.dll", "LoadLibraryExW"),
-        HOSTILE_IMPORT(GetModuleFileNameWFn, "kernel32.dll", "GetModuleFileNameW"),
+        BURNER_HOSTILE_IMPORT(SetDefaultDllDirectoriesFn, "kernel32.dll", "SetDefaultDllDirectories"),
+        BURNER_HOSTILE_IMPORT(AddDllDirectoryFn, "kernel32.dll", "AddDllDirectory"),
+        BURNER_HOSTILE_IMPORT(LoadLibraryExWFn, "kernel32.dll", "LoadLibraryExW"),
+        BURNER_HOSTILE_IMPORT(GetModuleFileNameWFn, "kernel32.dll", "GetModuleFileNameW"),
     };
     return imports;
 }

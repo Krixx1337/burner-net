@@ -13,7 +13,7 @@
 // to standard, non-obfuscated behavior.
 
 #ifndef BURNER_OBF_LITERAL
-#define BURNER_OBF_LITERAL(str) HOSTILE_OBF(str).resolve()
+#define BURNER_OBF_LITERAL(str) ::burner::hostile_core::ObfuscatedString<sizeof(str), static_cast<std::uint8_t>((__LINE__ ^ __COUNTER__ ^ __TIME__[7]) & 0xFFu)>{str}.resolve()
 #endif
 
 #ifndef BURNERNET_ERROR_XOR

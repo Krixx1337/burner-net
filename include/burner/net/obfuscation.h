@@ -27,30 +27,26 @@
 
 #if defined(NDEBUG) && BURNERNET_OBFUSCATE_STRINGS && !BURNERNET_HAS_CUSTOM_OBFUSCATOR
 #if defined(_MSC_VER) || defined(__clang__) || defined(__GNUC__)
-#pragma message("BurnerNet release build uses the built-in HOSTILE_OBF fallback; define a custom obfuscator via BURNERNET_CUSTOM_OBFUSCATOR_HEADER or your project config header if you need a different scheme.")
+#pragma message("BurnerNet release build uses the built-in BURNER_OBF_LITERAL fallback; define a custom obfuscator via BURNERNET_CUSTOM_OBFUSCATOR_HEADER or your project config header if you need a different scheme.")
 #endif
 #endif
 
 namespace burner::net {
 
-#ifndef BURNERNET_CUSTOM_WIPE
-#define BURNERNET_CUSTOM_WIPE(ptr, size) ::hostile_core::secure_wipe(ptr, size)
-#endif
-
 inline void SecureWipe(std::string& value) {
-    BURNERNET_CUSTOM_WIPE(value.data(), value.size());
+    ::burner::hostile_core::secure_wipe(value.data(), value.size());
     value.clear();
 }
 
 template <typename T>
 inline void SecureWipe(std::vector<T>& value) {
-    BURNERNET_CUSTOM_WIPE(value.data(), value.size() * sizeof(T));
+    ::burner::hostile_core::secure_wipe(value.data(), value.size() * sizeof(T));
     value.clear();
 }
 
 template <typename T>
 inline void SecureWipe(std::span<T> value) {
-    BURNERNET_CUSTOM_WIPE(value.data(), value.size_bytes());
+    ::burner::hostile_core::secure_wipe(value.data(), value.size_bytes());
 }
 
 } // namespace burner::net

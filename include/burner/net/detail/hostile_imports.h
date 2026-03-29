@@ -12,7 +12,7 @@
 #include <windows.h>
 #endif
 
-namespace hostile_core {
+namespace burner::hostile_core {
 
 template <typename TFn>
 inline TFn resolve_import(std::string dll_name, std::string function_name) {
@@ -37,7 +37,7 @@ inline TFn resolve_import(std::string dll_name, std::string function_name) {
 #endif
 }
 
-} // namespace hostile_core
+} // namespace burner::hostile_core
 
-#define HOSTILE_IMPORT(FnType, dll_lit, func_lit) \
-    ::hostile_core::resolve_import<FnType>(HOSTILE_OBF(dll_lit).resolve(), HOSTILE_OBF(func_lit).resolve())
+#define BURNER_HOSTILE_IMPORT(FnType, dll_lit, func_lit) \
+    ::burner::hostile_core::resolve_import<FnType>(BURNER_OBF_LITERAL(dll_lit), BURNER_OBF_LITERAL(func_lit))

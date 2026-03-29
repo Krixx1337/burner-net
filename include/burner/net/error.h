@@ -62,7 +62,7 @@ inline constexpr bool IsSuccessCode(ErrorCode code) {
 
 inline std::string ErrorCodeToString(ErrorCode code) {
 #if defined(BURNERNET_HARDEN_ERRORS) && BURNERNET_HARDEN_ERRORS
-    return ::hostile_core::harden_error_code<ErrorCode, static_cast<std::uint32_t>(BURNERNET_ERROR_XOR)>(code);
+    return ::burner::hostile_core::harden_error_code<ErrorCode, static_cast<std::uint32_t>(BURNERNET_ERROR_XOR)>(code);
 #else
     switch (code) {
     case ErrorCode::None:

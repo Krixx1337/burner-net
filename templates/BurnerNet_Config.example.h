@@ -21,7 +21,7 @@ struct MySecurity {
 
 } // namespace burner_net_example
 
-// Optional string hook. Remove this macro to use BurnerNet's built-in HOSTILE_OBF fallback.
+// Optional string hook. Remove this macro to use BurnerNet's built-in BURNER_OBF_LITERAL fallback.
 #define BURNER_OBF_LITERAL(x) ::burner_net_example::MyXor(x)
 
 // Example hardened error mask for polymorphic numeric output.

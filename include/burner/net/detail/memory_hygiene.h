@@ -12,7 +12,7 @@
 #include <windows.h>
 #endif
 
-namespace hostile_core {
+namespace burner::hostile_core {
 
 inline void secure_wipe(void* ptr, std::size_t size) noexcept {
     if (ptr == nullptr || size == 0) {
@@ -45,4 +45,4 @@ inline void secure_wipe(std::span<T> value) noexcept {
     secure_wipe(value.data(), value.size_bytes());
 }
 
-} // namespace hostile_core
+} // namespace burner::hostile_core

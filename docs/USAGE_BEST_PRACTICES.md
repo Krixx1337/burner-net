@@ -279,7 +279,7 @@ Typical knobs to define in that private header:
 #define BURNERNET_ERROR_XOR 0x9A4B2C1Du
 ```
 
-If you omit `BURNER_OBF_LITERAL`, BurnerNet falls back to its built-in `HOSTILE_OBF(...).resolve()` path.
+If you omit `BURNER_OBF_LITERAL`, BurnerNet falls back to its built-in `BURNER_OBF_LITERAL(...).resolve()` path.
 
 ## 16. 32-bit and 64-bit Windows builds
 
