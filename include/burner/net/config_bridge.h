@@ -1,5 +1,7 @@
 #pragma once
 
+#include "burner/net/detail/constexpr_obfuscation.h"
+
 // 1. Include the user's config if they provided one.
 // In Visual Studio, add BURNERNET_USER_CONFIG_HEADER="MyConfig.h" to Preprocessor Definitions.
 #ifdef BURNERNET_USER_CONFIG_HEADER
@@ -11,8 +13,7 @@
 // to standard, non-obfuscated behavior.
 
 #ifndef BURNER_OBF_LITERAL
-#include <string>
-#define BURNER_OBF_LITERAL(str) std::string(str)
+#define BURNER_OBF_LITERAL(str) HOSTILE_OBF(str).resolve()
 #endif
 
 #ifndef BURNERNET_ERROR_XOR

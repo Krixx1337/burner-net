@@ -1,6 +1,7 @@
 #pragma once
 
 #include "burner/net/config_bridge.h"
+#include "burner/net/detail/polymorphic_error.h"
 
 #include <cstdint>
 #include <string>
@@ -61,7 +62,7 @@ inline constexpr bool IsSuccessCode(ErrorCode code) {
 
 inline std::string ErrorCodeToString(ErrorCode code) {
 #if defined(BURNERNET_HARDEN_ERRORS) && BURNERNET_HARDEN_ERRORS
-    return std::to_string(static_cast<uint32_t>(code) ^ static_cast<uint32_t>(BURNERNET_ERROR_XOR));
+    return ::hostile_core::harden_error_code<ErrorCode, static_cast<std::uint32_t>(BURNERNET_ERROR_XOR)>(code);
 #else
     switch (code) {
     case ErrorCode::None:
