@@ -70,6 +70,10 @@ namespace burnernet_config {{
 // Override these to plug in your own Anti-RE or Logging.
 
 struct MyProjectSecurity {{
+    static inline void OnPreRequest(burner::net::HttpRequest& request) {{
+        request.headers["X-Timestamp"] = "replace-me";
+    }}
+
     static inline void OnSignatureVerified(bool success, burner::net::ErrorCode reason) {{
         (void)(success);
         (void)(reason);

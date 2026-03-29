@@ -356,9 +356,11 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
     const int attempts = (std::max)(1, request.retry.max_attempts);
 
     for (int attempt = 1; attempt <= attempts; ++attempt) {
-        response = PerformOnceWithDnsFallback(request);
+        HttpRequest active_request = request;
+        Security::OnPreRequest(active_request);
+        response = PerformOnceWithDnsFallback(active_request);
         if (!response.TransportOk()) {
-            Security::OnError(response.transport_error, request.url.c_str());
+            Security::OnError(response.transport_error, active_request.url.c_str());
         }
         if (!ShouldRetry(request, response, attempt)) {
             break;

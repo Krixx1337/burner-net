@@ -9,6 +9,7 @@
 namespace burner::net {
 
 enum class ErrorCode : std::uint32_t;
+struct HttpRequest;
 
 } // namespace burner::net
 
@@ -37,6 +38,8 @@ enum class ErrorCode : std::uint32_t;
 namespace burner::net::detail {
 
 struct DefaultSecurity {
+    static inline void OnPreRequest(HttpRequest&) {}
+
     static inline void OnSignatureVerified(bool success, ErrorCode reason) {
         (void)(success);
         (void)(reason);

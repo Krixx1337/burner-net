@@ -18,6 +18,8 @@
 namespace burnernet_test_config {
 
 struct TestSecurityPolicy {
+    static inline void OnPreRequest(burner::net::HttpRequest&) {}
+
     static inline void OnSignatureVerified(bool success, burner::net::ErrorCode reason) {
         (void)(success);
         (void)(reason);
