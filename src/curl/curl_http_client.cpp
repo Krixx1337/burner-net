@@ -358,7 +358,7 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
     for (int attempt = 1; attempt <= attempts; ++attempt) {
         response = PerformOnceWithDnsFallback(request);
         if (!response.TransportOk()) {
-            BURNERNET_ON_ERROR(response.transport_error, request.url.c_str());
+            Security::OnError(response.transport_error, request.url.c_str());
         }
         if (!ShouldRetry(request, response, attempt)) {
             break;
@@ -742,7 +742,7 @@ void CurlHttpClient::ApplyCommonOptions(
     m_curl_api.easy_setopt(easy, CURLOPT_TIMEOUT, request.timeout_seconds);
     m_curl_api.easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, request.connect_timeout_seconds);
     if (user_agent_storage != nullptr) {
-        *user_agent_storage = BURNERNET_GET_USER_AGENT();
+        *user_agent_storage = Security::GetUserAgent();
     }
     if (user_agent_storage != nullptr && !user_agent_storage->empty()) {
         m_curl_api.easy_setopt(easy, CURLOPT_USERAGENT, user_agent_storage->c_str());

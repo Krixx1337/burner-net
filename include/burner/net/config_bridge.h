@@ -2,6 +2,16 @@
 
 #include "burner/net/detail/constexpr_obfuscation.h"
 
+#include <cstdint>
+#include <cstdlib>
+#include <string>
+
+namespace burner::net {
+
+enum class ErrorCode : std::uint32_t;
+
+} // namespace burner::net
+
 // 1. Include the user's config if they provided one.
 // In Visual Studio, add BURNERNET_USER_CONFIG_HEADER="MyConfig.h" to Preprocessor Definitions.
 #ifdef BURNERNET_USER_CONFIG_HEADER
@@ -20,31 +30,40 @@
 #define BURNERNET_ERROR_XOR 0
 #endif
 
-#ifndef BURNERNET_ON_TAMPER
-#include <cstdlib>
-#define BURNERNET_ON_TAMPER() std::abort()
-#endif
-
-#ifndef BURNERNET_ON_SIGNATURE_VERIFIED
-#define BURNERNET_ON_SIGNATURE_VERIFIED(success, reason) \
-    do {                                                 \
-        (void)(success);                                 \
-        (void)(reason);                                  \
-    } while (0)
-#endif
-
-#ifndef BURNERNET_GET_USER_AGENT
-#define BURNERNET_GET_USER_AGENT() ""
-#endif
-
-#ifndef BURNERNET_ON_ERROR
-#define BURNERNET_ON_ERROR(code, url) \
-    do {                              \
-        (void)(code);                 \
-        (void)(url);                  \
-    } while (0)
-#endif
-
 #ifndef BURNERNET_HARDEN_IMPORTS
 #define BURNERNET_HARDEN_IMPORTS 0
+#endif
+
+namespace burner::net::detail {
+
+struct DefaultSecurity {
+    static inline void OnSignatureVerified(bool success, ErrorCode reason) {
+        (void)(success);
+        (void)(reason);
+    }
+
+    static inline void OnTamper() {
+        std::abort();
+    }
+
+    static inline void OnError(ErrorCode code, const char* url) {
+        (void)(code);
+        (void)(url);
+    }
+
+    static inline std::string GetUserAgent() {
+        return "";
+    }
+};
+
+} // namespace burner::net::detail
+
+#ifndef BURNERNET_SECURITY_POLICY
+namespace burner::net {
+using Security = detail::DefaultSecurity;
+}
+#else
+namespace burner::net {
+using Security = BURNERNET_SECURITY_POLICY;
+}
 #endif

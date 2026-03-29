@@ -157,7 +157,7 @@ HmacSha256HeaderVerifier::HmacSha256HeaderVerifier(SignatureVerifierConfig confi
 
 bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& response, ErrorCode* reason) {
     auto notify_result = [&](bool ok, ErrorCode hook_reason) {
-        BURNERNET_ON_SIGNATURE_VERIFIED(ok, hook_reason);
+        Security::OnSignatureVerified(ok, hook_reason);
     };
 
     std::string secret;

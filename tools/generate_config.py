@@ -69,33 +69,31 @@ namespace burnernet_config {{
 // 2. Security Lifecycle Hooks (Weapon Mounts)
 // Override these to plug in your own Anti-RE or Logging.
 
+struct MyProjectSecurity {{
+    static inline void OnSignatureVerified(bool success, burner::net::ErrorCode reason) {{
+        (void)(success);
+        (void)(reason);
+    }}
+
+    static inline void OnTamper() {{
+        std::abort();
+    }}
+
+    static inline void OnError(burner::net::ErrorCode code, const char* url) {{
+        (void)(code);
+        (void)(url);
+    }}
+
+    static inline std::string GetUserAgent() {{
+        return "";
+    }}
+}};
+
+#define BURNERNET_SECURITY_POLICY ::burnernet_config::MyProjectSecurity
+
 // Optional import hardening. Enable this in production when you want dynamic
 // resolution for sensitive Windows APIs instead of static IAT entries.
 #define BURNERNET_HARDEN_IMPORTS 1
-
-// Called after signature verification. Use this to report tampered responses.
-#ifndef BURNERNET_ON_SIGNATURE_VERIFIED
-    #define BURNERNET_ON_SIGNATURE_VERIFIED(success, reason) \\
-        do {{                                                 \\
-            (void)(success);                                  \\
-            (void)(reason);                                   \\
-        }} while (0)
-#endif
-
-// Called when the library detects memory patching in sensitive logic.
-#ifndef BURNERNET_ON_TAMPER
-    #include <cstdlib>
-    #define BURNERNET_ON_TAMPER() std::abort()
-#endif
-
-// Called when a transport error occurs. Use this for silent telemetry.
-#ifndef BURNERNET_ON_ERROR
-    #define BURNERNET_ON_ERROR(code, url) \\
-        do {{                              \\
-            (void)(code);                  \\
-            (void)(url);                   \\
-        }} while (0)
-#endif
 
 // Project-specific seed reserved for your own hook logic.
 #define BURNERNET_SECURITY_SEED 0x{security_seed}u
@@ -106,13 +104,7 @@ namespace burnernet_config {{
     #define BURNER_OBF_LITERAL(str) std::string(str)
 #endif
 
-// 4. Stealth User-Agent Override
-// Return an empty string to keep ClientConfig::user_agent.
-#ifndef BURNERNET_GET_USER_AGENT
-    #define BURNERNET_GET_USER_AGENT() std::string("")
-#endif
-
-// 5. Dependency Hiding
+// 4. Dependency Hiding
 // Rename your DLLs on disk and update this list to hide your networking stack.
 inline const std::vector<std::wstring> GetTrustedDependencies() {{
     return {{

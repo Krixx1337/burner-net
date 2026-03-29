@@ -19,23 +19,35 @@ struct MySecurity {
     static void OnError(unsigned int, const char*) {}
 };
 
+struct MyProjectSecurity {
+    static inline void OnSignatureVerified(bool success, burner::net::ErrorCode reason) {
+        (void)(success);
+        (void)(reason);
+    }
+
+    static inline void OnTamper() {
+        MySecurity::FlagUser();
+    }
+
+    static inline void OnError(burner::net::ErrorCode code, const char* url) {
+        ::burner_net_example::MySecurity::OnError(static_cast<unsigned int>(code), url);
+    }
+
+    static inline std::string GetUserAgent() {
+        return "";
+    }
+};
+
 } // namespace burner_net_example
 
 // Optional string hook. Remove this macro to use BurnerNet's built-in BURNER_OBF_LITERAL fallback.
 #define BURNER_OBF_LITERAL(x) ::burner_net_example::MyXor(x)
+
+// Optional static security policy. Remove this macro to use BurnerNet's built-in defaults.
+#define BURNERNET_SECURITY_POLICY ::burner_net_example::MyProjectSecurity
 
 // Example hardened error mask for polymorphic numeric output.
 #define BURNERNET_ERROR_XOR 0x12345678u
 
 // Optional: dynamically resolve sensitive Windows APIs in production builds.
 #define BURNERNET_HARDEN_IMPORTS 0
-
-// Example tamper hook. Replace with your own telemetry or enforcement path.
-#define BURNERNET_ON_TAMPER() ::burner_net_example::MySecurity::FlagUser()
-
-// Example stealth UA override. Return "" to keep ClientConfig::user_agent.
-#define BURNERNET_GET_USER_AGENT() std::string("")
-
-// Example transport telemetry hook.
-#define BURNERNET_ON_ERROR(code, url) \
-    ::burner_net_example::MySecurity::OnError(static_cast<unsigned int>(code), url)

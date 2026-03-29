@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
@@ -14,32 +15,25 @@
 #define BURNER_OBF_LITERAL(str) std::string(str)
 #endif
 
-#ifndef BURNERNET_ON_SIGNATURE_VERIFIED
-#define BURNERNET_ON_SIGNATURE_VERIFIED(success, reason) \
-    do {                                                 \
-        (void)(success);                                 \
-        (void)(reason);                                  \
-    } while (0)
-#endif
-
-#ifndef BURNERNET_ON_TAMPER
-#include <cstdlib>
-#define BURNERNET_ON_TAMPER() std::abort()
-#endif
-
-#ifndef BURNERNET_GET_USER_AGENT
-#define BURNERNET_GET_USER_AGENT() std::string("")
-#endif
-
-#ifndef BURNERNET_ON_ERROR
-#define BURNERNET_ON_ERROR(code, url) \
-    do {                              \
-        (void)(code);                 \
-        (void)(url);                  \
-    } while (0)
-#endif
-
 namespace burnernet_test_config {
+
+struct TestSecurityPolicy {
+    static inline void OnSignatureVerified(bool success, burner::net::ErrorCode reason) {
+        (void)(success);
+        (void)(reason);
+    }
+
+    static inline void OnTamper() {}
+
+    static inline void OnError(burner::net::ErrorCode code, const char* url) {
+        (void)(code);
+        (void)(url);
+    }
+
+    static inline std::string GetUserAgent() {
+        return "";
+    }
+};
 
 inline const std::vector<std::wstring> GetTrustedDependencies() {
     return {
@@ -49,3 +43,5 @@ inline const std::vector<std::wstring> GetTrustedDependencies() {
 }
 
 } // namespace burnernet_test_config
+
+#define BURNERNET_SECURITY_POLICY ::burnernet_test_config::TestSecurityPolicy
