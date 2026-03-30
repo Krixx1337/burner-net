@@ -31,6 +31,18 @@
 
 namespace burner::net {
 
+namespace detail {
+
+bool WouldExceedBodyLimit(std::size_t current_size, std::size_t chunk_size, std::size_t max_body_bytes) noexcept {
+    if (max_body_bytes == 0) {
+        return false;
+    }
+
+    return current_size > max_body_bytes || chunk_size > (max_body_bytes - current_size);
+}
+
+} // namespace detail
+
 namespace {
 
 struct BodyWriteContext {
@@ -612,11 +624,9 @@ size_t CurlHttpClient::WriteBodyCallback(void* contents, size_t size, size_t nme
         return total;
     }
 
-    if (ctx->max_body_bytes > 0) {
-        if (ctx->body->size() > ctx->max_body_bytes || total > (ctx->max_body_bytes - ctx->body->size())) {
-            ctx->limit_exceeded = true;
-            return 0;
-        }
+    if (detail::WouldExceedBodyLimit(ctx->body->size(), total, ctx->max_body_bytes)) {
+        ctx->limit_exceeded = true;
+        return 0;
     }
 
     ctx->body->append(static_cast<const char*>(contents), total);

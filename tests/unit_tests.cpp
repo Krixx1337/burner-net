@@ -8,6 +8,7 @@
 #include "burner/net/http.h"
 #include "burner/net/obfuscation.h"
 #include "burner/net/signature_verifier.h"
+#include "curl/curl_http_client.h"
 #include "internal/header_validation.h"
 
 TEST_CASE("header validation rejects CRLF injection") {
@@ -75,6 +76,21 @@ TEST_CASE("header map insert_or_assign preserves unique keys") {
     REQUIRE(it != headers.end());
     CHECK(it->first == "Authorization");
     CHECK(it->second == "Bearer two");
+}
+
+TEST_CASE("header map treats header names as case-insensitive") {
+    burner::net::HeaderMap headers;
+    headers.insert_or_assign("Content-Type", "application/json");
+    headers.insert_or_assign("content-type", "text/plain");
+
+    CHECK(headers.size() == 1);
+    CHECK(headers["CONTENT-TYPE"] == "text/plain");
+}
+
+TEST_CASE("body limit helper rejects chunks that exceed max body bytes") {
+    CHECK_FALSE(burner::net::detail::WouldExceedBodyLimit(0, 10, 10));
+    CHECK(burner::net::detail::WouldExceedBodyLimit(10, 1, 10));
+    CHECK(burner::net::detail::WouldExceedBodyLimit(5, 6, 10));
 }
 
 TEST_CASE("builder returns result object") {

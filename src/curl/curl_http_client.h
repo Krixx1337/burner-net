@@ -7,6 +7,12 @@
 
 namespace burner::net {
 
+namespace detail {
+
+bool WouldExceedBodyLimit(std::size_t current_size, std::size_t chunk_size, std::size_t max_body_bytes) noexcept;
+
+} // namespace detail
+
 using CurlEasyInitFn = CURL* (*)();
 using CurlEasyCleanupFn = void (*)(CURL*);
 using CurlEasyResetFn = void (*)(CURL*);

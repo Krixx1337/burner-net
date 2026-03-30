@@ -1,11 +1,13 @@
 #pragma once
 
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <utility>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include "export.h"
@@ -14,6 +16,22 @@
 #include "policy.h"
 
 namespace burner::net {
+
+inline bool HeaderNameEquals(std::string_view lhs, std::string_view rhs) noexcept {
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+        const auto lhs_ch = static_cast<unsigned char>(lhs[i]);
+        const auto rhs_ch = static_cast<unsigned char>(rhs[i]);
+        if (std::tolower(lhs_ch) != std::tolower(rhs_ch)) {
+            return false;
+        }
+    }
+
+    return true;
+}
 
 enum class HttpMethod {
     Get,
@@ -81,7 +99,7 @@ public:
 private:
     std::string* find_value(const std::string& key) noexcept {
         for (auto& [existing_key, existing_value] : m_items) {
-            if (existing_key == key) {
+            if (HeaderNameEquals(existing_key, key)) {
                 return &existing_value;
             }
         }
