@@ -8,11 +8,16 @@ namespace detail {
 
 class BuilderSecurityPolicy final : public DefaultSecurityPolicy {
 public:
+    std::shared_ptr<ISecurityPolicy> wrapped_policy;
     BeforeRequestCallback before_request;
     PreFlightCallback pre_flight;
     HeartbeatCallback heartbeat;
     ResponseReceivedCallback response_received;
     PostVerificationCallback post_verification;
+
+    bool OnVerifyEnvironment() const override {
+        return !wrapped_policy || wrapped_policy->OnVerifyEnvironment();
+    }
 
     bool OnPreRequest(HttpRequest& request) const override {
         if (pre_flight && !pre_flight(request)) {
@@ -21,21 +26,62 @@ public:
         if (before_request && !before_request(request)) {
             return false;
         }
-        return true;
+        return !wrapped_policy || wrapped_policy->OnPreRequest(request);
+    }
+
+    bool OnVerifyTransport(const char* url, const char* remote_ip) const override {
+        return !wrapped_policy || wrapped_policy->OnVerifyTransport(url, remote_ip);
     }
 
     bool OnHeartbeat() const override {
-        return !heartbeat || heartbeat();
+        if (heartbeat && !heartbeat()) {
+            return false;
+        }
+        return !wrapped_policy || wrapped_policy->OnHeartbeat();
     }
 
     bool OnResponseReceived(const HttpRequest& request, const HttpResponse& response) const override {
-        return !response_received || response_received(request, response);
+        if (response_received && !response_received(request, response)) {
+            return false;
+        }
+        return !wrapped_policy || wrapped_policy->OnResponseReceived(request, response);
     }
 
     void OnSignatureVerified(bool success, ErrorCode reason) const override {
         if (post_verification) {
             post_verification(success, reason);
         }
+        if (wrapped_policy) {
+            wrapped_policy->OnSignatureVerified(success, reason);
+        }
+    }
+
+    void OnTamper() const override {
+        if (wrapped_policy) {
+            wrapped_policy->OnTamper();
+            return;
+        }
+        DefaultSecurityPolicy::OnTamper();
+    }
+
+    void OnError(ErrorCode code, const char* url) const override {
+        if (wrapped_policy) {
+            wrapped_policy->OnError(code, url);
+        }
+    }
+
+    std::string GetUserAgent() const override {
+        if (wrapped_policy) {
+            return wrapped_policy->GetUserAgent();
+        }
+        return DefaultSecurityPolicy::GetUserAgent();
+    }
+
+    void Wrap(std::shared_ptr<ISecurityPolicy> policy) {
+        if (policy.get() == this) {
+            return;
+        }
+        wrapped_policy = std::move(policy);
     }
 };
 
@@ -50,8 +96,17 @@ BuilderSecurityPolicy& EnsureBuilderSecurityPolicy(ClientConfig& config) {
     }
 
     auto policy = std::make_shared<BuilderSecurityPolicy>();
+    policy->Wrap(std::move(config.security_policy));
     config.security_policy = policy;
     return *policy;
+}
+
+std::shared_ptr<BuilderSecurityPolicy> GetBuilderSecurityPolicy(ClientConfig& config) {
+    if (auto* existing = dynamic_cast<BuilderSecurityPolicy*>(config.security_policy.get())) {
+        (void)existing;
+        return std::static_pointer_cast<BuilderSecurityPolicy>(config.security_policy);
+    }
+    return {};
 }
 
 } // namespace detail
@@ -202,6 +257,10 @@ ClientBuilder& ClientBuilder::WithPostVerification(PostVerificationCallback call
 }
 
 ClientBuilder& ClientBuilder::WithSecurityPolicy(std::shared_ptr<ISecurityPolicy> policy) {
+    if (auto builder_policy = detail::GetBuilderSecurityPolicy(m_config)) {
+        builder_policy->Wrap(std::move(policy));
+        return *this;
+    }
     m_config.security_policy = std::move(policy);
     return *this;
 }

@@ -35,6 +35,8 @@ public:
     }
 };
 
+class AllowAllPolicy final : public burner::net::ISecurityPolicy {};
+
 } // namespace
 
 TEST_CASE("header validation rejects CRLF injection") {
@@ -150,6 +152,44 @@ TEST_CASE("SecureWipe clears active vector bytes before emptying the buffer") {
 TEST_CASE("client aborts immediately when security policy rejects preflight") {
     auto build_result = burner::net::ClientBuilder()
         .WithSecurityPolicy(std::make_shared<RejectPreFlightPolicy>())
+        .Build();
+
+    REQUIRE(build_result.Ok());
+
+    const auto response = build_result.client->Get("https://example.com").Send();
+
+    CHECK_FALSE(response.TransportOk());
+    CHECK(response.transport_error == burner::net::ErrorCode::PreFlightAbort);
+    CHECK(response.transport_code != 0);
+}
+
+TEST_CASE("builder preflight callback layers on top of an existing custom security policy") {
+    bool callback_invoked = false;
+
+    auto build_result = burner::net::ClientBuilder()
+        .WithSecurityPolicy(std::make_shared<RejectPreFlightPolicy>())
+        .WithPreFlight([&](const burner::net::HttpRequest&) {
+            callback_invoked = true;
+            return true;
+        })
+        .Build();
+
+    REQUIRE(build_result.Ok());
+
+    const auto response = build_result.client->Get("https://example.com").Send();
+
+    CHECK(callback_invoked);
+    CHECK_FALSE(response.TransportOk());
+    CHECK(response.transport_error == burner::net::ErrorCode::PreFlightAbort);
+    CHECK(response.transport_code != 0);
+}
+
+TEST_CASE("custom security policy layers on top of an existing builder preflight callback") {
+    auto build_result = burner::net::ClientBuilder()
+        .WithPreFlight([](const burner::net::HttpRequest&) {
+            return false;
+        })
+        .WithSecurityPolicy(std::make_shared<AllowAllPolicy>())
         .Build();
 
     REQUIRE(build_result.Ok());
