@@ -5,6 +5,7 @@ int RunBasicUsage();
 int RunZeroTrustPipeline();
 int RunCustomPolicy();
 int RunBootstrapRuntime();
+int RunMtlsUsage();
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -14,7 +15,8 @@ int main(int argc, char* argv[]) {
                   << "  basic      - Simple request with secure DoH defaults\n"
                   << "  hardened   - Audit check, pinned key, and HMAC verification flow\n"
                   << "  policy     - Custom ISecurityPolicy implementation\n"
-                  << "  bootstrap  - Load curl/OpenSSL runtime DLLs from a custom folder\n";
+                  << "  bootstrap  - Load curl/OpenSSL runtime DLLs from a custom folder\n"
+                  << "  mtls       - Short-lived mTLS credential provider pattern\n";
         return 0;
     }
 
@@ -30,6 +32,9 @@ int main(int argc, char* argv[]) {
     }
     if (example == "bootstrap") {
         return RunBootstrapRuntime();
+    }
+    if (example == "mtls") {
+        return RunMtlsUsage();
     }
 
     std::cerr << "Unknown example: " << example << '\n';

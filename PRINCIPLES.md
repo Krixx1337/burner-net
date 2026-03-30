@@ -21,7 +21,6 @@ If a secret exists in memory for more than a few milliseconds, it is a target fo
 
 *   **Provider Pattern:** Secrets (Tokens, Keys, Certs) are never stored in long-lived configuration structs. They are fetched via callbacks nanoseconds before they are needed.
 *   **Aggressive Wiping:** Every temporary buffer used for sensitive data is scrubbed using `SecureZeroMemory` immediately after use.
-*   **Streaming-First:** Response bodies can be processed in chunks rather than accumulated into large, static strings, minimizing the footprint of sensitive payloads.
 
 ## 3. Stringless Core (No Plaintext Breadcrumbs)
 Plaintext strings are the "breadcrumbs" of reverse engineering. Strings like `"Signature Mismatch"` or `"Invalid Token"` allow an attacker to find your security logic in seconds using static analysis.

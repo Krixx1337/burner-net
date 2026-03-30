@@ -7,6 +7,10 @@
 int RunBootstrapRuntime() {
     using namespace burner::net;
 
+#ifndef _WIN32
+    std::cout << "Bootstrap runtime example is Windows-only.\n";
+    return 0;
+#else
     BootstrapConfig boot{};
     boot.link_mode = LinkMode::Dynamic;
     boot.dependency_directory = std::filesystem::current_path() / "redist";
@@ -27,4 +31,5 @@ int RunBootstrapRuntime() {
               << ErrorCodeToString(init.code) << '\n';
     std::cout << "Replace the example path and hash allowlist with your packaged runtime set.\n";
     return 0;
+#endif
 }

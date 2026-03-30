@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <chrono>
 #include <string>
 
 #include "burner/net/builder.h"
@@ -64,4 +65,71 @@ TEST_CASE("security auditor rejects compromised or inconclusive transport") {
 
     REQUIRE(client.client != nullptr);
     CHECK(burner::net::SecurityAuditor::CheckTransportIntegrity(client.client->Raw()));
+}
+
+TEST_CASE("max_body_bytes aborts oversized responses mid-stream") {
+    auto client = burner::net::ClientBuilder()
+        .WithUseNativeCa(true)
+        .Build();
+
+    REQUIRE(client.client != nullptr);
+
+    burner::net::HttpRequest request{};
+    request.method = burner::net::HttpMethod::Get;
+    request.url = "https://example.com";
+    request.max_body_bytes = 10;
+    request.timeout_seconds = 15;
+    request.connect_timeout_seconds = 10;
+    request.dns_fallback.enabled = false;
+
+    const auto response = client.client->Send(request);
+
+    CHECK_FALSE(response.TransportOk());
+    CHECK(response.transport_error == burner::net::ErrorCode::BodyTooLarge);
+    CHECK(response.body.empty());
+    CHECK(response.streamed_body_bytes > request.max_body_bytes);
+}
+
+TEST_CASE("timeouts fail closed for slow or unroutable endpoints") {
+    auto client = burner::net::ClientBuilder()
+        .WithUseNativeCa(true)
+        .Build();
+
+    REQUIRE(client.client != nullptr);
+
+    SUBCASE("connect timeout against unroutable address") {
+        burner::net::HttpRequest request{};
+        request.method = burner::net::HttpMethod::Get;
+        request.url = "https://10.255.255.1";
+        request.timeout_seconds = 3;
+        request.connect_timeout_seconds = 1;
+        request.dns_fallback.enabled = false;
+
+        const auto started = std::chrono::steady_clock::now();
+        const auto response = client.client->Send(request);
+        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - started);
+
+        CHECK_FALSE(response.TransportOk());
+        CHECK(response.transport_code != 0);
+        CHECK(elapsed.count() < 5);
+    }
+
+    SUBCASE("overall timeout against slow endpoint") {
+        burner::net::HttpRequest request{};
+        request.method = burner::net::HttpMethod::Get;
+        request.url = "https://httpstat.us/200?sleep=5000";
+        request.timeout_seconds = 1;
+        request.connect_timeout_seconds = 3;
+        request.dns_fallback.enabled = false;
+
+        const auto started = std::chrono::steady_clock::now();
+        const auto response = client.client->Send(request);
+        const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+            std::chrono::steady_clock::now() - started);
+
+        CHECK_FALSE(response.TransportOk());
+        CHECK(response.transport_code != 0);
+        CHECK(elapsed.count() < 5);
+    }
 }

@@ -1,12 +1,15 @@
 #include <doctest/doctest.h>
 
+#include <cstdint>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
 #include "burner/net/http.h"
 #include "burner/net/obfuscation.h"
+#include "burner/net/policy.h"
 #include "burner/net/signature_verifier.h"
 #include "curl/curl_http_client.h"
 #include "internal/import_pointer_trust.h"
@@ -15,6 +18,24 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+
+namespace {
+
+class RejectPreFlightPolicy final : public burner::net::ISecurityPolicy {
+public:
+    bool OnPreRequest(burner::net::HttpRequest&) const override {
+        return false;
+    }
+};
+
+class RejectHeartbeatPolicy final : public burner::net::ISecurityPolicy {
+public:
+    bool OnHeartbeat() const override {
+        return false;
+    }
+};
+
+} // namespace
 
 TEST_CASE("header validation rejects CRLF injection") {
     CHECK_FALSE(burner::net::internal::IsValidHeaderName("Content-Type\r\nSet-Cookie: pwned=1"));
@@ -90,6 +111,111 @@ TEST_CASE("body limit helper rejects chunks that exceed max body bytes") {
     CHECK_FALSE(burner::net::detail::WouldExceedBodyLimit(0, 10, 10));
     CHECK(burner::net::detail::WouldExceedBodyLimit(10, 1, 10));
     CHECK(burner::net::detail::WouldExceedBodyLimit(5, 6, 10));
+}
+
+TEST_CASE("SecureWipe clears active string bytes before emptying the buffer") {
+    std::string secret = "sensitive-token";
+    secret.reserve(64);
+    char* raw = secret.data();
+    const std::size_t bytes = secret.size();
+
+    REQUIRE(raw != nullptr);
+    REQUIRE(bytes > 0);
+
+    burner::net::SecureWipe(secret);
+
+    CHECK(secret.empty());
+    for (std::size_t i = 0; i < bytes; ++i) {
+        CHECK(raw[i] == '\0');
+    }
+}
+
+TEST_CASE("SecureWipe clears active vector bytes before emptying the buffer") {
+    std::vector<std::uint8_t> secret = {0xde, 0xad, 0xbe, 0xef};
+    secret.reserve(32);
+    std::uint8_t* raw = secret.data();
+    const std::size_t bytes = secret.size();
+
+    REQUIRE(raw != nullptr);
+    REQUIRE(bytes > 0);
+
+    burner::net::SecureWipe(secret);
+
+    CHECK(secret.empty());
+    for (std::size_t i = 0; i < bytes; ++i) {
+        CHECK(raw[i] == 0);
+    }
+}
+
+TEST_CASE("client aborts immediately when security policy rejects preflight") {
+    auto build_result = burner::net::ClientBuilder()
+        .WithSecurityPolicy(std::make_shared<RejectPreFlightPolicy>())
+        .Build();
+
+    REQUIRE(build_result.Ok());
+
+    const auto response = build_result.client->Get("https://example.com").Send();
+
+    CHECK_FALSE(response.TransportOk());
+    CHECK(response.transport_error == burner::net::ErrorCode::PreFlightAbort);
+    CHECK(response.transport_code != 0);
+}
+
+TEST_CASE("response-received callback can fail closed with HeartbeatAbort") {
+    auto build_result = burner::net::ClientBuilder()
+        .WithResponseReceived([](const burner::net::HttpRequest&, const burner::net::HttpResponse&) {
+            return false;
+        })
+        .Build();
+
+    REQUIRE(build_result.Ok());
+
+    burner::net::HttpRequest request{};
+    request.method = burner::net::HttpMethod::Get;
+    request.url = "https://example.com";
+    request.dns_fallback.enabled = false;
+
+    const auto response = build_result.client->Send(request);
+
+    CHECK_FALSE(response.TransportOk());
+    CHECK(response.transport_error == burner::net::ErrorCode::HeartbeatAbort);
+    CHECK(response.transport_code != 0);
+}
+
+TEST_CASE("transport retry budget is honored through the public client API") {
+    burner::net::HttpRequest request{};
+    request.method = burner::net::HttpMethod::Get;
+    request.url = "https://example.com";
+    request.headers["Bad\r\nHeader"] = "boom";
+    request.retry.max_attempts = 3;
+    request.retry.backoff_ms = 0;
+    request.retry.retry_on_transport_error = true;
+    request.retry.retry_on_5xx = false;
+
+    int preflight_calls = 0;
+    burner::net::ClientBuilder builder;
+    builder.WithPreFlight([&](const burner::net::HttpRequest&) {
+        ++preflight_calls;
+        return true;
+    });
+    auto build_result = builder.Build();
+
+    REQUIRE(build_result.Ok());
+
+    const auto response = build_result.client->Send(request);
+
+    CHECK_FALSE(response.TransportOk());
+    CHECK(response.transport_error == burner::net::ErrorCode::InvalidHeader);
+    CHECK(preflight_calls == 3);
+
+    request.retry.retry_on_transport_error = false;
+    preflight_calls = 0;
+
+    const auto single_attempt_response = build_result.client->Send(request);
+
+    CHECK_FALSE(single_attempt_response.TransportOk());
+    CHECK(single_attempt_response.transport_error == burner::net::ErrorCode::InvalidHeader);
+    CHECK(preflight_calls == 1);
 }
 
 TEST_CASE("import pointer trust accepts allowed system module and rejects wrong one") {

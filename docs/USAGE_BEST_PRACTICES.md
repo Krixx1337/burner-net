@@ -152,6 +152,9 @@ void BuildSecureClient() {
 }
 ```
 
+Gold-standard reference:
+- See [../examples/05_mtls_usage.cpp](../examples/05_mtls_usage.cpp) for the provider-driven mTLS pattern that keeps client certs and keys out of long-lived config state.
+
 ## 6. Example: public client (no mTLS/signature)
 ```cpp
 burner::net::ClientConfig cfg{};

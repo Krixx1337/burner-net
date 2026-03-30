@@ -4,6 +4,7 @@ add_executable(BurnerNetExamples
     02_zero_trust_pipeline.cpp
     03_custom_security_policy.cpp
     04_bootstrap_runtime.cpp
+    05_mtls_usage.cpp
 )
 
 target_link_libraries(BurnerNetExamples PRIVATE BurnerNet::BurnerNet)

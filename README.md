@@ -72,6 +72,7 @@ See also:
 - [examples/02_zero_trust_pipeline.cpp](examples/02_zero_trust_pipeline.cpp)
 - [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp)
 - [examples/04_bootstrap_runtime.cpp](examples/04_bootstrap_runtime.cpp)
+- [examples/05_mtls_usage.cpp](examples/05_mtls_usage.cpp)
 - [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
 - [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
 - [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)
