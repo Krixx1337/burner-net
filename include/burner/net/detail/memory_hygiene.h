@@ -1,7 +1,5 @@
 #pragma once
 
-#include "burner/net/export.h"
-
 #include <cstddef>
 #include <span>
 #include <string>
