@@ -2,10 +2,45 @@
 
 This document covers practical integration of BurnerNet into a Visual Studio `.vcxproj` project.
 
-It focuses on two Windows/MSVC workflows:
+It focuses on three Windows/MSVC workflows:
 
 1. standard source-drop with normal curl import-library linking
 2. advanced bootstrap-based runtime loading with `InitializeNetworkingRuntime(...)`
+3. source-drop with curl linked statically
+
+## What Is Static vs Dynamic
+
+There are two separate things to think about:
+
+1. `burner-net` itself
+2. curl/OpenSSL/zlib underneath it
+
+These can vary independently.
+
+### `burner-net` itself
+
+If you add BurnerNet's `.cpp` files directly to your `.vcxproj`, then BurnerNet is compiled into your own executable or host DLL.
+
+That means:
+
+- BurnerNet is integrated **statically** into your app
+- there is no separate `BurnerNet.dll`
+- there is no separate prebuilt `BurnerNet.lib` consumer boundary at runtime
+
+This document is primarily about that source-drop model.
+
+### curl/OpenSSL/zlib
+
+The curl stack can be integrated in different ways:
+
+- **dynamic via normal linking:** link `libcurl.lib` / `libcurl-d.lib`, then ship the required runtime DLLs
+- **dynamic via bootstrap:** set `BURNERNET_HARDEN_IMPORTS=1` and preload the runtime DLLs with `InitializeNetworkingRuntime(...)`
+- **static:** link curl and its dependency stack as static libraries, so no curl/OpenSSL/zlib runtime DLLs are needed
+
+So the important distinction is:
+
+- BurnerNet source-drop usually means **BurnerNet static**
+- curl can still be **dynamic** or **static**
 
 ## Scope
 
@@ -31,8 +66,10 @@ Use this when:
 In this mode:
 
 - BurnerNet source files are compiled directly inside your project
+- BurnerNet itself is **static** inside your app
 - `BURNERNET_HARDEN_IMPORTS=0`
 - you link curl normally, typically through `libcurl.lib` or `libcurl-d.lib`
+- curl is **dynamic**
 - runtime DLLs usually sit next to the executable or are staged there by your dependency manager
 
 ### Mode 2: Bootstrap runtime loading
@@ -46,11 +83,31 @@ Use this when:
 In this mode:
 
 - BurnerNet source files are still compiled directly inside your project
+- BurnerNet itself is **static** inside your app
 - `BURNERNET_HARDEN_IMPORTS=1`
 - BurnerNet resolves curl exports dynamically after you call `InitializeNetworkingRuntime(...)`
+- curl is still **dynamic**
 - runtime DLLs live in your chosen redist folder instead of the normal executable-adjacent layout
 
 This mode is more configurable, but it is also the more advanced integration path.
+
+### Mode 3: Source-drop with curl linked statically
+
+Use this when:
+
+- you want BurnerNet compiled directly into your own `.exe` or `.dll`
+- you want to avoid shipping curl/OpenSSL/zlib runtime DLLs
+- you already have a true static curl dependency build available
+
+In this mode:
+
+- BurnerNet source files are compiled directly inside your project
+- BurnerNet itself is **static** inside your app
+- `BURNERNET_HARDEN_IMPORTS=0`
+- curl is **static**
+- no curl/OpenSSL/zlib runtime DLLs are required at deployment time
+
+This is usually the simplest deployment model once a static curl build is available, but it depends on having the correct static curl and dependency libraries prepared up front.
 
 ## Prerequisites
 
@@ -234,6 +291,44 @@ Example:
 - `burner-redist/libcrypto-3-x64.dll`
 - `burner-redist/zlibd1.dll`
 
+## Source-Drop With Curl Linked Statically
+
+Use this mode when you have a static curl build and want BurnerNet source-drop integration without curl/OpenSSL/zlib runtime DLL deployment.
+
+### Required project settings
+
+1. Add the BurnerNet `.cpp` files to the project.
+2. Add the include directories listed above.
+3. Add the static curl and dependency library directories to **Additional Library Directories**.
+4. Link the static curl library and the static dependency libraries provided by your curl build.
+
+### Preprocessor definitions
+
+Required:
+
+- `BURNER_ENABLE_CURL=1`
+- `BURNERNET_HARDEN_IMPORTS=0`
+- `CURL_STATICLIB`
+
+### Runtime DLL layout
+
+None for curl/OpenSSL/zlib.
+
+In this mode, you do not ship:
+
+- `libcurl*.dll`
+- `libssl*.dll`
+- `libcrypto*.dll`
+- `zlib*.dll`
+
+because the curl stack is linked statically.
+
+### Notes
+
+- `InitializeNetworkingRuntime(...)` is not used in this mode.
+- This mode depends entirely on how your static curl package was built and what additional static libraries it requires.
+- If your static curl package is incomplete or mismatched, the linker will fail in the consumer project.
+
 ## Debug vs Release Notes
 
 Be consistent about the runtime set:
@@ -291,6 +386,15 @@ Check:
 
 - curl/OpenSSL/zlib DLLs are next to the executable, or otherwise resolvable
 - you linked the correct import library for the active configuration
+
+### Linker failure in static-curl mode
+
+Check:
+
+- `CURL_STATICLIB` is defined
+- you linked the correct static curl library for the active configuration
+- the required static dependency libraries from your curl build are also linked
+- your static curl build matches the executable architecture and runtime model
 
 ## Practical Recommendation
 
