@@ -146,16 +146,11 @@ HmacSha256HeaderVerifier::HmacSha256HeaderVerifier(SignatureVerifierConfig confi
     : m_config(std::move(config)) {}
 
 bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& response, ErrorCode* reason) {
-    auto notify_result = [&](bool ok, ErrorCode hook_reason) {
-        Security::OnSignatureVerified(ok, hook_reason);
-    };
-
     std::string secret;
     if (m_config.secret_provider) {
         if (!m_config.secret_provider(secret)) {
             SecureWipe(secret);
             if (reason) *reason = ErrorCode::SigProvider;
-            notify_result(false, ErrorCode::SigProvider);
             return false;
         }
     } else {
@@ -165,7 +160,6 @@ bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& re
     if (secret.empty()) {
         SecureWipe(secret);
         if (reason) *reason = ErrorCode::SigEmpty;
-        notify_result(false, ErrorCode::SigEmpty);
         return false;
     }
 
@@ -173,7 +167,6 @@ bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& re
     if (received.empty()) {
         SecureWipe(secret);
         if (reason) *reason = ErrorCode::SigHeaderMissing;
-        notify_result(false, ErrorCode::SigHeaderMissing);
         return false;
     }
 
@@ -182,7 +175,6 @@ bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& re
         SecureWipe(secret);
         SecureWipe(received);
         if (reason) *reason = ErrorCode::SigCompute;
-        notify_result(false, ErrorCode::SigCompute);
         return false;
     }
     SecureWipe(secret);
@@ -197,7 +189,6 @@ bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& re
         *reason = ErrorCode::SigMismatch;
     }
     SecureWipe(received);
-    notify_result(ok, ok ? ErrorCode::None : ErrorCode::SigMismatch);
     return ok;
 }
 

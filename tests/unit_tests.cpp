@@ -66,7 +66,7 @@ TEST_CASE("error codes map to expected output based on hardening") {
 #if BURNERNET_HARDEN_ERRORS
     CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::DisabledBackend) ==
           std::to_string(static_cast<uint32_t>(burner::net::ErrorCode::DisabledBackend) ^
-                         static_cast<uint32_t>(BURNERNET_ERROR_XOR)));
+                         burner::net::detail::ErrorXorKey()));
 #else
     CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::DisabledBackend) == "DisabledBackend");
 #endif
@@ -76,7 +76,7 @@ TEST_CASE("pre-flight abort error code string is stable") {
 #if BURNERNET_HARDEN_ERRORS
     CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::PreFlightAbort) ==
           std::to_string(static_cast<uint32_t>(burner::net::ErrorCode::PreFlightAbort) ^
-                         static_cast<uint32_t>(BURNERNET_ERROR_XOR)));
+                         burner::net::detail::ErrorXorKey()));
 #else
     CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::PreFlightAbort) == "PreFlightAbort");
 #endif
@@ -86,7 +86,7 @@ TEST_CASE("environment compromised error code string is stable") {
 #if BURNERNET_HARDEN_ERRORS
     CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::EnvironmentCompromised) ==
           std::to_string(static_cast<uint32_t>(burner::net::ErrorCode::EnvironmentCompromised) ^
-                         static_cast<uint32_t>(BURNERNET_ERROR_XOR)));
+                         burner::net::detail::ErrorXorKey()));
 #else
     CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::EnvironmentCompromised) ==
           "EnvironmentCompromised");
@@ -97,7 +97,7 @@ TEST_CASE("transport verification failed error code string is stable") {
 #if BURNERNET_HARDEN_ERRORS
     CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::TransportVerificationFailed) ==
           std::to_string(static_cast<uint32_t>(burner::net::ErrorCode::TransportVerificationFailed) ^
-                         static_cast<uint32_t>(BURNERNET_ERROR_XOR)));
+                         burner::net::detail::ErrorXorKey()));
 #else
     CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::TransportVerificationFailed) ==
           "TransportVerificationFailed");

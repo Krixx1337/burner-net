@@ -1,28 +1,32 @@
 #include <iostream>
+#include <memory>
+#include <string_view>
 
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
+#include "burner/net/policy.h"
 
-// This example assumes BurnerNet itself was compiled with a custom policy header.
-//
-// CMake:
-//   target_include_directories(BurnerNet PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/templates)
-//   target_compile_definitions(BurnerNet PRIVATE
-//       BURNERNET_SECURITY_POLICY_HEADER=\"BurnerNet_SecurityPolicy.example.h\")
-//
-// Visual Studio:
-//   1. Add the templates/ directory to Additional Include Directories for the
-//      BurnerNet project.
-//   2. Add this preprocessor definition to the BurnerNet project:
-//      BURNERNET_SECURITY_POLICY_HEADER="BurnerNet_SecurityPolicy.example.h"
-//
-// Defining the macro only on the app project is not enough. BurnerNet itself
-// has to be compiled with the policy header visible.
+namespace {
+
+class ExampleSecurityPolicy final : public burner::net::ISecurityPolicy {
+public:
+    bool OnVerifyTransport(const char* url, const char* remote_ip) const override {
+        (void)url;
+        return remote_ip != nullptr && std::string_view(remote_ip) != "127.0.0.1";
+    }
+
+    std::string GetUserAgent() const override {
+        return "BurnerNetExampleCustomPolicy/1.0";
+    }
+};
+
+} // namespace
 
 int main() {
     burner::net::ErrorCode build_error = burner::net::ErrorCode::None;
     auto client = burner::net::ClientBuilder()
         .WithUseNativeCa(true)
+        .WithSecurityPolicy(std::make_shared<ExampleSecurityPolicy>())
         .Build(&build_error);
 
     if (client == nullptr) {
@@ -31,8 +35,8 @@ int main() {
         return 1;
     }
 
-    std::cout << "Custom security policy example initialized.\n";
-    std::cout << "If your policy rejects a remote IP in OnVerifyTransport,\n";
+    std::cout << "Runtime security policy example initialized.\n";
+    std::cout << "If ExampleSecurityPolicy rejects a remote IP in OnVerifyTransport,\n";
     std::cout << "BurnerNet will fail the request with TransportVerificationFailed.\n";
     return 0;
 }

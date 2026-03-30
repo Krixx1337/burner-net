@@ -288,6 +288,7 @@ std::string ToCurlMethod(HttpMethod method) {
 
 CurlHttpClient::CurlHttpClient(const ClientConfig& config)
     : m_config(config) {
+    m_config.security_policy = ResolveSecurityPolicy(std::move(m_config.security_policy));
     if (m_config.curl_api.has_value()) {
         m_curl_api = *m_config.curl_api;
         if (!IsCurlApiComplete(m_curl_api)) {
@@ -361,10 +362,10 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
 
     for (int attempt = 1; attempt <= attempts; ++attempt) {
         HttpRequest active_request = request;
-        Security::OnPreRequest(active_request);
+        m_config.security_policy->OnPreRequest(active_request);
         response = PerformOnceWithDnsFallback(active_request);
         if (!response.TransportOk()) {
-            Security::OnError(response.transport_error, active_request.url.c_str());
+            m_config.security_policy->OnError(response.transport_error, active_request.url.c_str());
         }
         if (!ShouldRetry(request, response, attempt)) {
             break;
@@ -397,6 +398,7 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
         }
         ErrorCode reason = ErrorCode::None;
         response.verified = m_config.response_verifier->Verify(request, response, &reason);
+        m_config.security_policy->OnSignatureVerified(response.verified, reason);
         if (!response.verified) {
             response.verification_error = (reason == ErrorCode::None) ? ErrorCode::VerifyGeneric : reason;
         }
@@ -548,7 +550,7 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
         char* primary_ip = nullptr;
         if (m_curl_api.easy_getinfo(easy, CURLINFO_PRIMARY_IP, &primary_ip) == CURLE_OK &&
             primary_ip != nullptr &&
-            !detail::CallVerifyTransport<Security>(request.url.c_str(), primary_ip)) {
+            !m_config.security_policy->OnVerifyTransport(request.url.c_str(), primary_ip)) {
             response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
             response.transport_error = ErrorCode::TransportVerificationFailed;
             WipeResponse(response);
@@ -761,7 +763,7 @@ void CurlHttpClient::ApplyCommonOptions(
     m_curl_api.easy_setopt(easy, CURLOPT_TIMEOUT, request.timeout_seconds);
     m_curl_api.easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, request.connect_timeout_seconds);
     if (user_agent_storage != nullptr) {
-        *user_agent_storage = Security::GetUserAgent();
+        *user_agent_storage = m_config.security_policy->GetUserAgent();
     }
     if (user_agent_storage != nullptr && !user_agent_storage->empty()) {
         m_curl_api.easy_setopt(easy, CURLOPT_USERAGENT, user_agent_storage->c_str());

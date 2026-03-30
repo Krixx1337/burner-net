@@ -1,6 +1,6 @@
 #pragma once
 
-#include "burner/net/config_bridge.h"
+#include "burner/net/detail/constexpr_obfuscation.h"
 #include "burner/net/detail/memory_hygiene.h"
 
 #include <cstddef>
@@ -14,6 +14,10 @@
 #else
 #define BURNERNET_OBFUSCATE_STRINGS 1
 #endif
+#endif
+
+#ifndef BURNERNET_HARDEN_IMPORTS
+#define BURNERNET_HARDEN_IMPORTS 0
 #endif
 
 namespace burner::net {

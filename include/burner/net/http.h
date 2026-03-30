@@ -12,6 +12,7 @@
 #include "export.h"
 #include "error.h"
 #include "obfuscation.h"
+#include "policy.h"
 
 #include <curl/curl.h>
 
@@ -48,8 +49,8 @@ struct DnsStrategy {
 struct DnsFallbackPolicy {
     bool enabled = true;
     std::vector<DnsStrategy> strategies = {
-        {DnsMode::Doh, "Cloudflare DoH (Strict)", "https://1.1.1.1/dns-query"},
-        {DnsMode::Doh, "Cloudflare DoH (Strict Secondary)", "https://1.0.0.1/dns-query"}
+        {DnsMode::Doh, BURNER_OBF_LITERAL("Cloudflare DoH (Strict)"), BURNER_OBF_LITERAL("https://1.1.1.1/dns-query")},
+        {DnsMode::Doh, BURNER_OBF_LITERAL("Cloudflare DoH (Strict Secondary)"), BURNER_OBF_LITERAL("https://1.0.0.1/dns-query")}
     };
 };
 
@@ -153,6 +154,7 @@ struct ClientConfig {
     ResponseReceivedCallback on_response_received;
     PostVerificationCallback on_post_verification;
     std::shared_ptr<IResponseVerifier> response_verifier;
+    std::shared_ptr<ISecurityPolicy> security_policy;
     std::vector<std::string> pinned_public_keys;
     bool verify_curl_api_pointers = false;
     std::vector<std::wstring> trusted_curl_module_basenames = {

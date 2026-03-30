@@ -1,5 +1,6 @@
 #include "burner/net/builder.h"
 #include "burner/net/obfuscation.h"
+#include "burner/net/detail/constexpr_obfuscation.h"
 
 namespace burner::net {
 
@@ -157,6 +158,11 @@ ClientBuilder& ClientBuilder::WithPostVerification(PostVerificationCallback call
     return *this;
 }
 
+ClientBuilder& ClientBuilder::WithSecurityPolicy(std::shared_ptr<ISecurityPolicy> policy) {
+    m_config.security_policy = std::move(policy);
+    return *this;
+}
+
 ClientBuilder& ClientBuilder::WithApiVerification(bool enabled) {
 #if BURNER_ENABLE_CURL
     m_config.verify_curl_api_pointers = enabled;
@@ -232,6 +238,7 @@ ClientBuilder& ClientBuilder::WithPinnedKey(std::string pin) {
 }
 
 std::unique_ptr<FluentClient> ClientBuilder::Build(ErrorCode* error) {
+    m_config.security_policy = ResolveSecurityPolicy(std::move(m_config.security_policy));
     ClientCreateResult created = CreateHttpClient(m_config);
     if (!created.Ok()) {
         if (error != nullptr) {

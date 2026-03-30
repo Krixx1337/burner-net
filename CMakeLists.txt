@@ -150,63 +150,14 @@ if(BURNERNET_BUILD_EXAMPLES)
     burner_apply_example_warnings(BurnerNetExampleTrafficLanes)
     burner_configure_runtime(BurnerNetExampleTrafficLanes)
 
-    add_library(BurnerNetCustomPolicyExample STATIC ${BURNERNET_SOURCES})
-    target_include_directories(BurnerNetCustomPolicyExample
-        PUBLIC
-            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-        PRIVATE
-            ${CMAKE_CURRENT_SOURCE_DIR}/src
-            ${CMAKE_CURRENT_SOURCE_DIR}/templates
-    )
-    target_compile_features(BurnerNetCustomPolicyExample PUBLIC cxx_std_20)
-    set_target_properties(BurnerNetCustomPolicyExample PROPERTIES
-        CXX_EXTENSIONS OFF
-    )
-    target_compile_definitions(BurnerNetCustomPolicyExample
-        PUBLIC
-            BURNER_ENABLE_CURL=1
-            BURNERNET_OBFUSCATE_STRINGS=$<IF:$<BOOL:${BURNERNET_OBFUSCATE_STRINGS}>,1,0>
-            BURNERNET_HARDEN_IMPORTS=$<IF:$<BOOL:${BURNERNET_HARDEN_IMPORTS}>,1,0>
-        PRIVATE
-            BURNER_BUILDING_LIBRARY
-            BURNERNET_SECURITY_POLICY_HEADER=\"BurnerNet_SecurityPolicy.example.h\"
-    )
-    if(BUILD_SHARED_LIBS)
-        target_compile_definitions(BurnerNetCustomPolicyExample PUBLIC BURNER_SHARED)
-    endif()
-    if(DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET MATCHES "static")
-        target_compile_definitions(BurnerNetCustomPolicyExample PUBLIC CURL_STATICLIB)
-    endif()
-    burner_apply_example_warnings(BurnerNetCustomPolicyExample)
-    if(BURNERNET_HARDEN_IMPORTS)
-        get_target_property(BURNERNET_CUSTOM_POLICY_CURL_INCLUDE_DIRS CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)
-        if(BURNERNET_CUSTOM_POLICY_CURL_INCLUDE_DIRS)
-            target_include_directories(BurnerNetCustomPolicyExample PUBLIC ${BURNERNET_CUSTOM_POLICY_CURL_INCLUDE_DIRS})
-        endif()
-        target_compile_definitions(BurnerNetCustomPolicyExample PRIVATE CURL_STATICLIB)
-    else()
-        target_link_libraries(BurnerNetCustomPolicyExample PUBLIC CURL::libcurl)
-    endif()
-    if(WIN32)
-        target_link_libraries(BurnerNetCustomPolicyExample
-            PUBLIC
-                ${BURNERNET_BCRYPT_LIBRARY}
-                crypt32
-                ws2_32
-        )
-    endif()
-
     add_executable(BurnerNetExampleCustomPolicy examples/04_custom_security_policy.cpp)
-    target_link_libraries(BurnerNetExampleCustomPolicy PRIVATE BurnerNetCustomPolicyExample)
+    target_link_libraries(BurnerNetExampleCustomPolicy PRIVATE BurnerNet)
     burner_apply_example_warnings(BurnerNetExampleCustomPolicy)
     burner_configure_runtime(BurnerNetExampleCustomPolicy)
 endif()
 
 if(BURNERNET_BUILD_TESTING OR BURNERNET_BUILD_INTEGRATION_TESTS)
     enable_testing()
-    target_include_directories(BurnerNet PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-    target_compile_definitions(BurnerNet PRIVATE BURNERNET_SECURITY_POLICY_HEADER=\"BurnerNet_TestConfig.h\")
 endif()
 
 if(BURNERNET_BUILD_TESTING)

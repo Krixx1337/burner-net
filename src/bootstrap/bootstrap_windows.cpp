@@ -170,6 +170,7 @@ bool PathsEqualCaseInsensitive(const std::filesystem::path& a, const std::filesy
 } // namespace
 
 BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
+    const std::shared_ptr<ISecurityPolicy> security_policy = ResolveSecurityPolicy(config.security_policy);
     if (config.link_mode == LinkMode::Static || !config.preload_dependencies) {
         return {true, ErrorCode::BootstrapSkip};
     }
@@ -178,7 +179,7 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         return {false, ErrorCode::BootstrapConfig};
     }
 
-    if (!detail::CallVerifyEnvironment<Security>()) {
+    if (!security_policy->OnVerifyEnvironment()) {
         return {false, ErrorCode::EnvironmentCompromised};
     }
 

@@ -271,59 +271,29 @@ auto client = burner::net::ClientBuilder()
 ## 15. Binary Uniqueness (Polymorphism)
 BurnerNet now derives its hardened error XOR key from compile-time state automatically, so each build gets a distinct numeric error surface without a generator step. Literal obfuscation is also built in by default.
 
-If you want to mount project-specific security hooks, define your policy type and make it visible while BurnerNet compiles:
+If you want project-specific security hooks without rebuilding BurnerNet, derive from `burner::net::ISecurityPolicy` and pass the instance into the builder:
 
 ```cpp
-#define BURNERNET_SECURITY_POLICY MyProject::SecurityPolicy
-```
-
-For source-drop integrations, `BURNERNET_SECURITY_POLICY_HEADER` can force-include the header that declares that type.
-
-Typical `OnVerifyTransport` policy:
-
-```cpp
-// AppSecurity.h
-#pragma once
-
-#include <string>
-#include <string_view>
-
-namespace my_app {
-
-struct SecurityPolicy {
-    static inline bool OnVerifyTransport(const char* url, const char* remote_ip) {
+class SecurityPolicy final : public burner::net::ISecurityPolicy {
+public:
+    bool OnVerifyTransport(const char* url, const char* remote_ip) const override {
         (void)url;
         return remote_ip != nullptr && std::string_view(remote_ip) != "127.0.0.1";
     }
 
-    static inline void OnPreRequest(burner::net::HttpRequest&) {}
-    static inline void OnSignatureVerified(bool, burner::net::ErrorCode) {}
-    static inline void OnTamper() {}
-    static inline void OnError(burner::net::ErrorCode, const char*) {}
-    static inline std::string GetUserAgent() { return ""; }
+    std::string GetUserAgent() const override {
+        return "MyApp/1.0";
+    }
 };
 
-} // namespace my_app
-
-#define BURNERNET_SECURITY_POLICY ::my_app::SecurityPolicy
+auto client = burner::net::ClientBuilder()
+    .WithSecurityPolicy(std::make_shared<SecurityPolicy>())
+    .Build();
 ```
-
-Do not include `burner/net/http.h` or `burner/net/error.h` from that policy header. BurnerNet injects the policy header before those headers are fully defined, and the hook signatures already rely on forward declarations provided by BurnerNet.
-
-Build integration example:
-
-```cmake
-target_include_directories(BurnerNet PRIVATE ${CMAKE_SOURCE_DIR}/app)
-target_compile_definitions(BurnerNet PRIVATE BURNERNET_SECURITY_POLICY_HEADER=\"AppSecurity.h\")
-```
-
-Visual Studio integration:
-- Add the folder containing `AppSecurity.h` to Additional Include Directories for the BurnerNet project.
-- Add `BURNERNET_SECURITY_POLICY_HEADER="AppSecurity.h"` to the BurnerNet project's Preprocessor Definitions.
 
 Important:
-- The hook policy is compiled into BurnerNet itself.
-- Defining `BURNERNET_SECURITY_POLICY` only in your application target does nothing if BurnerNet is already prebuilt.
+- If you do not provide a policy, BurnerNet automatically uses `DefaultSecurityPolicy`.
+- The policy lives in application code and works with prebuilt BurnerNet libraries.
 - `OnVerifyTransport` runs after curl reports the remote IP and should return `false` to fail closed with `ErrorCode::TransportVerificationFailed`.
 
 ## 16. 32-bit and 64-bit Windows builds

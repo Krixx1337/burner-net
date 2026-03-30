@@ -64,6 +64,7 @@ public:
     ClientBuilder& WithHeartbeat(HeartbeatCallback heartbeat);
     ClientBuilder& WithResponseReceived(ResponseReceivedCallback callback);
     ClientBuilder& WithPostVerification(PostVerificationCallback callback);
+    ClientBuilder& WithSecurityPolicy(std::shared_ptr<ISecurityPolicy> policy);
     ClientBuilder& WithApiVerification(bool enabled);
     ClientBuilder& WithTrustedCurlModules(std::vector<std::wstring> modules);
     ClientBuilder& WithCasualDefaults();
