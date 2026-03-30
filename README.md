@@ -21,7 +21,7 @@ It is built for:
 
 - **Zero-trust transport:** direct HTTPS-focused behavior with strict redirect and header validation
 - **Encrypted DNS:** DNS-over-HTTPS support to reduce dependence on hostile local resolution
-- **Polymorphic binaries:** generated configs randomize `ErrorCode` values and `BURNERNET_ERROR_XOR`
+- **Polymorphic builds:** hardened error strings pick up a compile-time XOR key automatically
 - **Built-in literal obfuscation:** internal security-anchor strings are masked at compile time out of the box
 - **Ephemeral secrets:** request material can be fetched via providers and wiped after use
 - **Integrity hooks:** synchronous pre-flight, request, verification, and heartbeat hooks
@@ -30,24 +30,11 @@ It is built for:
 
 ## Provisioning
 
-BurnerNet is designed to be provisioned per project so each build can carry its own hardened constants.
+BurnerNet now builds without a generator step. Add the `.cpp` files to your project or link the library, include the headers, and compile.
 
-1. Generate a config:
+Release builds harden error strings automatically when `NDEBUG` is defined. Debug builds keep symbolic error names by default.
 
-```bash
-python tools/generate_config.py
-```
-
-This writes `BurnerNet_Config.h` into the current working directory with fresh `BURNERNET_ERROR_XOR`, `BURNERNET_SECURITY_SEED`, and randomized `ErrorCode` values.
-
-BurnerNet now ships with a built-in `BURNER_OBF_LITERAL(...).resolve()` fallback, so a generated config is no longer required just to get basic string hiding. Keep a private config when you want project-specific enum values, hardened error masks, or custom hooks.
-
-2. Integrate it:
-
-- CMake: `-DBURNERNET_USER_CONFIG_HEADER="BurnerNet_Config.h"`
-- Visual Studio: add `BURNERNET_USER_CONFIG_HEADER="BurnerNet_Config.h"` to Preprocessor Definitions
-
-The config template lives at [templates/BurnerNet_Config.example.h](templates/BurnerNet_Config.example.h).
+For custom security hooks, define `BURNERNET_SECURITY_POLICY` to your policy type and make that type visible to BurnerNet during compilation. Source-drop builds can do that by adding a shared header and forcing it in with `BURNERNET_SECURITY_POLICY_HEADER`.
 
 ## Minimal Example
 
@@ -58,8 +45,6 @@ using namespace burner::net;
 
 ErrorCode build_error = ErrorCode::None;
 auto client = ClientBuilder()
-    .WithApiVerification(true)
-    .WithUseNativeCa(true)
     .Build(&build_error);
 ```
 
@@ -82,7 +67,7 @@ See also:
 BurnerNet requires C++20, CMake 3.21+, and libcurl.
 
 - **Static linking:** recommended for the smallest attack surface. Link against `BurnerNet::BurnerNet` and use a static vcpkg triplet such as `x64-windows-static-md`.
-- **Dynamic linking:** use `InitializeNetworkingRuntime(...)` to preload your networking stack from a custom directory and optionally enforce hash verification.
+- **Dynamic linking:** use `InitializeNetworkingRuntime(...)` only when you intentionally load the runtime DLLs yourself from a custom directory.
 
 ## Security Reality
 

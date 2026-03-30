@@ -1,5 +1,6 @@
 #pragma once
 
+#include "burner/net/export.h"
 #include "burner/net/detail/constexpr_obfuscation.h"
 
 #include <cstdint>
@@ -13,29 +14,33 @@ struct HttpRequest;
 
 } // namespace burner::net
 
-// 1. Include the user's config if they provided one.
-// In Visual Studio, add BURNERNET_USER_CONFIG_HEADER="MyConfig.h" to Preprocessor Definitions.
-#ifdef BURNERNET_USER_CONFIG_HEADER
-#include BURNERNET_USER_CONFIG_HEADER
-#endif
-
-// 2. Provide safe defaults for every hook.
-// If the developer did not define these in their config, BurnerNet falls back
-// to standard, non-obfuscated behavior.
-
-#ifndef BURNER_OBF_LITERAL
-#define BURNER_OBF_LITERAL(str) ::burner::hostile_core::ObfuscatedString<sizeof(str), static_cast<std::uint8_t>((__LINE__ ^ __COUNTER__ ^ __TIME__[7]) & 0xFFu)>{str}.resolve()
+// Optional advanced hook for source-drop integrations that want a custom policy type.
+// Zero-config builds do not need this.
+#ifdef BURNERNET_SECURITY_POLICY_HEADER
+#include BURNERNET_SECURITY_POLICY_HEADER
 #endif
 
 #ifndef BURNERNET_ERROR_XOR
-#define BURNERNET_ERROR_XOR 0
+#define BURNERNET_ERROR_XOR (::burner::net::detail::ErrorXorKey())
 #endif
 
 #ifndef BURNERNET_HARDEN_IMPORTS
 #define BURNERNET_HARDEN_IMPORTS 0
 #endif
 
+#ifndef BURNERNET_HARDEN_ERRORS
+#if defined(BURNER_HARDEN_ERRORS)
+#define BURNERNET_HARDEN_ERRORS BURNER_HARDEN_ERRORS
+#elif defined(NDEBUG) && !defined(_DEBUG)
+#define BURNERNET_HARDEN_ERRORS 1
+#else
+#define BURNERNET_HARDEN_ERRORS 0
+#endif
+#endif
+
 namespace burner::net::detail {
+
+BURNER_API std::uint32_t ErrorXorKey() noexcept;
 
 struct DefaultSecurity {
     static inline bool OnVerifyEnvironment() {

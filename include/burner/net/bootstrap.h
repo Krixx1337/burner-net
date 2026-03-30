@@ -30,9 +30,13 @@ struct BootstrapConfig {
     bool preload_dependencies = true;
     std::filesystem::path dependency_directory;
     DependencyIntegrityPolicy integrity_policy;
-    // The application must provide dependency DLL names explicitly when using dynamic loading.
-    // This keeps the library non-opinionated and makes DLL renaming possible.
-    std::vector<std::wstring> dependency_dlls;
+    std::vector<std::wstring> dependency_dlls = {
+#if defined(_WIN32) && defined(_DEBUG)
+        L"libcurl-d.dll",
+#elif defined(_WIN32)
+        L"libcurl.dll",
+#endif
+    };
 };
 
 struct BootstrapResult {

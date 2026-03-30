@@ -2,7 +2,6 @@
 
 #include "curl_http_client.h"
 #include "burner/net/obfuscation.h"
-#include "../error_strings.h"
 #include "../internal/header_validation.h"
 #include "../internal/import_pointer_trust.h"
 
@@ -36,7 +35,9 @@ template <typename TFn>
 TFn ResolveCurlExport(std::string export_name) {
     std::string dll_names[] = {
         BURNER_OBF_LITERAL("libcurl.dll"),
-        BURNER_OBF_LITERAL("libcurl-d.dll")
+        BURNER_OBF_LITERAL("libcurl-d.dll"),
+        BURNER_OBF_LITERAL("libcurl-x64.dll"),
+        BURNER_OBF_LITERAL("libcurl-x86.dll")
     };
 
     for (std::string& dll_name : dll_names) {
@@ -554,7 +555,8 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
         }
     }
 
-    response.dns_strategy_used = m_active_dns_strategy.has_value() ? m_active_dns_strategy->name : kDnsSystemTag;
+    response.dns_strategy_used =
+        m_active_dns_strategy.has_value() ? m_active_dns_strategy->name : BURNER_OBF_LITERAL("System DNS");
     response.streamed_body_bytes = body_ctx.streamed_body_bytes;
 
     m_curl_api.easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &response.status_code);

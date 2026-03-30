@@ -28,7 +28,7 @@ Plaintext strings are the "breadcrumbs" of reverse engineering. Strings like `"S
 
 *   **Opaque Error Codes:** The library emits no plaintext error strings in hardened mode. It operates exclusively on a strictly typed `enum class ErrorCode`.
 *   **Magic-Numberless Core:** In an open-source library, unique hex constants become perfect signatures for static analysis. BurnerNet avoids public magic numbers entirely by compiling error codes down to small sequential integers that blend into ordinary control flow.
-*   **Jump-Table Destruction:** In hardened builds (`BURNERNET_HARDEN_ERRORS=1`), stringification switches are compiled out and replaced with generic integer output, preventing recognizable jump tables from being emitted into the binary.
+*   **Jump-Table Destruction:** Release builds harden `ErrorCode` stringification automatically, replacing recognizable switch-based strings with numeric output.
 *   **Protocol Stealth:** Essential internal strings (like HTTP methods and headers) are stack-obfuscated and wiped after use to ensure a `strings` dump reveals nothing.
 
 ## 4. Bring Your Own Weapons (Custom Integrity Hooks)

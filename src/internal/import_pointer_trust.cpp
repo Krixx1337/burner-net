@@ -3,26 +3,13 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <cwchar>
+#include <filesystem>
 #endif
 
 namespace burner::net::internal {
 
 #ifdef _WIN32
 namespace {
-
-const wchar_t* BasenameFromPath(const wchar_t* path) {
-    if (path == nullptr || *path == L'\0') {
-        return nullptr;
-    }
-
-    const wchar_t* basename = path;
-    for (const wchar_t* it = path; *it != L'\0'; ++it) {
-        if (*it == L'\\' || *it == L'/') {
-            basename = it + 1;
-        }
-    }
-    return (*basename != L'\0') ? basename : nullptr;
-}
 
 bool IsExecutableProtection(DWORD protect) {
     constexpr DWORD kIgnoredBits = PAGE_GUARD | PAGE_NOCACHE | PAGE_WRITECOMBINE;
@@ -63,13 +50,13 @@ bool IsFunctionPointerInAllowedModules(
         return false;
     }
 
-    const wchar_t* basename = BasenameFromPath(module_path);
-    if (basename == nullptr) {
+    const std::wstring basename = std::filesystem::path(module_path).filename().wstring();
+    if (basename.empty()) {
         return false;
     }
 
     for (const std::wstring& allowed : allowed_module_basenames) {
-        if (!allowed.empty() && _wcsicmp(basename, allowed.c_str()) == 0) {
+        if (!allowed.empty() && _wcsicmp(basename.c_str(), allowed.c_str()) == 0) {
             return true;
         }
     }

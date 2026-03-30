@@ -1,6 +1,5 @@
 #include "burner/net/bootstrap.h"
 #include "burner/net/detail/hostile_imports.h"
-#include "../error_strings.h"
 
 #ifdef _WIN32
 #include <windows.h>

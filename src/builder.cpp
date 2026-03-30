@@ -3,6 +3,15 @@
 
 namespace burner::net {
 
+namespace detail {
+
+std::uint32_t ErrorXorKey() noexcept {
+    static constinit const std::uint32_t key = ::burner::hostile_core::build_error_xor_key();
+    return key;
+}
+
+} // namespace detail
+
 RequestBuilder::RequestBuilder(FluentClient& client, HttpMethod method, std::string url)
     : m_client(&client) {
     m_request.method = method;
@@ -170,7 +179,7 @@ ClientBuilder& ClientBuilder::WithCasualDefaults() {
 
     m_default_dns_fallback.enabled = true;
     m_default_dns_fallback.strategies.clear();
-    m_default_dns_fallback.strategies.push_back({DnsMode::System, "System DNS", {}});
+    m_default_dns_fallback.strategies.push_back({DnsMode::System, BURNER_OBF_LITERAL("System DNS"), {}});
     m_custom_dns_fallback = true;
     return *this;
 }
@@ -189,7 +198,8 @@ ClientBuilder& ClientBuilder::AllowSystemDns(bool fallback_allowed) {
     }
 
     if (!has_system) {
-        m_default_dns_fallback.strategies.push_back({DnsMode::System, "System DNS Insecure", {}});
+        m_default_dns_fallback.strategies.push_back(
+            {DnsMode::System, BURNER_OBF_LITERAL("System DNS Insecure"), {}});
     }
     m_default_dns_fallback.enabled = true;
     return *this;

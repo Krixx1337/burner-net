@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <string_view>
 
@@ -33,6 +34,23 @@ inline constexpr std::uint64_t fnv_prime = 0x100000001b3ull;
 
 [[nodiscard]] constexpr std::uint64_t hash_uint64(std::uint64_t value) noexcept {
     return split_mix64(value);
+}
+
+[[nodiscard]] consteval std::uint64_t hash_build_fragment(std::string_view fragment) noexcept {
+    return hash_string(fragment);
+}
+
+[[nodiscard]] consteval std::uint64_t build_seed() noexcept {
+    std::uint64_t seed = hash_build_fragment(__DATE__);
+    seed ^= split_mix64(hash_build_fragment(__TIME__));
+    seed ^= split_mix64(hash_build_fragment(__FILE__));
+    return mix64(seed);
+}
+
+[[nodiscard]] consteval std::uint32_t build_error_xor_key() noexcept {
+    constexpr std::uint32_t max_value = (std::numeric_limits<std::uint32_t>::max)();
+    const std::uint32_t folded = static_cast<std::uint32_t>(build_seed() & max_value);
+    return folded == 0u ? 0xA5A5A5A5u : folded;
 }
 
 template <std::uint64_t Secret, std::uint8_t Mask>

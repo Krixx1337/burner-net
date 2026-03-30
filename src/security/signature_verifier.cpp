@@ -1,6 +1,5 @@
 #include "burner/net/signature_verifier.h"
 #include "burner/net/obfuscation.h"
-#include "../error_strings.h"
 
 #include <algorithm>
 #include <array>
@@ -14,15 +13,6 @@
 namespace burner::net {
 
 namespace {
-
-void SecureClear(std::string& value) {
-    if (value.empty()) {
-        return;
-    }
-
-    SecureZeroMemory(value.data(), value.size());
-    value.clear();
-}
 
 std::string ToLowerCopy(std::string s) {
     std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
@@ -163,7 +153,7 @@ bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& re
     std::string secret;
     if (m_config.secret_provider) {
         if (!m_config.secret_provider(secret)) {
-            SecureClear(secret);
+            SecureWipe(secret);
             if (reason) *reason = ErrorCode::SigProvider;
             notify_result(false, ErrorCode::SigProvider);
             return false;
@@ -173,7 +163,7 @@ bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& re
     }
 
     if (secret.empty()) {
-        SecureClear(secret);
+        SecureWipe(secret);
         if (reason) *reason = ErrorCode::SigEmpty;
         notify_result(false, ErrorCode::SigEmpty);
         return false;
@@ -181,7 +171,7 @@ bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& re
 
     std::string received = Trim(GetHeaderCaseInsensitive(response.headers, m_config.signature_header));
     if (received.empty()) {
-        SecureClear(secret);
+        SecureWipe(secret);
         if (reason) *reason = ErrorCode::SigHeaderMissing;
         notify_result(false, ErrorCode::SigHeaderMissing);
         return false;
@@ -189,24 +179,24 @@ bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& re
 
     std::string computed;
     if (!ComputeHmacSha256Hex(response.body, secret, &computed)) {
-        SecureClear(secret);
-        SecureClear(received);
+        SecureWipe(secret);
+        SecureWipe(received);
         if (reason) *reason = ErrorCode::SigCompute;
         notify_result(false, ErrorCode::SigCompute);
         return false;
     }
-    SecureClear(secret);
+    SecureWipe(secret);
 
     std::string lhs = ToLowerCopy(received);
     std::string rhs = ToLowerCopy(computed);
     const bool ok = ConstantTimeEqual(lhs, rhs);
-    SecureClear(lhs);
-    SecureClear(rhs);
-    SecureClear(computed);
+    SecureWipe(lhs);
+    SecureWipe(rhs);
+    SecureWipe(computed);
     if (!ok && reason) {
         *reason = ErrorCode::SigMismatch;
     }
-    SecureClear(received);
+    SecureWipe(received);
     notify_result(ok, ok ? ErrorCode::None : ErrorCode::SigMismatch);
     return ok;
 }

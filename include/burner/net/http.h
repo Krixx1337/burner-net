@@ -11,6 +11,7 @@
 
 #include "export.h"
 #include "error.h"
+#include "obfuscation.h"
 
 #include <curl/curl.h>
 
@@ -40,7 +41,7 @@ enum class DnsMode {
 
 struct DnsStrategy {
     DnsMode mode = DnsMode::System;
-    std::string name = "System DNS";
+    std::string name = BURNER_OBF_LITERAL("System DNS");
     std::string doh_url;
 };
 
@@ -156,7 +157,9 @@ struct ClientConfig {
     bool verify_curl_api_pointers = false;
     std::vector<std::wstring> trusted_curl_module_basenames = {
         L"libcurl.dll",
-        L"libcurl-d.dll"
+        L"libcurl-d.dll",
+        L"libcurl-x64.dll",
+        L"libcurl-x86.dll"
     };
     std::optional<CurlApi> curl_api;
 };

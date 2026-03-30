@@ -5,59 +5,11 @@ project(BurnerNet VERSION 0.1.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/burner/net/version.h.in
-    ${CMAKE_CURRENT_BINARY_DIR}/generated/include/burner/net/version.h
-    @ONLY
-)
-
 option(BURNERNET_BUILD_TESTING "Build BurnerNet offline/unit tests" ${PROJECT_IS_TOP_LEVEL})
 option(BURNERNET_BUILD_INTEGRATION_TESTS "Build BurnerNet live network integration tests" ${PROJECT_IS_TOP_LEVEL})
 option(BURNERNET_BUILD_EXAMPLES "Build BurnerNet examples" ${PROJECT_IS_TOP_LEVEL})
 option(BURNERNET_OBFUSCATE_STRINGS "Obfuscate BurnerNet security-anchor string literals" ON)
-option(BURNERNET_HARDEN_ERRORS "Emit numeric error codes instead of symbolic strings" OFF)
 option(BURNERNET_HARDEN_IMPORTS "Resolve libcurl dynamically instead of linking it into the import table" OFF)
-
-if(BURNERNET_OBFUSCATE_STRINGS)
-    set(BURNERNET_OBFUSCATE_STRINGS_VALUE 1)
-else()
-    set(BURNERNET_OBFUSCATE_STRINGS_VALUE 0)
-endif()
-
-set(BURNERNET_CUSTOM_OBFUSCATOR_HEADER "" CACHE STRING "Optional custom obfuscator header token, for example my_obfuscator.h or <my/obfuscator.hpp>")
-set(BURNERNET_CUSTOM_OBFUSCATOR_INCLUDE_DIR "" CACHE PATH "Optional include directory for the custom obfuscator header during build-tree usage")
-set(BURNERNET_USER_CONFIG_HEADER "" CACHE STRING "Path to the project-specific BurnerNet config header")
-set(BURNERNET_USER_CONFIG_INCLUDE_DIR "" CACHE PATH "Optional include directory for the project-specific BurnerNet config header during build-tree usage")
-
-if((BURNERNET_BUILD_TESTING OR BURNERNET_BUILD_INTEGRATION_TESTS) AND NOT BURNERNET_USER_CONFIG_HEADER)
-    set(BURNERNET_USER_CONFIG_HEADER "BurnerNet_TestConfig.h")
-    set(BURNERNET_USER_CONFIG_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/tests")
-endif()
-
-if(BURNERNET_CUSTOM_OBFUSCATOR_HEADER)
-    set(BURNERNET_HAS_CUSTOM_OBFUSCATOR 1)
-    if(BURNERNET_CUSTOM_OBFUSCATOR_HEADER MATCHES "^[<\"].*[>\"]$")
-        set(BURNERNET_CUSTOM_OBFUSCATOR_HEADER_LITERAL "${BURNERNET_CUSTOM_OBFUSCATOR_HEADER}")
-    else()
-        set(BURNERNET_CUSTOM_OBFUSCATOR_HEADER_LITERAL "\"${BURNERNET_CUSTOM_OBFUSCATOR_HEADER}\"")
-    endif()
-else()
-    set(BURNERNET_HAS_CUSTOM_OBFUSCATOR 0)
-endif()
-
-if(BURNERNET_USER_CONFIG_HEADER)
-    if(BURNERNET_USER_CONFIG_HEADER MATCHES "^[<\"].*[>\"]$")
-        set(BURNERNET_USER_CONFIG_HEADER_LITERAL "${BURNERNET_USER_CONFIG_HEADER}")
-    else()
-        set(BURNERNET_USER_CONFIG_HEADER_LITERAL "\"${BURNERNET_USER_CONFIG_HEADER}\"")
-    endif()
-endif()
-
-configure_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/include/burner/net/obfuscation_config.h.in
-    ${CMAKE_CURRENT_BINARY_DIR}/generated/include/burner/net/obfuscation_config.h
-    @ONLY
-)
 
 include(CTest)
 
@@ -99,25 +51,10 @@ add_library(BurnerNet::BurnerNet ALIAS BurnerNet)
 target_include_directories(BurnerNet
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-        $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated/include>
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
     PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
-
-if(BURNERNET_CUSTOM_OBFUSCATOR_INCLUDE_DIR)
-    target_include_directories(BurnerNet
-        PUBLIC
-            $<BUILD_INTERFACE:${BURNERNET_CUSTOM_OBFUSCATOR_INCLUDE_DIR}>
-    )
-endif()
-
-if(BURNERNET_USER_CONFIG_INCLUDE_DIR)
-    target_include_directories(BurnerNet
-        PUBLIC
-            $<BUILD_INTERFACE:${BURNERNET_USER_CONFIG_INCLUDE_DIR}>
-    )
-endif()
 
 target_compile_features(BurnerNet PUBLIC cxx_std_20)
 set_target_properties(BurnerNet PROPERTIES
@@ -127,17 +64,11 @@ set_target_properties(BurnerNet PROPERTIES
 target_compile_definitions(BurnerNet
     PUBLIC
         BURNER_ENABLE_CURL=1
+        BURNERNET_OBFUSCATE_STRINGS=$<IF:$<BOOL:${BURNERNET_OBFUSCATE_STRINGS}>,1,0>
         BURNERNET_HARDEN_IMPORTS=$<IF:$<BOOL:${BURNERNET_HARDEN_IMPORTS}>,1,0>
-        BURNERNET_HARDEN_ERRORS=$<IF:$<BOOL:${BURNERNET_HARDEN_ERRORS}>,1,0>
     PRIVATE
         BURNER_BUILDING_LIBRARY
 )
-
-if(NOT "${BURNERNET_USER_CONFIG_HEADER}" STREQUAL "")
-    target_compile_definitions(BurnerNet PUBLIC
-        BURNERNET_USER_CONFIG_HEADER=${BURNERNET_USER_CONFIG_HEADER_LITERAL}
-    )
-endif()
 
 if(BUILD_SHARED_LIBS)
     target_compile_definitions(BurnerNet PUBLIC BURNER_SHARED)
@@ -226,7 +157,8 @@ endif()
 
 if(BURNERNET_BUILD_TESTING OR BURNERNET_BUILD_INTEGRATION_TESTS)
     enable_testing()
-    find_package(Python3 COMPONENTS Interpreter QUIET)
+    target_include_directories(BurnerNet PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_definitions(BurnerNet PRIVATE BURNERNET_SECURITY_POLICY_HEADER=\"BurnerNet_TestConfig.h\")
 endif()
 
 if(BURNERNET_BUILD_TESTING)
@@ -243,12 +175,6 @@ if(BURNERNET_BUILD_TESTING)
     endif()
     burner_configure_runtime(BurnerNetTests)
     add_test(NAME BurnerNet.Unit COMMAND BurnerNetTests)
-    if(Python3_Interpreter_FOUND)
-        add_test(
-            NAME BurnerNet.GeneratorPolymorphism
-            COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/check_burner_generator.py
-        )
-    endif()
 endif()
 
 if(BURNERNET_BUILD_INTEGRATION_TESTS)
@@ -296,7 +222,6 @@ install(TARGETS BurnerNet
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 install(DIRECTORY include/burner DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/generated/include/burner DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(EXPORT BurnerNetTargets
     FILE BurnerNetTargets.cmake
     NAMESPACE BurnerNet::

@@ -4,15 +4,8 @@
 #include <string>
 #include <vector>
 
-#define BURNERNET_ERROR_XOR 0x000000A5u
-#define BURNERNET_SECURITY_SEED 0x13572468u
-
 #ifndef BURNERNET_HARDEN_IMPORTS
 #define BURNERNET_HARDEN_IMPORTS 0
-#endif
-
-#ifndef BURNER_OBF_LITERAL
-#define BURNER_OBF_LITERAL(str) std::string(str)
 #endif
 
 namespace burnernet_test_config {

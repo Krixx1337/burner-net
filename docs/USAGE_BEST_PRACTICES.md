@@ -197,10 +197,9 @@ auto init = burner::net::InitializeNetworkingRuntime(boot);
 - Header names/values with CR/LF are rejected to prevent header injection.
 
 ## 10. Recommended defaults
-- `BURNERNET_HARDEN_ERRORS=1` for production builds.
-- Set `BURNERNET_ERROR_XOR` in your private BurnerNet config header when you enable hardened errors.
-- BurnerNet now includes a built-in compile-time literal obfuscator by default.
-- If you already have a private string obfuscator, you can still override `BURNER_OBF_LITERAL(...)` in your private BurnerNet config header.
+- Release builds harden `ErrorCodeToString(...)` automatically when `NDEBUG` is defined.
+- Debug builds keep symbolic error names by default for easier local diagnosis.
+- BurnerNet includes a built-in compile-time literal obfuscator by default.
 - Treat `ErrorCode::TlsVerificationFailed` and `ErrorCode::TransportVerificationFailed` as distinct trust failures, not generic connectivity errors.
 - Keep login/business logic in app code, not inside `BurnerNet`.
 - Prefer one disposable HTTP client instance per worker/thread or burst of requests.
@@ -270,16 +269,15 @@ auto client = burner::net::ClientBuilder()
 ```
 
 ## 15. Binary Uniqueness (Polymorphism)
-BurnerNet now ships a built-in compile-time literal obfuscation fallback, but project-specific variation still comes from your private config header. Use that header when you want per-project `ErrorCode` values, a private `BURNERNET_ERROR_XOR`, or a custom string crypter.
+BurnerNet now derives its hardened error XOR key from compile-time state automatically, so each build gets a distinct numeric error surface without a generator step. Literal obfuscation is also built in by default.
 
-Typical knobs to define in that private header:
+If you want to mount project-specific security hooks, define your policy type and make it visible while BurnerNet compiles:
 
 ```cpp
-#define BURNER_OBF_LITERAL(x) MyXor(x)
-#define BURNERNET_ERROR_XOR 0x9A4B2C1Du
+#define BURNERNET_SECURITY_POLICY MyProject::SecurityPolicy
 ```
 
-If you omit `BURNER_OBF_LITERAL`, BurnerNet falls back to its built-in `BURNER_OBF_LITERAL(...).resolve()` path.
+For source-drop integrations, `BURNERNET_SECURITY_POLICY_HEADER` can force-include the header that declares that type.
 
 ## 16. 32-bit and 64-bit Windows builds
 

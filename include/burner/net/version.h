@@ -1,13 +1,15 @@
 #pragma once
 
-#define BURNERNET_VERSION_MAJOR @BurnerNet_VERSION_MAJOR@
-#define BURNERNET_VERSION_MINOR @BurnerNet_VERSION_MINOR@
-#define BURNERNET_VERSION_PATCH @BurnerNet_VERSION_PATCH@
-#define BURNERNET_VERSION_STRING "@BurnerNet_VERSION@"
+#define BURNERNET_VERSION_MAJOR 0
+#define BURNERNET_VERSION_MINOR 1
+#define BURNERNET_VERSION_PATCH 0
+#define BURNERNET_VERSION_STRING "0.1.0"
 
 namespace burner::net {
+
 inline constexpr int VersionMajor = BURNERNET_VERSION_MAJOR;
 inline constexpr int VersionMinor = BURNERNET_VERSION_MINOR;
 inline constexpr int VersionPatch = BURNERNET_VERSION_PATCH;
 inline constexpr const char* VersionString = BURNERNET_VERSION_STRING;
-}
+
+} // namespace burner::net

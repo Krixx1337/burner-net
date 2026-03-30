@@ -1,5 +1,4 @@
 #include "burner/net/http.h"
-#include "error_strings.h"
 
 #if BURNER_ENABLE_CURL
 #include "curl/curl_http_client.h"

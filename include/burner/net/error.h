@@ -8,15 +8,6 @@
 
 namespace burner::net {
 
-#if !defined(BURNERNET_HARDEN_ERRORS) && defined(BURNER_HARDEN_ERRORS)
-#define BURNERNET_HARDEN_ERRORS BURNER_HARDEN_ERRORS
-#endif
-
-#ifndef BURNERNET_HAS_CUSTOM_ERROR_CODE_ENUM
-#define BURNERNET_HAS_CUSTOM_ERROR_CODE_ENUM 0
-#endif
-
-#if !BURNERNET_HAS_CUSTOM_ERROR_CODE_ENUM
 enum class ErrorCode : uint32_t {
     None = 0,
     DisabledBackend,
@@ -53,7 +44,6 @@ enum class ErrorCode : uint32_t {
     TransportVerificationFailed,
     TlsVerificationFailed
 };
-#endif
 
 inline constexpr bool IsSuccessCode(ErrorCode code) {
     return code == ErrorCode::None ||
@@ -64,7 +54,7 @@ inline constexpr bool IsSuccessCode(ErrorCode code) {
 
 inline std::string ErrorCodeToString(ErrorCode code) {
 #if defined(BURNERNET_HARDEN_ERRORS) && BURNERNET_HARDEN_ERRORS
-    return ::burner::hostile_core::harden_error_code<ErrorCode, static_cast<std::uint32_t>(BURNERNET_ERROR_XOR)>(code);
+    return ::burner::hostile_core::harden_error_code(code, static_cast<std::uint32_t>(BURNERNET_ERROR_XOR));
 #else
     switch (code) {
     case ErrorCode::None:
