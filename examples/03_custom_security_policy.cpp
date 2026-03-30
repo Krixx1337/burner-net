@@ -1,5 +1,6 @@
 #include <iostream>
 #include <memory>
+#include <string>
 #include <string_view>
 
 #include "burner/net/builder.h"
@@ -11,8 +12,26 @@ namespace {
 class ExampleSecurityPolicy final : public burner::net::ISecurityPolicy {
 public:
     bool OnVerifyTransport(const char* url, const char* remote_ip) const override {
-        (void)url;
-        return remote_ip != nullptr && std::string_view(remote_ip) != "127.0.0.1";
+        if (remote_ip == nullptr) {
+            return false;
+        }
+
+        const std::string_view ip(remote_ip);
+
+        // Fail closed on obvious local redirection such as a poisoned hosts file.
+        if (ip == "127.0.0.1" || ip == "::1") {
+            return false;
+        }
+
+        // Example of a host-specific rule: never let the API tier resolve back
+        // into RFC1918 space unless your deployment explicitly expects that.
+        if (url != nullptr && std::string_view(url).find("api.myapp.com") != std::string_view::npos) {
+            if (ip.starts_with("10.") || ip.starts_with("192.168.") || ip.starts_with("172.16.")) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     std::string GetUserAgent() const override {
@@ -35,7 +54,9 @@ int RunCustomPolicy() {
     }
 
     std::cout << "Runtime security policy example initialized.\n";
-    std::cout << "If ExampleSecurityPolicy rejects a remote IP in OnVerifyTransport,\n";
-    std::cout << "BurnerNet will fail the request with TransportVerificationFailed.\n";
+    std::cout << "ExampleSecurityPolicy blocks loopback redirects and can reject\n";
+    std::cout << "unexpected private-network IPs for sensitive hosts.\n";
+    std::cout << "If OnVerifyTransport rejects the connected IP, BurnerNet fails\n";
+    std::cout << "the request with TransportVerificationFailed.\n";
     return 0;
 }
