@@ -2,18 +2,27 @@
 
 This guide shows recommended usage patterns for short-lived secrets and mixed security levels (public + login APIs).
 
-## 1. Prefer static integration via CMake
-- Recommended: add BurnerNet as a CMake subdirectory and link `BurnerNet::BurnerNet` as a static library.
-- This is the best default for most consumers because CMake carries the `libcurl` dependency and usage requirements in one place.
-- It keeps deployment simpler than a dynamic runtime while still letting the consumer build BurnerNet inside their own build graph.
-- If you distribute a prebuilt library instead, all consumers of that exact artifact share the same compiled hardening shape for that release.
+## 1. Choose your integration path
+- **CMake static integration:** add BurnerNet as a CMake subdirectory and link `BurnerNet::BurnerNet` when you want CMake to carry the `libcurl` dependency, compile definitions, and runtime staging behavior.
+- **Visual Studio source-drop:** add BurnerNet's `src/` files directly to your `.vcxproj` when you want BurnerNet compiled inside your own executable and are managing the consumer project in MSBuild.
+- **Bootstrap runtime loading:** use `InitializeNetworkingRuntime(...)` only when you intentionally want curl/OpenSSL/zlib runtime DLLs loaded from a custom directory instead of the normal executable-adjacent layout.
 
 Why:
-- Static CMake integration is the best balance of security posture, consumer ergonomics, and dependency management.
-- Compile-time obfuscation and hardened error-string generation are re-instantiated when your project compiles.
+- Compiling BurnerNet inside your own build re-instantiates compile-time obfuscation and hardened error-string generation.
 - This is a hardening advantage, not a cryptographic identity guarantee. Do not treat build-time polymorphism as a substitute for server-side secrets or response verification.
+- CMake is the cleanest dependency-managed path, but `.vcxproj` source-drop is also viable when your environment is anchored to MSBuild.
 
-Source-drop remains a valid advanced path when you explicitly want security-first control over compilation inside your own application build and are willing to manage `libcurl` and project settings manually.
+### Visual Studio `.vcxproj` source-drop guidelines
+1. Add BurnerNet's `src/` `.cpp` files, including subdirectories, to your Visual Studio project.
+2. Add `burner-net/include` to **Additional Include Directories**. Add the curl include root provided by vcpkg or your local curl build as well.
+3. Provide curl through vcpkg or your own dependency layout. BurnerNet does not fetch or stage curl for raw `.vcxproj` consumers.
+4. Under MSVC, BurnerNet now compiles under default `/ZI` Debug settings. You do not need to switch to `/Zi` just to satisfy `BURNER_OBF_LITERAL(...)`.
+5. Under MSVC, BurnerNet auto-links the Windows subsystem libraries it needs (`ws2_32`, `crypt32`, `bcrypt`, `advapi32`, `secur32`, `iphlpapi`, `wldap32`, `normaliz`).
+
+### Visual Studio mode-specific notes
+- If you link curl through the normal import/static library path, keep `BURNERNET_HARDEN_IMPORTS=0`.
+- If you intentionally omit normal curl import resolution and load curl/OpenSSL/zlib via `InitializeNetworkingRuntime(...)`, set `BURNERNET_HARDEN_IMPORTS=1`.
+- If your curl build is static, define `CURL_STATICLIB` in the consumer project.
 
 ## 2. Treat clients as disposable transports
 - Prefer request-scope or burst-scope clients: create, use, destroy.

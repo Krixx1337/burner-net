@@ -108,7 +108,9 @@ struct ObfuscatedString {
 
 } // namespace burner::net::obf
 
-#define BURNER_OBF_LITERAL(str)                                                                            \
-    ::burner::net::obf::ObfuscatedString<sizeof(str), static_cast<std::uint8_t>((__LINE__ ^ __COUNTER__ \
-                                                                                  ^ __TIME__[7])        \
+// Note: __LINE__ is intentionally omitted so MSVC Edit and Continue (/ZI)
+// keeps this as a valid compile-time expression in default Debug builds.
+#define BURNER_OBF_LITERAL(str)                                                               \
+    ::burner::net::obf::ObfuscatedString<sizeof(str), static_cast<std::uint8_t>((__COUNTER__ \
+                                                                                  ^ __TIME__[7]) \
                                                                                  & 0xFFu)>{str}.resolve()

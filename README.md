@@ -73,11 +73,16 @@ See also:
 
 ## Build & Integration
 
-BurnerNet requires C++20, CMake 3.21+, and libcurl.
+BurnerNet requires C++20 and libcurl. There are three supported integration paths depending on how you build and deploy.
 
-- **Default: Static via CMake.** Link `BurnerNet::BurnerNet` and prefer a static triplet such as `x64-windows-static-md`.
-- **Advanced: Source-Drop.** Vendor the needed `include/` and `src/` files into your project when you want security-first control over compilation inside your own app build and are willing to manage `libcurl` integration yourself.
-- **Secondary: Dynamic linking.** Use `InitializeNetworkingRuntime(...)` only when you intentionally load the runtime DLLs yourself from a custom directory.
+1. **Standard: Static via CMake**
+   Add BurnerNet with `add_subdirectory(...)`, link `BurnerNet::BurnerNet`, and let CMake carry the `libcurl` dependency and compile requirements. This is the cleanest dependency-managed path and the default recommendation when your downstream project already uses CMake.
+
+2. **Standard: Visual Studio Source-Drop**
+   Add BurnerNet's `src/` files directly to your `.vcxproj` and add `include/` to your include paths when you want BurnerNet compiled inside your own executable. BurnerNet now survives MSVC's default `/ZI` Debug mode and auto-links the required Windows subsystem libraries under MSVC. You still need to provide `libcurl` headers and the appropriate curl import/static library through vcpkg or your own dependency layout.
+
+3. **Advanced: Bootstrap Runtime Loading**
+   Use `InitializeNetworkingRuntime(...)` when you intentionally want curl/OpenSSL/zlib runtime DLLs loaded from a custom directory instead of relying on the normal executable-adjacent runtime layout.
 
 ## Security Reality
 
