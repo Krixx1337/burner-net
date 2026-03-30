@@ -38,7 +38,17 @@ struct HttpRequest;
 namespace burner::net::detail {
 
 struct DefaultSecurity {
+    static inline bool OnVerifyEnvironment() {
+        return true;
+    }
+
     static inline void OnPreRequest(HttpRequest&) {}
+
+    static inline bool OnVerifyTransport(const char* url, const char* remote_ip) {
+        (void)(url);
+        (void)(remote_ip);
+        return true;
+    }
 
     static inline void OnSignatureVerified(bool success, ErrorCode reason) {
         (void)(success);
@@ -58,6 +68,34 @@ struct DefaultSecurity {
         return "";
     }
 };
+
+template <typename TSecurity>
+constexpr bool HasVerifyEnvironmentHook = requires {
+    TSecurity::OnVerifyEnvironment();
+};
+
+template <typename TSecurity>
+inline bool CallVerifyEnvironment() {
+    if constexpr (HasVerifyEnvironmentHook<TSecurity>) {
+        return TSecurity::OnVerifyEnvironment();
+    } else {
+        return true;
+    }
+}
+
+template <typename TSecurity>
+constexpr bool HasVerifyTransportHook = requires(const char* url, const char* remote_ip) {
+    TSecurity::OnVerifyTransport(url, remote_ip);
+};
+
+template <typename TSecurity>
+inline bool CallVerifyTransport(const char* url, const char* remote_ip) {
+    if constexpr (HasVerifyTransportHook<TSecurity>) {
+        return TSecurity::OnVerifyTransport(url, remote_ip);
+    } else {
+        return true;
+    }
+}
 
 } // namespace burner::net::detail
 

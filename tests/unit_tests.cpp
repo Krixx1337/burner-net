@@ -81,3 +81,25 @@ TEST_CASE("pre-flight abort error code string is stable") {
     CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::PreFlightAbort) == "PreFlightAbort");
 #endif
 }
+
+TEST_CASE("environment compromised error code string is stable") {
+#if BURNERNET_HARDEN_ERRORS
+    CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::EnvironmentCompromised) ==
+          std::to_string(static_cast<uint32_t>(burner::net::ErrorCode::EnvironmentCompromised) ^
+                         static_cast<uint32_t>(BURNERNET_ERROR_XOR)));
+#else
+    CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::EnvironmentCompromised) ==
+          "EnvironmentCompromised");
+#endif
+}
+
+TEST_CASE("transport verification failed error code string is stable") {
+#if BURNERNET_HARDEN_ERRORS
+    CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::TransportVerificationFailed) ==
+          std::to_string(static_cast<uint32_t>(burner::net::ErrorCode::TransportVerificationFailed) ^
+                         static_cast<uint32_t>(BURNERNET_ERROR_XOR)));
+#else
+    CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::TransportVerificationFailed) ==
+          "TransportVerificationFailed");
+#endif
+}

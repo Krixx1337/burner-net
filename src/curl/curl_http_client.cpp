@@ -169,6 +169,9 @@ CURLcode DefaultCurlEasyGetinfo(CURL* easy, CURLINFO info, ...) {
     case CURLINFO_RESPONSE_CODE:
         code = curl_easy_getinfo(easy, info, va_arg(args, long*));
         break;
+    case CURLINFO_PRIMARY_IP:
+        code = curl_easy_getinfo(easy, info, va_arg(args, char**));
+        break;
     default:
         break;
     }
@@ -539,6 +542,18 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
         }
         WipeResponse(response);
     }
+
+    if (response.TransportOk()) {
+        char* primary_ip = nullptr;
+        if (m_curl_api.easy_getinfo(easy, CURLINFO_PRIMARY_IP, &primary_ip) == CURLE_OK &&
+            primary_ip != nullptr &&
+            !detail::CallVerifyTransport<Security>(request.url.c_str(), primary_ip)) {
+            response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
+            response.transport_error = ErrorCode::TransportVerificationFailed;
+            WipeResponse(response);
+        }
+    }
+
     response.dns_strategy_used = m_active_dns_strategy.has_value() ? m_active_dns_strategy->name : kDnsSystemTag;
     response.streamed_body_bytes = body_ctx.streamed_body_bytes;
 

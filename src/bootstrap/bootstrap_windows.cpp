@@ -179,6 +179,10 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         return {false, ErrorCode::BootstrapConfig};
     }
 
+    if (!detail::CallVerifyEnvironment<Security>()) {
+        return {false, ErrorCode::EnvironmentCompromised};
+    }
+
     std::lock_guard<std::mutex> lock(g_loader_mutex);
 
 #if BURNERNET_HARDEN_IMPORTS

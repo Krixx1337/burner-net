@@ -47,8 +47,10 @@ enum class ErrorCode : uint32_t {
     RequestBodyTooLarge,
     CurlApiIncomplete,
     CurlApiUntrusted,
+    EnvironmentCompromised,
     PreFlightAbort,
     HeartbeatAbort,
+    TransportVerificationFailed,
     TlsVerificationFailed
 };
 #endif
@@ -123,10 +125,14 @@ inline std::string ErrorCodeToString(ErrorCode code) {
         return "CurlApiIncomplete";
     case ErrorCode::CurlApiUntrusted:
         return "CurlApiUntrusted";
+    case ErrorCode::EnvironmentCompromised:
+        return "EnvironmentCompromised";
     case ErrorCode::PreFlightAbort:
         return "PreFlightAbort";
     case ErrorCode::HeartbeatAbort:
         return "HeartbeatAbort";
+    case ErrorCode::TransportVerificationFailed:
+        return "TransportVerificationFailed";
     case ErrorCode::TlsVerificationFailed:
         return "TlsVerificationFailed";
     default:

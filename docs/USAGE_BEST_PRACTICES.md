@@ -201,7 +201,7 @@ auto init = burner::net::InitializeNetworkingRuntime(boot);
 - Set `BURNERNET_ERROR_XOR` in your private BurnerNet config header when you enable hardened errors.
 - BurnerNet now includes a built-in compile-time literal obfuscator by default.
 - If you already have a private string obfuscator, you can still override `BURNER_OBF_LITERAL(...)` in your private BurnerNet config header.
-- Treat `ErrorCode::TlsVerificationFailed` as a distinct trust failure, not a generic connectivity error.
+- Treat `ErrorCode::TlsVerificationFailed` and `ErrorCode::TransportVerificationFailed` as distinct trust failures, not generic connectivity errors.
 - Keep login/business logic in app code, not inside `BurnerNet`.
 - Prefer one disposable HTTP client instance per worker/thread or burst of requests.
 - Prefer separate client instances for paranoid and utility traffic instead of toggling one client back and forth.
