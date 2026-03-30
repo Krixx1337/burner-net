@@ -5,7 +5,6 @@
 #include <functional>
 #include <map>
 #include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -13,8 +12,6 @@
 #include "error.h"
 #include "obfuscation.h"
 #include "policy.h"
-
-#include <curl/curl.h>
 
 namespace burner::net {
 
@@ -115,28 +112,6 @@ public:
     virtual HttpResponse Send(const HttpRequest& request) = 0;
 };
 
-using CurlEasyInitFn = CURL* (*)();
-using CurlEasyCleanupFn = void (*)(CURL*);
-using CurlEasyResetFn = void (*)(CURL*);
-using CurlEasySetoptFn = CURLcode (*)(CURL*, CURLoption, ...);
-using CurlEasyPerformFn = CURLcode (*)(CURL*);
-using CurlEasyGetinfoFn = CURLcode (*)(CURL*, CURLINFO, ...);
-using CurlSlistAppendFn = curl_slist* (*)(curl_slist*, const char*);
-using CurlSlistFreeAllFn = void (*)(curl_slist*);
-using CurlEasyStrerrorFn = const char* (*)(CURLcode);
-
-struct CurlApi {
-    CurlEasyInitFn easy_init = nullptr;
-    CurlEasyCleanupFn easy_cleanup = nullptr;
-    CurlEasyResetFn easy_reset = nullptr;
-    CurlEasySetoptFn easy_setopt = nullptr;
-    CurlEasyPerformFn easy_perform = nullptr;
-    CurlEasyGetinfoFn easy_getinfo = nullptr;
-    CurlSlistAppendFn slist_append = nullptr;
-    CurlSlistFreeAllFn slist_free_all = nullptr;
-    CurlEasyStrerrorFn easy_strerror = nullptr;
-};
-
 struct ClientConfig {
     std::string user_agent;
     bool verify_peer = true;
@@ -158,7 +133,6 @@ struct ClientConfig {
         L"libcurl-x64.dll",
         L"libcurl-x86.dll"
     };
-    std::optional<CurlApi> curl_api;
 };
 
 struct ClientCreateResult {

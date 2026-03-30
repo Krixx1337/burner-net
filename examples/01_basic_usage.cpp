@@ -1,14 +1,11 @@
 #include <iostream>
 
-#include <curl/curl.h>
-
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
 #include "burner/net/http.h"
 #include "burner/net/version.h"
 
 int main() {
-    std::cout << "curl: " << curl_version() << '\n';
     std::cout << "BurnerNet version: " << burner::net::VersionString << '\n';
 
     burner::net::ErrorCode build_error = burner::net::ErrorCode::None;

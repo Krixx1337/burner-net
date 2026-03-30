@@ -33,6 +33,7 @@ set(BURNERNET_RUNTIME_DIR "${CMAKE_BINARY_DIR}/bin")
 
 set(BURNERNET_SOURCES
     src/builder.cpp
+    src/detail/memory_hygiene.cpp
     src/curl/curl_http_client.cpp
     src/http_factory.cpp
     src/internal/header_validation.cpp

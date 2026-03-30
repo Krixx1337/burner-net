@@ -289,45 +289,32 @@ std::string ToCurlMethod(HttpMethod method) {
 CurlHttpClient::CurlHttpClient(const ClientConfig& config)
     : m_config(config) {
     m_config.security_policy = ResolveSecurityPolicy(std::move(m_config.security_policy));
-    if (m_config.curl_api.has_value()) {
-        m_curl_api = *m_config.curl_api;
-        if (!IsCurlApiComplete(m_curl_api)) {
-            m_init_error = ErrorCode::CurlApiIncomplete;
-            return;
-        }
-        if (m_config.verify_curl_api_pointers &&
-            !IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
-            m_init_error = ErrorCode::CurlApiUntrusted;
-            return;
-        }
-    } else {
 #if BURNERNET_HARDEN_IMPORTS
+    m_curl_api = MakeResolvedCurlApi();
+    if (!IsCurlApiComplete(m_curl_api)) {
+        m_init_error = ErrorCode::CurlApiIncomplete;
+        return;
+    }
+    if (m_config.verify_curl_api_pointers &&
+        !IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
+        m_init_error = ErrorCode::CurlApiUntrusted;
+        return;
+    }
+#else
+    if (m_config.verify_curl_api_pointers) {
         m_curl_api = MakeResolvedCurlApi();
         if (!IsCurlApiComplete(m_curl_api)) {
             m_init_error = ErrorCode::CurlApiIncomplete;
             return;
         }
-        if (m_config.verify_curl_api_pointers &&
-            !IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
+        if (!IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
             m_init_error = ErrorCode::CurlApiUntrusted;
             return;
         }
-#else
-        if (m_config.verify_curl_api_pointers) {
-            m_curl_api = MakeResolvedCurlApi();
-            if (!IsCurlApiComplete(m_curl_api)) {
-                m_init_error = ErrorCode::CurlApiIncomplete;
-                return;
-            }
-            if (!IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
-                m_init_error = ErrorCode::CurlApiUntrusted;
-                return;
-            }
-        } else {
-            m_curl_api = MakeWrappedCurlApi();
-        }
-#endif
+    } else {
+        m_curl_api = MakeWrappedCurlApi();
     }
+#endif
 
     m_easy = m_curl_api.easy_init();
     if (!m_easy) {

@@ -2,9 +2,32 @@
 
 #include "burner/net/http.h"
 
+#include <curl/curl.h>
 #include <optional>
 
 namespace burner::net {
+
+using CurlEasyInitFn = CURL* (*)();
+using CurlEasyCleanupFn = void (*)(CURL*);
+using CurlEasyResetFn = void (*)(CURL*);
+using CurlEasySetoptFn = CURLcode (*)(CURL*, CURLoption, ...);
+using CurlEasyPerformFn = CURLcode (*)(CURL*);
+using CurlEasyGetinfoFn = CURLcode (*)(CURL*, CURLINFO, ...);
+using CurlSlistAppendFn = curl_slist* (*)(curl_slist*, const char*);
+using CurlSlistFreeAllFn = void (*)(curl_slist*);
+using CurlEasyStrerrorFn = const char* (*)(CURLcode);
+
+struct CurlApi {
+    CurlEasyInitFn easy_init = nullptr;
+    CurlEasyCleanupFn easy_cleanup = nullptr;
+    CurlEasyResetFn easy_reset = nullptr;
+    CurlEasySetoptFn easy_setopt = nullptr;
+    CurlEasyPerformFn easy_perform = nullptr;
+    CurlEasyGetinfoFn easy_getinfo = nullptr;
+    CurlSlistAppendFn slist_append = nullptr;
+    CurlSlistFreeAllFn slist_free_all = nullptr;
+    CurlEasyStrerrorFn easy_strerror = nullptr;
+};
 
 class CurlHttpClient final : public IHttpClient {
 public:
