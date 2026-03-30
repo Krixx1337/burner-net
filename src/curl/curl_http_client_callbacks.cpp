@@ -106,14 +106,7 @@ void CurlHttpClient::WipeHeaderList(curl_slist* headers) const {
     for (curl_slist* it = headers; it != nullptr; it = it->next) {
         if (it->data != nullptr) {
             const size_t len = std::char_traits<char>::length(it->data);
-#if defined(_WIN32)
-            SecureZeroMemory(it->data, len);
-#else
-            volatile char* ptr = it->data;
-            for (size_t i = 0; i < len; ++i) {
-                ptr[i] = '\0';
-            }
-#endif
+            obf::secure_wipe(it->data, len);
         }
     }
 

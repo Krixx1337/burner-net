@@ -1,6 +1,7 @@
 #pragma once
 
 #include "burner/net/concepts.h"
+#include "burner/net/detail/pointer_mangling.h"
 #include "burner/net/export.h"
 
 #include <cstdint>
@@ -145,15 +146,15 @@ private:
     }
 
     std::shared_ptr<const void> m_state;
-    bool (*m_on_verify_environment)(const void*) = nullptr;
-    bool (*m_on_pre_request)(const void*, HttpRequest&) = nullptr;
-    bool (*m_on_verify_transport)(const void*, const char*, const char*) = nullptr;
-    bool (*m_on_heartbeat)(const void*) = nullptr;
-    bool (*m_on_response_received)(const void*, const HttpRequest&, const HttpResponse&) = nullptr;
-    void (*m_on_signature_verified)(const void*, bool, ErrorCode) = nullptr;
-    void (*m_on_tamper)(const void*) = nullptr;
-    void (*m_on_error)(const void*, ErrorCode, const char*) = nullptr;
-    std::string (*m_get_user_agent)(const void*) = nullptr;
+    EncodedPointer<bool (*)(const void*)> m_on_verify_environment = nullptr;
+    EncodedPointer<bool (*)(const void*, HttpRequest&)> m_on_pre_request = nullptr;
+    EncodedPointer<bool (*)(const void*, const char*, const char*)> m_on_verify_transport = nullptr;
+    EncodedPointer<bool (*)(const void*)> m_on_heartbeat = nullptr;
+    EncodedPointer<bool (*)(const void*, const HttpRequest&, const HttpResponse&)> m_on_response_received = nullptr;
+    EncodedPointer<void (*)(const void*, bool, ErrorCode)> m_on_signature_verified = nullptr;
+    EncodedPointer<void (*)(const void*)> m_on_tamper = nullptr;
+    EncodedPointer<void (*)(const void*, ErrorCode, const char*)> m_on_error = nullptr;
+    EncodedPointer<std::string (*)(const void*)> m_get_user_agent = nullptr;
 };
 
 } // namespace burner::net
