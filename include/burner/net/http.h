@@ -93,8 +93,8 @@ private:
 
 inline void HeaderMap::clear() noexcept {
     for (auto& [key, value] : m_items) {
-        ::burner::hostile_core::secure_wipe(key);
-        ::burner::hostile_core::secure_wipe(value);
+        ::HOSTILE_CORE_NAMESPACE::secure_wipe(key);
+        ::HOSTILE_CORE_NAMESPACE::secure_wipe(value);
     }
     m_items.clear();
 }

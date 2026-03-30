@@ -7,7 +7,7 @@
 #include <string>
 #include <string_view>
 
-namespace burner::hostile_core {
+namespace HOSTILE_CORE_NAMESPACE {
 
 inline constexpr std::uint64_t split_mix_increment = 0x9e3779b97f4a7c15ull;
 inline constexpr std::uint64_t fnv_offset_basis = 0xcbf29ce484222325ull;
@@ -106,9 +106,9 @@ struct ObfuscatedString {
     }
 };
 
-} // namespace burner::hostile_core
+} // namespace HOSTILE_CORE_NAMESPACE
 
 #define BURNER_OBF_LITERAL(str)                                                                            \
-    ::burner::hostile_core::ObfuscatedString<sizeof(str), static_cast<std::uint8_t>((__LINE__ ^ __COUNTER__ \
-                                                                                      ^ __TIME__[7])        \
-                                                                                     & 0xFFu)>{str}.resolve()
+    ::HOSTILE_CORE_NAMESPACE::ObfuscatedString<sizeof(str), static_cast<std::uint8_t>((__LINE__ ^ __COUNTER__ \
+                                                                                        ^ __TIME__[7])        \
+                                                                                       & 0xFFu)>{str}.resolve()

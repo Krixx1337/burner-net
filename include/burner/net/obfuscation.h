@@ -1,5 +1,13 @@
 #pragma once
 
+#ifndef HOSTILE_CORE_NAMESPACE
+#define HOSTILE_CORE_NAMESPACE burner_hostile
+#endif
+
+#ifndef HOSTILE_CORE_EXPORT
+#define HOSTILE_CORE_EXPORT BURNER_API
+#endif
+
 #include "burner/net/detail/constexpr_obfuscation.h"
 #include "burner/net/detail/memory_hygiene.h"
 
@@ -23,19 +31,19 @@
 namespace burner::net {
 
 inline void SecureWipe(std::string& value) {
-    ::burner::hostile_core::secure_wipe(value.data(), value.size());
+    ::HOSTILE_CORE_NAMESPACE::secure_wipe(value.data(), value.size());
     value.clear();
 }
 
 template <typename T>
 inline void SecureWipe(std::vector<T>& value) {
-    ::burner::hostile_core::secure_wipe(value.data(), value.size() * sizeof(T));
+    ::HOSTILE_CORE_NAMESPACE::secure_wipe(value.data(), value.size() * sizeof(T));
     value.clear();
 }
 
 template <typename T>
 inline void SecureWipe(std::span<T> value) {
-    ::burner::hostile_core::secure_wipe(value.data(), value.size_bytes());
+    ::HOSTILE_CORE_NAMESPACE::secure_wipe(value.data(), value.size_bytes());
 }
 
 } // namespace burner::net

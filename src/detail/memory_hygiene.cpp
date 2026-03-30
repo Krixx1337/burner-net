@@ -7,7 +7,7 @@
 #include <windows.h>
 #endif
 
-namespace burner::hostile_core {
+namespace HOSTILE_CORE_NAMESPACE {
 
 void secure_wipe(void* ptr, std::size_t size) noexcept {
     if (ptr == nullptr || size == 0) {
@@ -24,4 +24,4 @@ void secure_wipe(void* ptr, std::size_t size) noexcept {
 #endif
 }
 
-} // namespace burner::hostile_core
+} // namespace HOSTILE_CORE_NAMESPACE

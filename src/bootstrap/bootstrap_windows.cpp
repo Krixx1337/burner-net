@@ -1,5 +1,5 @@
 #include "burner/net/bootstrap.h"
-#include "internal/hostile_imports.h"
+#include "detail/hostile_imports.h"
 
 #include "burner/net/obfuscation.h"
 

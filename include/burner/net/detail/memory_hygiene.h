@@ -7,9 +7,13 @@
 #include <string>
 #include <vector>
 
-namespace burner::hostile_core {
+#ifndef HOSTILE_CORE_EXPORT
+#define HOSTILE_CORE_EXPORT
+#endif
 
-BURNER_API void secure_wipe(void* ptr, std::size_t size) noexcept;
+namespace HOSTILE_CORE_NAMESPACE {
+
+HOSTILE_CORE_EXPORT void secure_wipe(void* ptr, std::size_t size) noexcept;
 
 inline void secure_wipe(std::string& value) noexcept {
     secure_wipe(value.data(), value.capacity());
@@ -27,4 +31,4 @@ inline void secure_wipe(std::span<T> value) noexcept {
     secure_wipe(value.data(), value.size_bytes());
 }
 
-} // namespace burner::hostile_core
+} // namespace HOSTILE_CORE_NAMESPACE

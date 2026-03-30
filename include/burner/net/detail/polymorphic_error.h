@@ -4,7 +4,7 @@
 #include <string>
 #include <type_traits>
 
-namespace burner::hostile_core {
+namespace HOSTILE_CORE_NAMESPACE {
 
 template <typename EnumType>
 [[nodiscard]] inline std::string harden_error_code(EnumType code, std::uint32_t xor_key) {
@@ -12,4 +12,4 @@ template <typename EnumType>
     return std::to_string(static_cast<std::uint32_t>(code) ^ xor_key);
 }
 
-} // namespace burner::hostile_core
+} // namespace HOSTILE_CORE_NAMESPACE

@@ -34,6 +34,7 @@ set(BURNERNET_RUNTIME_DIR "${CMAKE_BINARY_DIR}/bin")
 set(BURNERNET_SOURCES
     src/builder.cpp
     src/detail/memory_hygiene.cpp
+    src/error.cpp
     src/curl/curl_http_client.cpp
     src/http_factory.cpp
     src/internal/header_validation.cpp
@@ -67,8 +68,10 @@ target_compile_definitions(BurnerNet
         BURNER_ENABLE_CURL=1
         BURNERNET_OBFUSCATE_STRINGS=$<IF:$<BOOL:${BURNERNET_OBFUSCATE_STRINGS}>,1,0>
         BURNERNET_HARDEN_IMPORTS=$<IF:$<BOOL:${BURNERNET_HARDEN_IMPORTS}>,1,0>
+        HOSTILE_CORE_NAMESPACE=burner_hostile
     PRIVATE
         BURNER_BUILDING_LIBRARY
+        HOSTILE_CORE_EXPORT=BURNER_API
 )
 
 if(BUILD_SHARED_LIBS)

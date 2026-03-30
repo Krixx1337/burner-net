@@ -1,5 +1,9 @@
 #include "burner/net/builder.h"
 #include "burner/net/obfuscation.h"
+#ifndef HOSTILE_CORE_NAMESPACE
+#define HOSTILE_CORE_NAMESPACE burner_hostile
+#endif
+
 #include "burner/net/detail/constexpr_obfuscation.h"
 
 namespace burner::net {
@@ -40,7 +44,7 @@ public:
 };
 
 std::uint32_t ErrorXorKey() noexcept {
-    static constinit const std::uint32_t key = ::burner::hostile_core::build_error_xor_key();
+    static constinit const std::uint32_t key = ::HOSTILE_CORE_NAMESPACE::build_error_xor_key();
     return key;
 }
 
