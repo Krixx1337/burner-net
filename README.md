@@ -44,7 +44,7 @@ For the actual setup details, see:
 
 Error strings are hardened by default. Define `BURNERNET_LEAK_STRINGS_FOR_DEBUGGING` only when you explicitly want plaintext debug strings.
 
-For custom security hooks, derive from `burner::net::ISecurityPolicy` and pass the instance into `ClientBuilder::WithSecurityPolicy(...)`. The fluent `WithBeforeRequest(...)`, `WithPreFlight(...)`, `WithHeartbeat(...)`, `WithResponseReceived(...)`, and `WithPostVerification(...)` helpers now feed the default runtime policy wrapper instead of bypassing it. See [examples/04_custom_security_policy.cpp](examples/04_custom_security_policy.cpp) and [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md).
+For custom security hooks, derive from `burner::net::ISecurityPolicy` and pass the instance into `ClientBuilder::WithSecurityPolicy(...)`. The fluent `WithBeforeRequest(...)`, `WithPreFlight(...)`, `WithHeartbeat(...)`, `WithResponseReceived(...)`, and `WithPostVerification(...)` helpers now feed the default runtime policy wrapper instead of bypassing it. See [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp) and [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md).
 
 ## Minimal Example
 
@@ -70,8 +70,8 @@ auto utility = burner::net::ClientBuilder()
 See also:
 - [examples/01_basic_usage.cpp](examples/01_basic_usage.cpp)
 - [examples/02_zero_trust_pipeline.cpp](examples/02_zero_trust_pipeline.cpp)
-- [examples/04_custom_security_policy.cpp](examples/04_custom_security_policy.cpp)
-- [examples/05_bootstrap_runtime.cpp](examples/05_bootstrap_runtime.cpp)
+- [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp)
+- [examples/04_bootstrap_runtime.cpp](examples/04_bootstrap_runtime.cpp)
 - [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
 - [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
 - [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)

@@ -2,8 +2,8 @@ add_executable(BurnerNetExamples
     main.cpp
     01_basic_usage.cpp
     02_zero_trust_pipeline.cpp
-    04_custom_security_policy.cpp
-    05_bootstrap_runtime.cpp
+    03_custom_security_policy.cpp
+    04_bootstrap_runtime.cpp
 )
 
 target_link_libraries(BurnerNetExamples PRIVATE BurnerNet::BurnerNet)
