@@ -279,6 +279,53 @@ If you want to mount project-specific security hooks, define your policy type an
 
 For source-drop integrations, `BURNERNET_SECURITY_POLICY_HEADER` can force-include the header that declares that type.
 
+Typical `OnVerifyTransport` policy:
+
+```cpp
+// AppSecurity.h
+#pragma once
+
+#include <string>
+#include <string_view>
+
+namespace my_app {
+
+struct SecurityPolicy {
+    static inline bool OnVerifyTransport(const char* url, const char* remote_ip) {
+        (void)url;
+        return remote_ip != nullptr && std::string_view(remote_ip) != "127.0.0.1";
+    }
+
+    static inline void OnPreRequest(burner::net::HttpRequest&) {}
+    static inline void OnSignatureVerified(bool, burner::net::ErrorCode) {}
+    static inline void OnTamper() {}
+    static inline void OnError(burner::net::ErrorCode, const char*) {}
+    static inline std::string GetUserAgent() { return ""; }
+};
+
+} // namespace my_app
+
+#define BURNERNET_SECURITY_POLICY ::my_app::SecurityPolicy
+```
+
+Do not include `burner/net/http.h` or `burner/net/error.h` from that policy header. BurnerNet injects the policy header before those headers are fully defined, and the hook signatures already rely on forward declarations provided by BurnerNet.
+
+Build integration example:
+
+```cmake
+target_include_directories(BurnerNet PRIVATE ${CMAKE_SOURCE_DIR}/app)
+target_compile_definitions(BurnerNet PRIVATE BURNERNET_SECURITY_POLICY_HEADER=\"AppSecurity.h\")
+```
+
+Visual Studio integration:
+- Add the folder containing `AppSecurity.h` to Additional Include Directories for the BurnerNet project.
+- Add `BURNERNET_SECURITY_POLICY_HEADER="AppSecurity.h"` to the BurnerNet project's Preprocessor Definitions.
+
+Important:
+- The hook policy is compiled into BurnerNet itself.
+- Defining `BURNERNET_SECURITY_POLICY` only in your application target does nothing if BurnerNet is already prebuilt.
+- `OnVerifyTransport` runs after curl reports the remote IP and should return `false` to fail closed with `ErrorCode::TransportVerificationFailed`.
+
 ## 16. 32-bit and 64-bit Windows builds
 
 - BurnerNet supports both x64 and x86 Windows client builds.

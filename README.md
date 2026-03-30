@@ -34,7 +34,7 @@ BurnerNet now builds without a generator step. Add the `.cpp` files to your proj
 
 Release builds harden error strings automatically when `NDEBUG` is defined. Debug builds keep symbolic error names by default.
 
-For custom security hooks, define `BURNERNET_SECURITY_POLICY` to your policy type and make that type visible to BurnerNet during compilation. Source-drop builds can do that by adding a shared header and forcing it in with `BURNERNET_SECURITY_POLICY_HEADER`.
+For custom security hooks, define `BURNERNET_SECURITY_POLICY` to your policy type and make that type visible while BurnerNet itself compiles. See [examples/04_custom_security_policy.cpp](examples/04_custom_security_policy.cpp), [templates/BurnerNet_SecurityPolicy.example.h](templates/BurnerNet_SecurityPolicy.example.h), and [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md).
 
 ## Minimal Example
 
@@ -60,6 +60,7 @@ See also:
 - [examples/01_basic_usage.cpp](examples/01_basic_usage.cpp)
 - [examples/02_security_audit.cpp](examples/02_security_audit.cpp)
 - [examples/03_traffic_lanes.cpp](examples/03_traffic_lanes.cpp)
+- [examples/04_custom_security_policy.cpp](examples/04_custom_security_policy.cpp)
 - [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)
 
 ## Build & Integration

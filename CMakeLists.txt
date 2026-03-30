@@ -126,33 +126,81 @@ function(burner_configure_runtime target_name)
     endif()
 endfunction()
 
+function(burner_apply_example_warnings target_name)
+    if(MSVC)
+        target_compile_options(${target_name} PRIVATE /W4 /WX /permissive-)
+    else()
+        target_compile_options(${target_name} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+endfunction()
+
 if(BURNERNET_BUILD_EXAMPLES)
     add_executable(BurnerNetExampleBasic examples/01_basic_usage.cpp)
     target_link_libraries(BurnerNetExampleBasic PRIVATE BurnerNet)
-    if(MSVC)
-        target_compile_options(BurnerNetExampleBasic PRIVATE /W4 /WX /permissive-)
-    else()
-        target_compile_options(BurnerNetExampleBasic PRIVATE -Wall -Wextra -Wpedantic -Werror)
-    endif()
+    burner_apply_example_warnings(BurnerNetExampleBasic)
     burner_configure_runtime(BurnerNetExampleBasic)
 
     add_executable(BurnerNetExampleAudit examples/02_security_audit.cpp)
     target_link_libraries(BurnerNetExampleAudit PRIVATE BurnerNet)
-    if(MSVC)
-        target_compile_options(BurnerNetExampleAudit PRIVATE /W4 /WX /permissive-)
-    else()
-        target_compile_options(BurnerNetExampleAudit PRIVATE -Wall -Wextra -Wpedantic -Werror)
-    endif()
+    burner_apply_example_warnings(BurnerNetExampleAudit)
     burner_configure_runtime(BurnerNetExampleAudit)
 
     add_executable(BurnerNetExampleTrafficLanes examples/03_traffic_lanes.cpp)
     target_link_libraries(BurnerNetExampleTrafficLanes PRIVATE BurnerNet)
-    if(MSVC)
-        target_compile_options(BurnerNetExampleTrafficLanes PRIVATE /W4 /WX /permissive-)
-    else()
-        target_compile_options(BurnerNetExampleTrafficLanes PRIVATE -Wall -Wextra -Wpedantic -Werror)
-    endif()
+    burner_apply_example_warnings(BurnerNetExampleTrafficLanes)
     burner_configure_runtime(BurnerNetExampleTrafficLanes)
+
+    add_library(BurnerNetCustomPolicyExample STATIC ${BURNERNET_SOURCES})
+    target_include_directories(BurnerNetCustomPolicyExample
+        PUBLIC
+            $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+            $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+        PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/src
+            ${CMAKE_CURRENT_SOURCE_DIR}/templates
+    )
+    target_compile_features(BurnerNetCustomPolicyExample PUBLIC cxx_std_20)
+    set_target_properties(BurnerNetCustomPolicyExample PROPERTIES
+        CXX_EXTENSIONS OFF
+    )
+    target_compile_definitions(BurnerNetCustomPolicyExample
+        PUBLIC
+            BURNER_ENABLE_CURL=1
+            BURNERNET_OBFUSCATE_STRINGS=$<IF:$<BOOL:${BURNERNET_OBFUSCATE_STRINGS}>,1,0>
+            BURNERNET_HARDEN_IMPORTS=$<IF:$<BOOL:${BURNERNET_HARDEN_IMPORTS}>,1,0>
+        PRIVATE
+            BURNER_BUILDING_LIBRARY
+            BURNERNET_SECURITY_POLICY_HEADER=\"BurnerNet_SecurityPolicy.example.h\"
+    )
+    if(BUILD_SHARED_LIBS)
+        target_compile_definitions(BurnerNetCustomPolicyExample PUBLIC BURNER_SHARED)
+    endif()
+    if(DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET MATCHES "static")
+        target_compile_definitions(BurnerNetCustomPolicyExample PUBLIC CURL_STATICLIB)
+    endif()
+    burner_apply_example_warnings(BurnerNetCustomPolicyExample)
+    if(BURNERNET_HARDEN_IMPORTS)
+        get_target_property(BURNERNET_CUSTOM_POLICY_CURL_INCLUDE_DIRS CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)
+        if(BURNERNET_CUSTOM_POLICY_CURL_INCLUDE_DIRS)
+            target_include_directories(BurnerNetCustomPolicyExample PUBLIC ${BURNERNET_CUSTOM_POLICY_CURL_INCLUDE_DIRS})
+        endif()
+        target_compile_definitions(BurnerNetCustomPolicyExample PRIVATE CURL_STATICLIB)
+    else()
+        target_link_libraries(BurnerNetCustomPolicyExample PUBLIC CURL::libcurl)
+    endif()
+    if(WIN32)
+        target_link_libraries(BurnerNetCustomPolicyExample
+            PUBLIC
+                ${BURNERNET_BCRYPT_LIBRARY}
+                crypt32
+                ws2_32
+        )
+    endif()
+
+    add_executable(BurnerNetExampleCustomPolicy examples/04_custom_security_policy.cpp)
+    target_link_libraries(BurnerNetExampleCustomPolicy PRIVATE BurnerNetCustomPolicyExample)
+    burner_apply_example_warnings(BurnerNetExampleCustomPolicy)
+    burner_configure_runtime(BurnerNetExampleCustomPolicy)
 endif()
 
 if(BURNERNET_BUILD_TESTING OR BURNERNET_BUILD_INTEGRATION_TESTS)
