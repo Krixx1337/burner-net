@@ -69,9 +69,9 @@ auto utility = burner::net::ClientBuilder()
 
 See also:
 - [examples/01_basic_usage.cpp](examples/01_basic_usage.cpp)
-- [examples/02_security_audit.cpp](examples/02_security_audit.cpp)
-- [examples/03_traffic_lanes.cpp](examples/03_traffic_lanes.cpp)
+- [examples/02_zero_trust_pipeline.cpp](examples/02_zero_trust_pipeline.cpp)
 - [examples/04_custom_security_policy.cpp](examples/04_custom_security_policy.cpp)
+- [examples/05_bootstrap_runtime.cpp](examples/05_bootstrap_runtime.cpp)
 - [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
 - [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
 - [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)

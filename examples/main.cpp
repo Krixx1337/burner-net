@@ -2,33 +2,34 @@
 #include <string_view>
 
 int RunBasicUsage();
-int RunSecurityAudit();
-int RunTrafficLanes();
+int RunZeroTrustPipeline();
 int RunCustomPolicy();
+int RunBootstrapRuntime();
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
-        std::cerr << "Usage: BurnerNetExamples <example_name>\n"
+        std::cout << "BurnerNet Example Suite\n"
+                  << "Usage: BurnerNetExamples <example_name>\n\n"
                   << "Available examples:\n"
-                  << "  basic   - Basic usage and DoH\n"
-                  << "  audit   - Security auditor and TLS checks\n"
-                  << "  lanes   - Paranoid vs Utility traffic lanes\n"
-                  << "  policy  - Custom security policy\n";
-        return 1;
+                  << "  basic      - Simple request with secure DoH defaults\n"
+                  << "  hardened   - Audit check, pinned key, and HMAC verification flow\n"
+                  << "  policy     - Custom ISecurityPolicy implementation\n"
+                  << "  bootstrap  - Load curl/OpenSSL runtime DLLs from a custom folder\n";
+        return 0;
     }
 
     const std::string_view example(argv[1]);
     if (example == "basic") {
         return RunBasicUsage();
     }
-    if (example == "audit") {
-        return RunSecurityAudit();
-    }
-    if (example == "lanes") {
-        return RunTrafficLanes();
+    if (example == "hardened") {
+        return RunZeroTrustPipeline();
     }
     if (example == "policy") {
         return RunCustomPolicy();
+    }
+    if (example == "bootstrap") {
+        return RunBootstrapRuntime();
     }
 
     std::cerr << "Unknown example: " << example << '\n';
