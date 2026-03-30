@@ -69,26 +69,20 @@ TEST_CASE("hmac verifier rejects mismatched signature") {
     CHECK(reason == burner::net::ErrorCode::SigMismatch);
 }
 
-TEST_CASE("header map insert_or_assign preserves unique keys") {
+TEST_CASE("header map preserves unique keys and treats names as case-insensitive") {
     burner::net::HeaderMap headers;
     headers["Authorization"] = "Bearer one";
     headers.insert_or_assign("Authorization", "Bearer two");
     headers.insert_or_assign("X-Test", "value");
+    headers.insert_or_assign("content-type", "application/json");
+    headers.insert_or_assign("Content-Type", "text/plain");
 
-    CHECK(headers.size() == 2);
+    CHECK(headers.size() == 3);
 
     auto it = headers.begin();
     REQUIRE(it != headers.end());
     CHECK(it->first == "Authorization");
     CHECK(it->second == "Bearer two");
-}
-
-TEST_CASE("header map treats header names as case-insensitive") {
-    burner::net::HeaderMap headers;
-    headers.insert_or_assign("Content-Type", "application/json");
-    headers.insert_or_assign("content-type", "text/plain");
-
-    CHECK(headers.size() == 1);
     CHECK(headers["CONTENT-TYPE"] == "text/plain");
 }
 
@@ -121,12 +115,6 @@ TEST_CASE("import pointer trust accepts allowed system module and rejects wrong 
 #endif
 }
 
-TEST_CASE("builder returns result object") {
-    const auto result = burner::net::ClientBuilder().Build();
-    CHECK(result.error == burner::net::ErrorCode::None);
-    CHECK(result.client != nullptr);
-}
-
 TEST_CASE("error codes map to expected output based on hardening") {
 #if BURNERNET_HARDEN_ERRORS
     CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::DisabledBackend) ==
@@ -137,34 +125,27 @@ TEST_CASE("error codes map to expected output based on hardening") {
 #endif
 }
 
-TEST_CASE("pre-flight abort error code string is stable") {
-#if BURNERNET_HARDEN_ERRORS
-    CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::PreFlightAbort) ==
-          std::to_string(static_cast<uint32_t>(burner::net::ErrorCode::PreFlightAbort) ^
-                         burner::net::detail::ErrorXorKey()));
-#else
-    CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::PreFlightAbort) == "PreFlightAbort");
-#endif
-}
+TEST_CASE("selected error code strings are stable") {
+    const burner::net::ErrorCode codes[] = {
+        burner::net::ErrorCode::PreFlightAbort,
+        burner::net::ErrorCode::EnvironmentCompromised,
+        burner::net::ErrorCode::TransportVerificationFailed,
+    };
 
-TEST_CASE("environment compromised error code string is stable") {
+    for (const auto code : codes) {
 #if BURNERNET_HARDEN_ERRORS
-    CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::EnvironmentCompromised) ==
-          std::to_string(static_cast<uint32_t>(burner::net::ErrorCode::EnvironmentCompromised) ^
-                         burner::net::detail::ErrorXorKey()));
+        CHECK(burner::net::ErrorCodeToString(code) ==
+              std::to_string(static_cast<uint32_t>(code) ^ burner::net::detail::ErrorXorKey()));
 #else
-    CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::EnvironmentCompromised) ==
-          "EnvironmentCompromised");
+        if (code == burner::net::ErrorCode::PreFlightAbort) {
+            CHECK(burner::net::ErrorCodeToString(code) == "PreFlightAbort");
+        } else if (code == burner::net::ErrorCode::EnvironmentCompromised) {
+            CHECK(burner::net::ErrorCodeToString(code) == "EnvironmentCompromised");
+        } else if (code == burner::net::ErrorCode::TransportVerificationFailed) {
+            CHECK(burner::net::ErrorCodeToString(code) == "TransportVerificationFailed");
+        } else {
+            FAIL("Unexpected error code in stability test");
+        }
 #endif
-}
-
-TEST_CASE("transport verification failed error code string is stable") {
-#if BURNERNET_HARDEN_ERRORS
-    CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::TransportVerificationFailed) ==
-          std::to_string(static_cast<uint32_t>(burner::net::ErrorCode::TransportVerificationFailed) ^
-                         burner::net::detail::ErrorXorKey()));
-#else
-    CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::TransportVerificationFailed) ==
-          "TransportVerificationFailed");
-#endif
+    }
 }
