@@ -34,7 +34,7 @@ BurnerNet now builds without a generator step. Add the `.cpp` files to your proj
 
 Release builds harden error strings automatically when `NDEBUG` is defined. Debug builds keep symbolic error names by default.
 
-For custom security hooks, derive from `burner::net::ISecurityPolicy` and pass the instance into `ClientBuilder::WithSecurityPolicy(...)`. See [examples/04_custom_security_policy.cpp](examples/04_custom_security_policy.cpp) and [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md).
+For custom security hooks, derive from `burner::net::ISecurityPolicy` and pass the instance into `ClientBuilder::WithSecurityPolicy(...)`. The fluent `WithBeforeRequest(...)`, `WithPreFlight(...)`, `WithHeartbeat(...)`, `WithResponseReceived(...)`, and `WithPostVerification(...)` helpers now feed the default runtime policy wrapper instead of bypassing it. See [examples/04_custom_security_policy.cpp](examples/04_custom_security_policy.cpp) and [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md).
 
 ## Minimal Example
 

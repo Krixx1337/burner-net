@@ -344,25 +344,16 @@ CurlHttpClient::~CurlHttpClient() {
 
 HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
     HttpResponse response{};
-    bool verification_phase_completed = false;
-
-    if (m_config.on_pre_flight && !m_config.on_pre_flight(request)) {
-        response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
-        response.transport_error = ErrorCode::PreFlightAbort;
-        return response;
-    }
-
-    if (m_config.on_before_request && !m_config.on_before_request(request)) {
-        response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
-        response.transport_error = ErrorCode::HeartbeatAbort;
-        return response;
-    }
 
     const int attempts = (std::max)(1, request.retry.max_attempts);
 
     for (int attempt = 1; attempt <= attempts; ++attempt) {
         HttpRequest active_request = request;
-        m_config.security_policy->OnPreRequest(active_request);
+        if (!m_config.security_policy->OnPreRequest(active_request)) {
+            response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
+            response.transport_error = ErrorCode::PreFlightAbort;
+            return response;
+        }
         response = PerformOnceWithDnsFallback(active_request);
         if (!response.TransportOk()) {
             m_config.security_policy->OnError(response.transport_error, active_request.url.c_str());
@@ -377,8 +368,8 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
         }
     }
 
-    if (response.TransportOk() && m_config.on_response_received) {
-        if (!m_config.on_response_received(request, response)) {
+    if (response.TransportOk()) {
+        if (!m_config.security_policy->OnResponseReceived(request, response)) {
             response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
             response.transport_error = ErrorCode::HeartbeatAbort;
             WipeResponse(response);
@@ -390,10 +381,7 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
         if (request.on_chunk_received) {
             response.verified = false;
             response.verification_error = ErrorCode::VerifyGeneric;
-            verification_phase_completed = true;
-            if (m_config.on_post_verification) {
-                m_config.on_post_verification(response, response.verified);
-            }
+            m_config.security_policy->OnSignatureVerified(false, response.verification_error);
             return response;
         }
         ErrorCode reason = ErrorCode::None;
@@ -402,11 +390,6 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
         if (!response.verified) {
             response.verification_error = (reason == ErrorCode::None) ? ErrorCode::VerifyGeneric : reason;
         }
-        verification_phase_completed = true;
-    }
-
-    if (verification_phase_completed && m_config.on_post_verification) {
-        m_config.on_post_verification(response, response.verified);
     }
 
     return response;
@@ -674,11 +657,11 @@ size_t CurlHttpClient::WriteHeaderCallback(void* contents, size_t size, size_t n
 
 int CurlHttpClient::ProgressCallback(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
     auto* self = static_cast<CurlHttpClient*>(clientp);
-    if (self == nullptr || !self->m_config.on_request_heartbeat) {
+    if (self == nullptr) {
         return 0;
     }
 
-    if (!self->m_config.on_request_heartbeat()) {
+    if (!self->m_config.security_policy->OnHeartbeat()) {
         self->m_heartbeat_aborted = true;
         return 1;
     }

@@ -3,6 +3,7 @@
 #include "burner/net/export.h"
 #include "burner/net/detail/polymorphic_error.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 

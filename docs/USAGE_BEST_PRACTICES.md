@@ -67,7 +67,8 @@ auto utility = burner::net::ClientBuilder()
 - Use `ClientConfig::mtls_provider` for cert/key/password.
 - Use `ClientConfig::bearer_token_provider` for access token.
 - Use `SignatureVerifierConfig::secret_provider` for signature secret.
-- Use `ClientConfig::on_before_request`, `on_request_heartbeat`, and `on_response_received` for synchronous integrity checks around the transport lifecycle.
+- Use `ClientBuilder::WithBeforeRequest(...)`, `WithPreFlight(...)`, `WithHeartbeat(...)`, and `WithResponseReceived(...)` for synchronous integrity checks around the transport lifecycle when you do not need a full custom `ISecurityPolicy`.
+- If you do need a full policy, implement `ISecurityPolicy` and pass it with `WithSecurityPolicy(...)`.
 
 Avoid long-lived plaintext in:
 - global variables

@@ -11,6 +11,7 @@ namespace burner::net {
 
 enum class ErrorCode : std::uint32_t;
 struct HttpRequest;
+struct HttpResponse;
 
 class BURNER_API ISecurityPolicy {
 public:
@@ -20,11 +21,23 @@ public:
         return true;
     }
 
-    virtual void OnPreRequest(HttpRequest&) const {}
+    virtual bool OnPreRequest(HttpRequest&) const {
+        return true;
+    }
 
     virtual bool OnVerifyTransport(const char* url, const char* remote_ip) const {
         (void)url;
         (void)remote_ip;
+        return true;
+    }
+
+    virtual bool OnHeartbeat() const {
+        return true;
+    }
+
+    virtual bool OnResponseReceived(const HttpRequest& request, const HttpResponse& response) const {
+        (void)request;
+        (void)response;
         return true;
     }
 
@@ -47,7 +60,7 @@ public:
     }
 };
 
-class BURNER_API DefaultSecurityPolicy final : public ISecurityPolicy {};
+class BURNER_API DefaultSecurityPolicy : public ISecurityPolicy {};
 
 inline std::shared_ptr<ISecurityPolicy> DefaultSecurityPolicyInstance() {
     static std::shared_ptr<ISecurityPolicy> instance = std::make_shared<DefaultSecurityPolicy>();

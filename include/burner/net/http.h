@@ -33,7 +33,7 @@ using HeartbeatCallback = std::function<bool()>;
 using BeforeRequestCallback = std::function<bool(const struct HttpRequest& request)>;
 using PreFlightCallback = std::function<bool(const struct HttpRequest& request)>;
 using ResponseReceivedCallback = std::function<bool(const struct HttpRequest& request, const struct HttpResponse& response)>;
-using PostVerificationCallback = std::function<void(const struct HttpResponse& response, bool verified)>;
+using PostVerificationCallback = std::function<void(bool verified, ErrorCode reason)>;
 
 enum class DnsMode {
     System,
@@ -148,11 +148,6 @@ struct ClientConfig {
     MtlsCredentials mtls{};
     std::function<bool(MtlsCredentials& out)> mtls_provider;
     TokenProvider bearer_token_provider;
-    BeforeRequestCallback on_before_request;
-    PreFlightCallback on_pre_flight;
-    HeartbeatCallback on_request_heartbeat;
-    ResponseReceivedCallback on_response_received;
-    PostVerificationCallback on_post_verification;
     std::shared_ptr<IResponseVerifier> response_verifier;
     std::shared_ptr<ISecurityPolicy> security_policy;
     std::vector<std::string> pinned_public_keys;

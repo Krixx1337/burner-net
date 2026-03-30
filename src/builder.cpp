@@ -6,9 +6,52 @@ namespace burner::net {
 
 namespace detail {
 
+class BuilderSecurityPolicy final : public DefaultSecurityPolicy {
+public:
+    BeforeRequestCallback before_request;
+    PreFlightCallback pre_flight;
+    HeartbeatCallback heartbeat;
+    ResponseReceivedCallback response_received;
+    PostVerificationCallback post_verification;
+
+    bool OnPreRequest(HttpRequest& request) const override {
+        if (pre_flight && !pre_flight(request)) {
+            return false;
+        }
+        if (before_request && !before_request(request)) {
+            return false;
+        }
+        return true;
+    }
+
+    bool OnHeartbeat() const override {
+        return !heartbeat || heartbeat();
+    }
+
+    bool OnResponseReceived(const HttpRequest& request, const HttpResponse& response) const override {
+        return !response_received || response_received(request, response);
+    }
+
+    void OnSignatureVerified(bool success, ErrorCode reason) const override {
+        if (post_verification) {
+            post_verification(success, reason);
+        }
+    }
+};
+
 std::uint32_t ErrorXorKey() noexcept {
     static constinit const std::uint32_t key = ::burner::hostile_core::build_error_xor_key();
     return key;
+}
+
+BuilderSecurityPolicy& EnsureBuilderSecurityPolicy(ClientConfig& config) {
+    if (auto* existing = dynamic_cast<BuilderSecurityPolicy*>(config.security_policy.get())) {
+        return *existing;
+    }
+
+    auto policy = std::make_shared<BuilderSecurityPolicy>();
+    config.security_policy = policy;
+    return *policy;
 }
 
 } // namespace detail
@@ -129,12 +172,12 @@ ClientBuilder& ClientBuilder::WithBearerTokenProvider(TokenProvider provider) {
 }
 
 ClientBuilder& ClientBuilder::WithBeforeRequest(BeforeRequestCallback callback) {
-    m_config.on_before_request = std::move(callback);
+    detail::EnsureBuilderSecurityPolicy(m_config).before_request = std::move(callback);
     return *this;
 }
 
 ClientBuilder& ClientBuilder::WithPreFlight(PreFlightCallback callback) {
-    m_config.on_pre_flight = std::move(callback);
+    detail::EnsureBuilderSecurityPolicy(m_config).pre_flight = std::move(callback);
     return *this;
 }
 
@@ -144,17 +187,17 @@ ClientBuilder& ClientBuilder::WithResponseVerifier(std::shared_ptr<IResponseVeri
 }
 
 ClientBuilder& ClientBuilder::WithHeartbeat(HeartbeatCallback heartbeat) {
-    m_config.on_request_heartbeat = std::move(heartbeat);
+    detail::EnsureBuilderSecurityPolicy(m_config).heartbeat = std::move(heartbeat);
     return *this;
 }
 
 ClientBuilder& ClientBuilder::WithResponseReceived(ResponseReceivedCallback callback) {
-    m_config.on_response_received = std::move(callback);
+    detail::EnsureBuilderSecurityPolicy(m_config).response_received = std::move(callback);
     return *this;
 }
 
 ClientBuilder& ClientBuilder::WithPostVerification(PostVerificationCallback callback) {
-    m_config.on_post_verification = std::move(callback);
+    detail::EnsureBuilderSecurityPolicy(m_config).post_verification = std::move(callback);
     return *this;
 }
 
