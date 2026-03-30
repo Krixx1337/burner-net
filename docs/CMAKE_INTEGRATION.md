@@ -61,21 +61,23 @@ This guide does **not** replace the Visual Studio `.vcxproj` path. If your downs
 - Want a single `.exe` with no extra DLLs? **Mode 3.**
 - Building something that needs to hide its dependencies? **Mode 2.**
 
-### Mode 1: Local subproject integration (Recommended)
+### Mode 1: Local subproject integration with consumer-owned dependencies (Recommended)
 
 Use this when:
 
 - you have the BurnerNet source checkout available
 - your downstream project already uses CMake
+- you want the consumer project to own dependency resolution through its own vcpkg manifest/toolchain flow
 - you want the cleanest local dev and smoke-test integration path
 
 In this mode:
 
 - BurnerNet is added with `add_subdirectory(...)`
 - the consumer links `BurnerNet::BurnerNet`
+- the consumer owns `curl` resolution through its own `vcpkg.json` and vcpkg toolchain
 - BurnerNet carries its own include paths and compile definitions
 - curl is usually **dynamic**
-- runtime DLL staging is handled either by your dependency manager or a small consumer post-build step
+- runtime DLL staging is typically handled by the consumer's dependency manager flow
 
 This is the recommended CMake path for most local development and integration work.
 
@@ -156,9 +158,9 @@ With vcpkg manifest mode active in the consumer project:
 - vcpkg AppLocal deployment usually stages the required runtime DLLs automatically
 - the consumer usually does **not** need custom DLL copy logic
 
-### Option B: local sibling-repo smoke test
+### Option B: local sibling-repo fallback via `CMAKE_PREFIX_PATH`
 
-Use this when you want to reuse the already-built curl/OpenSSL/zlib tree from a local BurnerNet checkout.
+Use this when you explicitly want to reuse the already-built curl/OpenSSL/zlib tree from a local BurnerNet checkout instead of letting the consumer own dependency resolution.
 
 Consumer project sketch:
 
@@ -187,10 +189,11 @@ add_executable(MyApp main.cpp)
 target_link_libraries(MyApp PRIVATE BurnerNet::BurnerNet)
 ```
 
-This is valid for smoke tests and local integration work, but it has one important tradeoff:
+This is valid as a fallback for smoke tests and local integration work, but it has important tradeoffs:
 
 - vcpkg AppLocal deployment is usually not driving the consumer build directly
-- you may need an explicit post-build DLL copy step for the runtime set
+- it is more brittle than the consumer-owned manifest/toolchain path
+- it should not be the primary downstream recommendation
 
 ### Option C: installed package consumption
 
@@ -247,11 +250,11 @@ burnernet_configure_runtime(MyApp)
 
 This helper is useful for local subproject integration.
 
-It is **not** the installed-package runtime story. For installed/package consumption, prefer the consumer's own dependency-management/runtime-staging mechanism.
+It is **not** a replacement for consumer-owned dependency management. For installed/package consumption or manifest-based downstream builds, prefer the consumer's own dependency-management/runtime-staging mechanism.
 
 ### Manual fallback
 
-If you explicitly point `CMAKE_PREFIX_PATH` at a sibling repo's already-built `vcpkg_installed` tree instead of using your own manifest/toolchain-driven dependency flow, you may need to manually copy:
+If you explicitly point `CMAKE_PREFIX_PATH` at a sibling repo's already-built `vcpkg_installed` tree instead of using your own manifest/toolchain-driven dependency flow, you may still need to manually verify or adjust runtime DLL staging for:
 
 - `libcurl*.dll`
 - `libssl*.dll`
@@ -320,8 +323,9 @@ This avoids fragile reliance on shell-specific implicit linker search paths and 
 
 For CMake consumers, the recommended order is:
 
-1. use vcpkg manifest mode when possible
+1. let the consumer own its own `vcpkg.json` and vcpkg toolchain flow
 2. consume BurnerNet as a normal CMake target
 3. prefer `add_subdirectory(...)` for local sibling-repo dev and smoke tests
-4. use `burnernet_configure_runtime(...)` for build-tree runtime staging when needed
-5. reserve bootstrap runtime loading for advanced custom redist scenarios
+4. treat `CMAKE_PREFIX_PATH` reuse of BurnerNet's private dependency tree as fallback only
+5. use `burnernet_configure_runtime(...)` as a build-tree helper when needed
+6. reserve bootstrap runtime loading for advanced custom redist scenarios

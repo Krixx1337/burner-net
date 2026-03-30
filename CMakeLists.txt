@@ -123,11 +123,14 @@ function(burnernet_configure_runtime target_name)
             COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target_name}>/redist"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_RUNTIME_DLLS:${target_name}>
+                "$<TARGET_FILE_DIR:${target_name}>"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_RUNTIME_DLLS:${target_name}>
                 "$<TARGET_FILE_DIR:${target_name}>/redist"
             COMMAND ${CMAKE_COMMAND}
                 -DBURNER_SOURCE_DIR="$<TARGET_FILE_DIR:${target_name}>"
                 -DBURNER_REDIST_DIR="$<TARGET_FILE_DIR:${target_name}>/redist"
-                -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/SyncRedist.cmake"
+                -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/SyncRedist.cmake"
             COMMAND_EXPAND_LISTS
         )
     endif()
