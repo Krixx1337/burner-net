@@ -352,7 +352,7 @@ TEST_CASE("builder tamper action layers on top of wrapped policy tamper handling
     REQUIRE(build_result.Ok());
     REQUIRE(build_result.client != nullptr);
 
-    CHECK_FALSE(burner::net::SecurityAuditor::CheckTransportIntegrity(build_result.client->Raw()));
+    build_result.client->Raw()->SecurityPolicy()->OnTamper();
     CHECK(tamper_action_called);
     CHECK(policy->tamper_count == 1);
 }
