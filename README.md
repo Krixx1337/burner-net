@@ -30,16 +30,16 @@ It is built for:
 
 ## Provisioning
 
-BurnerNet now builds without a generator step. The recommended integration model is a **Source-Drop**: add the relevant `src/` and `include/` files directly to your project, compile them with your app, and ship one binary.
+BurnerNet now builds without a generator step. The recommended integration model is **static linking via CMake**: add the repository with `add_subdirectory(...)`, link `BurnerNet::BurnerNet`, and let CMake carry the `libcurl` and compile requirements for you.
 
 Why this is the recommended path:
-- it keeps integration simple and avoids separate library packaging friction
-- BurnerNet's compile-time hardening then gets instantiated as part of your own build
-- each consuming build gets its own build-local polymorphic shape instead of sharing one prebuilt release artifact
+- it is the cleanest way to manage BurnerNet's `libcurl` dependency surface
+- static linking keeps deployment simpler than shipping a separate runtime library
+- BurnerNet still gets compiled inside the downstream build instead of forcing consumers onto one shared public binary artifact
 
-If you prefer, you can still link a prebuilt static or dynamic library. That is a valid distribution model, but the compile-time hardening shape is then shared by consumers of that specific build artifact instead of being regenerated inside each downstream build.
+If you prefer, you can still do a **source-drop** by vendoring the relevant `src/` and `include/` files into your own project. That is best treated as an advanced, security-first path for teams that explicitly want compilation to happen inside their own application build and are willing to manage `libcurl` and project settings manually.
 
-Release builds harden error strings automatically when `NDEBUG` is defined. Debug builds keep symbolic error names by default.
+Error strings are hardened by default. Define `BURNERNET_LEAK_STRINGS_FOR_DEBUGGING` only when you explicitly want plaintext debug strings.
 
 For custom security hooks, derive from `burner::net::ISecurityPolicy` and pass the instance into `ClientBuilder::WithSecurityPolicy(...)`. The fluent `WithBeforeRequest(...)`, `WithPreFlight(...)`, `WithHeartbeat(...)`, `WithResponseReceived(...)`, and `WithPostVerification(...)` helpers now feed the default runtime policy wrapper instead of bypassing it. See [examples/04_custom_security_policy.cpp](examples/04_custom_security_policy.cpp) and [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md).
 
@@ -75,9 +75,9 @@ See also:
 
 BurnerNet requires C++20, CMake 3.21+, and libcurl.
 
-- **Source-Drop:** recommended for consumers who want the simplest integration path and per-build compile-time hardening. Vendor the needed `include/` and `src/` files into your project and compile BurnerNet as part of your normal application build.
-- **Static linking:** recommended for the smallest attack surface. Link against `BurnerNet::BurnerNet` and use a static vcpkg triplet such as `x64-windows-static-md`.
-- **Dynamic linking:** use `InitializeNetworkingRuntime(...)` only when you intentionally load the runtime DLLs yourself from a custom directory.
+- **Default: Static via CMake.** Link `BurnerNet::BurnerNet` and prefer a static triplet such as `x64-windows-static-md`.
+- **Advanced: Source-Drop.** Vendor the needed `include/` and `src/` files into your project when you want security-first control over compilation inside your own app build and are willing to manage `libcurl` integration yourself.
+- **Secondary: Dynamic linking.** Use `InitializeNetworkingRuntime(...)` only when you intentionally load the runtime DLLs yourself from a custom directory.
 
 ## Security Reality
 

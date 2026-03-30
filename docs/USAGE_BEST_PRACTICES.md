@@ -2,16 +2,18 @@
 
 This guide shows recommended usage patterns for short-lived secrets and mixed security levels (public + login APIs).
 
-## 1. Prefer Source-Drop integration
-- Recommended: vendor the needed `include/` and `src/` files into your application and compile BurnerNet as part of your normal build.
-- This is the simplest integration path for many consumers, including private projects, and avoids separate packaging, runtime mismatch, or DLL deployment friction.
-- It also preserves the per-build compile-time hardening behavior because BurnerNet gets compiled inside your own build graph.
+## 1. Prefer static integration via CMake
+- Recommended: add BurnerNet as a CMake subdirectory and link `BurnerNet::BurnerNet` as a static library.
+- This is the best default for most consumers because CMake carries the `libcurl` dependency and usage requirements in one place.
+- It keeps deployment simpler than a dynamic runtime while still letting the consumer build BurnerNet inside their own build graph.
 - If you distribute a prebuilt library instead, all consumers of that exact artifact share the same compiled hardening shape for that release.
 
 Why:
-- Source-Drop keeps the "just build the app" workflow intact.
+- Static CMake integration is the best balance of security posture, consumer ergonomics, and dependency management.
 - Compile-time obfuscation and hardened error-string generation are re-instantiated when your project compiles.
 - This is a hardening advantage, not a cryptographic identity guarantee. Do not treat build-time polymorphism as a substitute for server-side secrets or response verification.
+
+Source-drop remains a valid advanced path when you explicitly want security-first control over compilation inside your own application build and are willing to manage `libcurl` and project settings manually.
 
 ## 2. Treat clients as disposable transports
 - Prefer request-scope or burst-scope clients: create, use, destroy.
