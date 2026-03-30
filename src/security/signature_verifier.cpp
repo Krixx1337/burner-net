@@ -12,6 +12,7 @@
 #pragma comment(lib, "bcrypt.lib")
 #include <windows.h>
 #include <bcrypt.h>
+#include "burner/net/external/lazy_importer/lazy_importer.hpp"
 #endif
 
 namespace burner::net {
@@ -69,6 +70,14 @@ bool ConstantTimeEqual(std::string_view a, std::string_view b) {
 }
 
 #ifdef _WIN32
+using BCryptOpenAlgorithmProviderFn = decltype(&BCryptOpenAlgorithmProvider);
+using BCryptGetPropertyFn = decltype(&BCryptGetProperty);
+using BCryptCreateHashFn = decltype(&BCryptCreateHash);
+using BCryptHashDataFn = decltype(&BCryptHashData);
+using BCryptFinishHashFn = decltype(&BCryptFinishHash);
+using BCryptDestroyHashFn = decltype(&BCryptDestroyHash);
+using BCryptCloseAlgorithmProviderFn = decltype(&BCryptCloseAlgorithmProvider);
+
 std::string ToHexLower(const unsigned char* bytes, size_t len) {
     auto nibble_to_hex = [](unsigned char nibble) -> char {
         nibble &= 0x0F;
@@ -91,20 +100,41 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
     }
 
 #ifdef _WIN32
+    const BCryptOpenAlgorithmProviderFn bcrypt_open_algorithm_provider =
+        LI_FN(BCryptOpenAlgorithmProvider).in_safe<BCryptOpenAlgorithmProviderFn>(LI_MODULE("bcrypt.dll").safe_cached());
+    const BCryptGetPropertyFn bcrypt_get_property =
+        LI_FN(BCryptGetProperty).in_safe<BCryptGetPropertyFn>(LI_MODULE("bcrypt.dll").safe_cached());
+    const BCryptCreateHashFn bcrypt_create_hash =
+        LI_FN(BCryptCreateHash).in_safe<BCryptCreateHashFn>(LI_MODULE("bcrypt.dll").safe_cached());
+    const BCryptHashDataFn bcrypt_hash_data =
+        LI_FN(BCryptHashData).in_safe<BCryptHashDataFn>(LI_MODULE("bcrypt.dll").safe_cached());
+    const BCryptFinishHashFn bcrypt_finish_hash =
+        LI_FN(BCryptFinishHash).in_safe<BCryptFinishHashFn>(LI_MODULE("bcrypt.dll").safe_cached());
+    const BCryptDestroyHashFn bcrypt_destroy_hash =
+        LI_FN(BCryptDestroyHash).in_safe<BCryptDestroyHashFn>(LI_MODULE("bcrypt.dll").safe_cached());
+    const BCryptCloseAlgorithmProviderFn bcrypt_close_algorithm_provider =
+        LI_FN(BCryptCloseAlgorithmProvider).in_safe<BCryptCloseAlgorithmProviderFn>(LI_MODULE("bcrypt.dll").safe_cached());
+    if (bcrypt_open_algorithm_provider == nullptr || bcrypt_get_property == nullptr ||
+        bcrypt_create_hash == nullptr || bcrypt_hash_data == nullptr ||
+        bcrypt_finish_hash == nullptr || bcrypt_destroy_hash == nullptr ||
+        bcrypt_close_algorithm_provider == nullptr) {
+        return false;
+    }
+
     BCRYPT_ALG_HANDLE alg = nullptr;
     BCRYPT_HASH_HANDLE hash = nullptr;
     DWORD object_size = 0;
     DWORD cb_result = 0;
 
-    NTSTATUS status = BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, BCRYPT_ALG_HANDLE_HMAC_FLAG);
+    NTSTATUS status = bcrypt_open_algorithm_provider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, BCRYPT_ALG_HANDLE_HMAC_FLAG);
     if (status < 0) {
         return false;
     }
 
-    status = BCryptGetProperty(
+    status = bcrypt_get_property(
         alg, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&object_size), sizeof(object_size), &cb_result, 0);
     if (status < 0 || object_size == 0) {
-        BCryptCloseAlgorithmProvider(alg, 0);
+        bcrypt_close_algorithm_provider(alg, 0);
         return false;
     }
 
@@ -116,7 +146,7 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
         burner::net::SecureWipe(std::span<unsigned char>(hash_bytes.data(), hash_bytes.size()));
     };
 
-    status = BCryptCreateHash(
+    status = bcrypt_create_hash(
         alg,
         &hash,
         object_buffer.data(),
@@ -126,30 +156,30 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
         0);
     if (status < 0) {
         cleanup();
-        BCryptCloseAlgorithmProvider(alg, 0);
+        bcrypt_close_algorithm_provider(alg, 0);
         return false;
     }
 
-    status = BCryptHashData(hash,
+    status = bcrypt_hash_data(hash,
         reinterpret_cast<PUCHAR>(const_cast<char*>(data.data())),
         static_cast<ULONG>(data.size()), 0);
     if (status < 0) {
         cleanup();
-        BCryptDestroyHash(hash);
-        BCryptCloseAlgorithmProvider(alg, 0);
+        bcrypt_destroy_hash(hash);
+        bcrypt_close_algorithm_provider(alg, 0);
         return false;
     }
 
-    status = BCryptFinishHash(hash, hash_bytes.data(), static_cast<ULONG>(hash_bytes.size()), 0);
+    status = bcrypt_finish_hash(hash, hash_bytes.data(), static_cast<ULONG>(hash_bytes.size()), 0);
     if (status < 0) {
         cleanup();
-        BCryptDestroyHash(hash);
-        BCryptCloseAlgorithmProvider(alg, 0);
+        bcrypt_destroy_hash(hash);
+        bcrypt_close_algorithm_provider(alg, 0);
         return false;
     }
 
-    BCryptDestroyHash(hash);
-    BCryptCloseAlgorithmProvider(alg, 0);
+    bcrypt_destroy_hash(hash);
+    bcrypt_close_algorithm_provider(alg, 0);
 
     *out_hex = ToHexLower(hash_bytes.data(), hash_bytes.size());
     cleanup();

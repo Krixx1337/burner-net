@@ -1,7 +1,6 @@
 #include "burner/net/bootstrap.h"
-#include "detail/hostile_imports.h"
-
 #include "burner/net/obfuscation.h"
+#include "detail/hostile_imports.h"
 
 #ifdef _WIN32
 #pragma comment(lib, "bcrypt.lib")
@@ -23,10 +22,21 @@ std::mutex g_loader_mutex;
 std::vector<HMODULE> g_loaded_modules;
 DLL_DIRECTORY_COOKIE g_dependency_cookie = nullptr;
 
-using SetDefaultDllDirectoriesFn = BOOL(WINAPI*)(DWORD);
-using AddDllDirectoryFn = DLL_DIRECTORY_COOKIE(WINAPI*)(PCWSTR);
-using LoadLibraryExWFn = HMODULE(WINAPI*)(LPCWSTR, HANDLE, DWORD);
-using GetModuleFileNameWFn = DWORD(WINAPI*)(HMODULE, LPWSTR, DWORD);
+using SetDefaultDllDirectoriesFn = decltype(&SetDefaultDllDirectories);
+using AddDllDirectoryFn = decltype(&AddDllDirectory);
+using LoadLibraryExWFn = decltype(&LoadLibraryExW);
+using GetModuleFileNameWFn = decltype(&GetModuleFileNameW);
+using CreateFileWFn = decltype(&CreateFileW);
+using ReadFileFn = decltype(&ReadFile);
+using CloseHandleFn = decltype(&CloseHandle);
+using FreeLibraryFn = decltype(&FreeLibrary);
+using BCryptOpenAlgorithmProviderFn = decltype(&BCryptOpenAlgorithmProvider);
+using BCryptGetPropertyFn = decltype(&BCryptGetProperty);
+using BCryptCreateHashFn = decltype(&BCryptCreateHash);
+using BCryptHashDataFn = decltype(&BCryptHashData);
+using BCryptFinishHashFn = decltype(&BCryptFinishHash);
+using BCryptDestroyHashFn = decltype(&BCryptDestroyHash);
+using BCryptCloseAlgorithmProviderFn = decltype(&BCryptCloseAlgorithmProvider);
 
 struct LoaderImports {
     SetDefaultDllDirectoriesFn set_default_dll_directories = nullptr;
@@ -40,17 +50,59 @@ struct LoaderImports {
     }
 };
 
-#if BURNERNET_HARDEN_IMPORTS
 const LoaderImports& GetLoaderImports() {
     static const LoaderImports imports{
-        BURNER_HOSTILE_IMPORT(SetDefaultDllDirectoriesFn, "kernel32.dll", "SetDefaultDllDirectories"),
-        BURNER_HOSTILE_IMPORT(AddDllDirectoryFn, "kernel32.dll", "AddDllDirectory"),
-        BURNER_HOSTILE_IMPORT(LoadLibraryExWFn, "kernel32.dll", "LoadLibraryExW"),
-        BURNER_HOSTILE_IMPORT(GetModuleFileNameWFn, "kernel32.dll", "GetModuleFileNameW"),
+        BURNER_LAZY_IMPORT_IN(SetDefaultDllDirectoriesFn, "kernel32.dll", SetDefaultDllDirectories),
+        BURNER_LAZY_IMPORT_IN(AddDllDirectoryFn, "kernel32.dll", AddDllDirectory),
+        BURNER_LAZY_IMPORT_IN(LoadLibraryExWFn, "kernel32.dll", LoadLibraryExW),
+        BURNER_LAZY_IMPORT_IN(GetModuleFileNameWFn, "kernel32.dll", GetModuleFileNameW),
     };
     return imports;
 }
-#endif
+
+CreateFileWFn ResolveCreateFileW() {
+    return BURNER_LAZY_IMPORT_IN(CreateFileWFn, "kernel32.dll", CreateFileW);
+}
+
+ReadFileFn ResolveReadFile() {
+    return BURNER_LAZY_IMPORT_IN(ReadFileFn, "kernel32.dll", ReadFile);
+}
+
+CloseHandleFn ResolveCloseHandle() {
+    return BURNER_LAZY_IMPORT_IN(CloseHandleFn, "kernel32.dll", CloseHandle);
+}
+
+FreeLibraryFn ResolveFreeLibrary() {
+    return BURNER_LAZY_IMPORT_IN(FreeLibraryFn, "kernel32.dll", FreeLibrary);
+}
+
+BCryptOpenAlgorithmProviderFn ResolveBCryptOpenAlgorithmProvider() {
+    return BURNER_LAZY_IMPORT_IN(BCryptOpenAlgorithmProviderFn, "bcrypt.dll", BCryptOpenAlgorithmProvider);
+}
+
+BCryptGetPropertyFn ResolveBCryptGetProperty() {
+    return BURNER_LAZY_IMPORT_IN(BCryptGetPropertyFn, "bcrypt.dll", BCryptGetProperty);
+}
+
+BCryptCreateHashFn ResolveBCryptCreateHash() {
+    return BURNER_LAZY_IMPORT_IN(BCryptCreateHashFn, "bcrypt.dll", BCryptCreateHash);
+}
+
+BCryptHashDataFn ResolveBCryptHashData() {
+    return BURNER_LAZY_IMPORT_IN(BCryptHashDataFn, "bcrypt.dll", BCryptHashData);
+}
+
+BCryptFinishHashFn ResolveBCryptFinishHash() {
+    return BURNER_LAZY_IMPORT_IN(BCryptFinishHashFn, "bcrypt.dll", BCryptFinishHash);
+}
+
+BCryptDestroyHashFn ResolveBCryptDestroyHash() {
+    return BURNER_LAZY_IMPORT_IN(BCryptDestroyHashFn, "bcrypt.dll", BCryptDestroyHash);
+}
+
+BCryptCloseAlgorithmProviderFn ResolveBCryptCloseAlgorithmProvider() {
+    return BURNER_LAZY_IMPORT_IN(BCryptCloseAlgorithmProviderFn, "bcrypt.dll", BCryptCloseAlgorithmProvider);
+}
 
 std::wstring ToLowerWide(const std::wstring& value) {
     std::wstring out = value;
@@ -83,7 +135,25 @@ const DependencyHashEntry* FindAllowlistEntry(
 bool ComputeFileSha256Hex(const std::filesystem::path& path, std::string& out_hex) {
     out_hex.clear();
 
-    HANDLE file = CreateFileW(
+    const CreateFileWFn create_file_w = ResolveCreateFileW();
+    const ReadFileFn read_file = ResolveReadFile();
+    const CloseHandleFn close_handle = ResolveCloseHandle();
+    const BCryptOpenAlgorithmProviderFn bcrypt_open_algorithm_provider = ResolveBCryptOpenAlgorithmProvider();
+    const BCryptGetPropertyFn bcrypt_get_property = ResolveBCryptGetProperty();
+    const BCryptCreateHashFn bcrypt_create_hash = ResolveBCryptCreateHash();
+    const BCryptHashDataFn bcrypt_hash_data = ResolveBCryptHashData();
+    const BCryptFinishHashFn bcrypt_finish_hash = ResolveBCryptFinishHash();
+    const BCryptDestroyHashFn bcrypt_destroy_hash = ResolveBCryptDestroyHash();
+    const BCryptCloseAlgorithmProviderFn bcrypt_close_algorithm_provider = ResolveBCryptCloseAlgorithmProvider();
+    if (create_file_w == nullptr || read_file == nullptr || close_handle == nullptr ||
+        bcrypt_open_algorithm_provider == nullptr || bcrypt_get_property == nullptr ||
+        bcrypt_create_hash == nullptr || bcrypt_hash_data == nullptr ||
+        bcrypt_finish_hash == nullptr || bcrypt_destroy_hash == nullptr ||
+        bcrypt_close_algorithm_provider == nullptr) {
+        return false;
+    }
+
+    HANDLE file = create_file_w(
         path.c_str(),
         GENERIC_READ,
         FILE_SHARE_READ,
@@ -100,50 +170,50 @@ bool ComputeFileSha256Hex(const std::filesystem::path& path, std::string& out_he
     const auto nt_ok = [](NTSTATUS status) { return status >= 0; };
     std::vector<UCHAR> obj;
     std::vector<UCHAR> digest;
-    NTSTATUS st = BCryptOpenAlgorithmProvider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0);
+    NTSTATUS st = bcrypt_open_algorithm_provider(&alg, BCRYPT_SHA256_ALGORITHM, nullptr, 0);
     if (!nt_ok(st)) {
-        CloseHandle(file);
+        close_handle(file);
         return false;
     }
 
     DWORD obj_len = 0;
     DWORD cb = 0;
-    st = BCryptGetProperty(alg, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&obj_len), sizeof(obj_len), &cb, 0);
+    st = bcrypt_get_property(alg, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&obj_len), sizeof(obj_len), &cb, 0);
     if (!nt_ok(st) || obj_len == 0) {
-        BCryptCloseAlgorithmProvider(alg, 0);
-        CloseHandle(file);
+        bcrypt_close_algorithm_provider(alg, 0);
+        close_handle(file);
         return false;
     }
 
     DWORD hash_len = 0;
-    st = BCryptGetProperty(alg, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&hash_len), sizeof(hash_len), &cb, 0);
+    st = bcrypt_get_property(alg, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&hash_len), sizeof(hash_len), &cb, 0);
     if (!nt_ok(st) || hash_len == 0) {
-        BCryptCloseAlgorithmProvider(alg, 0);
-        CloseHandle(file);
+        bcrypt_close_algorithm_provider(alg, 0);
+        close_handle(file);
         return false;
     }
 
     obj.resize(obj_len);
     digest.resize(hash_len);
-    st = BCryptCreateHash(alg, &hash, obj.data(), static_cast<ULONG>(obj.size()), nullptr, 0, 0);
+    st = bcrypt_create_hash(alg, &hash, obj.data(), static_cast<ULONG>(obj.size()), nullptr, 0, 0);
     if (!nt_ok(st)) {
-        BCryptCloseAlgorithmProvider(alg, 0);
-        CloseHandle(file);
+        bcrypt_close_algorithm_provider(alg, 0);
+        close_handle(file);
         return false;
     }
 
     std::vector<UCHAR> buffer(64 * 1024);
     DWORD read = 0;
     BOOL ok = TRUE;
-    while ((ok = ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr)) && read > 0) {
-        st = BCryptHashData(hash, buffer.data(), read, 0);
+    while ((ok = read_file(file, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr)) && read > 0) {
+        st = bcrypt_hash_data(hash, buffer.data(), read, 0);
         if (!nt_ok(st)) {
             burner::net::SecureWipe(buffer);
             burner::net::SecureWipe(digest);
             burner::net::SecureWipe(obj);
-            BCryptDestroyHash(hash);
-            BCryptCloseAlgorithmProvider(alg, 0);
-            CloseHandle(file);
+            bcrypt_destroy_hash(hash);
+            bcrypt_close_algorithm_provider(alg, 0);
+            close_handle(file);
             return false;
         }
     }
@@ -151,16 +221,16 @@ bool ComputeFileSha256Hex(const std::filesystem::path& path, std::string& out_he
         burner::net::SecureWipe(buffer);
         burner::net::SecureWipe(digest);
         burner::net::SecureWipe(obj);
-        BCryptDestroyHash(hash);
-        BCryptCloseAlgorithmProvider(alg, 0);
-        CloseHandle(file);
+        bcrypt_destroy_hash(hash);
+        bcrypt_close_algorithm_provider(alg, 0);
+        close_handle(file);
         return false;
     }
 
-    st = BCryptFinishHash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0);
-    BCryptDestroyHash(hash);
-    BCryptCloseAlgorithmProvider(alg, 0);
-    CloseHandle(file);
+    st = bcrypt_finish_hash(hash, digest.data(), static_cast<ULONG>(digest.size()), 0);
+    bcrypt_destroy_hash(hash);
+    bcrypt_close_algorithm_provider(alg, 0);
+    close_handle(file);
     if (!nt_ok(st)) {
         burner::net::SecureWipe(buffer);
         burner::net::SecureWipe(digest);
@@ -202,26 +272,20 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
 
     std::lock_guard<std::mutex> lock(g_loader_mutex);
 
-#if BURNERNET_HARDEN_IMPORTS
     const LoaderImports& loader_imports = GetLoaderImports();
     if (!loader_imports.Ready()) {
         return {false, ErrorCode::BootstrapDllDirs};
     }
-#endif
+    const FreeLibraryFn free_library = ResolveFreeLibrary();
+    if (free_library == nullptr) {
+        return {false, ErrorCode::BootstrapLoad};
+    }
 
     if (g_dependency_cookie == nullptr) {
-#if BURNERNET_HARDEN_IMPORTS
         if (!loader_imports.set_default_dll_directories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS)) {
-#else
-        if (!SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS)) {
-#endif
             return {false, ErrorCode::BootstrapDllDirs};
         }
-#if BURNERNET_HARDEN_IMPORTS
         g_dependency_cookie = loader_imports.add_dll_directory(config.dependency_directory.c_str());
-#else
-        g_dependency_cookie = AddDllDirectory(config.dependency_directory.c_str());
-#endif
         if (g_dependency_cookie == nullptr) {
             return {false, ErrorCode::BootstrapAddDir};
         }
@@ -256,30 +320,19 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
             }
         }
 
-#if BURNERNET_HARDEN_IMPORTS
         HMODULE module = loader_imports.load_library_ex_w(
             full_path.c_str(),
             nullptr,
             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
-#else
-        HMODULE module = LoadLibraryExW(
-            full_path.c_str(),
-            nullptr,
-            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
-#endif
 
         if (module == nullptr) {
             return {false, ErrorCode::BootstrapLoad};
         }
 
         wchar_t loaded_path[MAX_PATH] = {};
-#if BURNERNET_HARDEN_IMPORTS
         const DWORD n = loader_imports.get_module_file_name_w(module, loaded_path, MAX_PATH);
-#else
-        const DWORD n = GetModuleFileNameW(module, loaded_path, MAX_PATH);
-#endif
         if (n == 0 || n == MAX_PATH || !PathsEqualCaseInsensitive(std::filesystem::path(loaded_path), full_path)) {
-            FreeLibrary(module);
+            free_library(module);
             return {false, ErrorCode::BootstrapModulePath};
         }
 

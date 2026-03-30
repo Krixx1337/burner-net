@@ -1,6 +1,7 @@
 #if BURNER_ENABLE_CURL
 
 #include "curl_http_client.h"
+
 #include "burner/net/obfuscation.h"
 #include "../internal/header_validation.h"
 #include "../internal/import_pointer_trust.h"
@@ -12,10 +13,12 @@
 #include <cstdarg>
 #include <curl/curl.h>
 #include <limits>
+#include <memory>
 #include <thread>
 
 #ifdef _WIN32
 #include <windows.h>
+#include "burner/net/external/lazy_importer/lazy_importer.hpp"
 
 #if defined(_MSC_VER)
 #pragma comment(lib, "ws2_32.lib")
@@ -54,32 +57,17 @@ struct BodyWriteContext {
 };
 
 #ifdef _WIN32
-template <typename TFn>
-TFn ResolveCurlExport(std::string export_name) {
-    std::string dll_names[] = {
-        BURNER_OBF_LITERAL("libcurl.dll"),
-        BURNER_OBF_LITERAL("libcurl-d.dll"),
-        BURNER_OBF_LITERAL("libcurl-x64.dll"),
-        BURNER_OBF_LITERAL("libcurl-x86.dll")
-    };
-
-    for (std::string& dll_name : dll_names) {
-        HMODULE module = GetModuleHandleA(dll_name.c_str());
-        if (module == nullptr) {
-            SecureWipe(dll_name);
-            continue;
-        }
-
-        FARPROC proc = GetProcAddress(module, export_name.c_str());
-        SecureWipe(dll_name);
-        if (proc != nullptr) {
-            SecureWipe(export_name);
-            return reinterpret_cast<TFn>(proc);
-        }
+void* ResolveLoadedCurlModule() noexcept {
+    if (void* module = LI_MODULE("libcurl.dll").safe_cached()) {
+        return module;
     }
-
-    SecureWipe(export_name);
-    return nullptr;
+    if (void* module = LI_MODULE("libcurl-d.dll").safe_cached()) {
+        return module;
+    }
+    if (void* module = LI_MODULE("libcurl-x64.dll").safe_cached()) {
+        return module;
+    }
+    return LI_MODULE("libcurl-x86.dll").safe_cached();
 }
 #endif
 
@@ -233,15 +221,20 @@ CurlApi MakeWrappedCurlApi() {
 CurlApi MakeResolvedCurlApi() {
     CurlApi api{};
 #ifdef _WIN32
-    api.easy_init = ResolveCurlExport<CurlEasyInitFn>(BURNER_OBF_LITERAL("curl_easy_init"));
-    api.easy_cleanup = ResolveCurlExport<CurlEasyCleanupFn>(BURNER_OBF_LITERAL("curl_easy_cleanup"));
-    api.easy_reset = ResolveCurlExport<CurlEasyResetFn>(BURNER_OBF_LITERAL("curl_easy_reset"));
-    api.easy_setopt = ResolveCurlExport<CurlEasySetoptFn>(BURNER_OBF_LITERAL("curl_easy_setopt"));
-    api.easy_perform = ResolveCurlExport<CurlEasyPerformFn>(BURNER_OBF_LITERAL("curl_easy_perform"));
-    api.easy_getinfo = ResolveCurlExport<CurlEasyGetinfoFn>(BURNER_OBF_LITERAL("curl_easy_getinfo"));
-    api.slist_append = ResolveCurlExport<CurlSlistAppendFn>(BURNER_OBF_LITERAL("curl_slist_append"));
-    api.slist_free_all = ResolveCurlExport<CurlSlistFreeAllFn>(BURNER_OBF_LITERAL("curl_slist_free_all"));
-    api.easy_strerror = ResolveCurlExport<CurlEasyStrerrorFn>(BURNER_OBF_LITERAL("curl_easy_strerror"));
+    const void* curl_module = ResolveLoadedCurlModule();
+    if (curl_module == nullptr) {
+        return api;
+    }
+
+    api.easy_init = LI_FN(curl_easy_init).in_safe<CurlEasyInitFn>(curl_module);
+    api.easy_cleanup = LI_FN(curl_easy_cleanup).in_safe<CurlEasyCleanupFn>(curl_module);
+    api.easy_reset = LI_FN(curl_easy_reset).in_safe<CurlEasyResetFn>(curl_module);
+    api.easy_setopt = LI_FN(curl_easy_setopt).in_safe<CurlEasySetoptFn>(curl_module);
+    api.easy_perform = LI_FN(curl_easy_perform).in_safe<CurlEasyPerformFn>(curl_module);
+    api.easy_getinfo = LI_FN(curl_easy_getinfo).in_safe<CurlEasyGetinfoFn>(curl_module);
+    api.slist_append = LI_FN(curl_slist_append).in_safe<CurlSlistAppendFn>(curl_module);
+    api.slist_free_all = LI_FN(curl_slist_free_all).in_safe<CurlSlistFreeAllFn>(curl_module);
+    api.easy_strerror = LI_FN(curl_easy_strerror).in_safe<CurlEasyStrerrorFn>(curl_module);
 #endif
     return api;
 }
@@ -309,63 +302,139 @@ std::string ToCurlMethod(HttpMethod method) {
 
 } // namespace
 
+class CurlSession {
+public:
+    explicit CurlSession(CurlApi api)
+        : m_api(std::move(api)),
+          m_easy(m_api.easy_init ? m_api.easy_init() : nullptr) {}
+
+    ~CurlSession() {
+        if (m_easy != nullptr) {
+            m_api.easy_cleanup(m_easy);
+        }
+    }
+
+    CurlSession(const CurlSession&) = delete;
+    CurlSession& operator=(const CurlSession&) = delete;
+    CurlSession(CurlSession&&) = delete;
+    CurlSession& operator=(CurlSession&&) = delete;
+
+    [[nodiscard]] bool IsInitialized() const noexcept { return m_easy != nullptr; }
+    [[nodiscard]] CURL* EasyHandle() const noexcept { return m_easy; }
+    [[nodiscard]] const CurlApi& Api() const noexcept { return m_api; }
+
+    void Reset() const {
+        if (m_easy != nullptr) {
+            m_api.easy_reset(m_easy);
+        }
+    }
+
+private:
+    CurlApi m_api;
+    CURL* m_easy = nullptr;
+};
+
+class TransportOrchestrator {
+public:
+    explicit TransportOrchestrator(CurlHttpClient& client)
+        : m_client(client) {}
+
+    HttpResponse Execute(const HttpRequest& request) {
+        HttpResponse response{};
+        const int attempts = (std::max)(1, request.retry.max_attempts);
+
+        for (int attempt = 1; attempt <= attempts; ++attempt) {
+            HttpRequest active_request = request;
+            if (!m_client.SecurityPolicy()->OnPreRequest(active_request)) {
+                response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
+                response.transport_error = ErrorCode::PreFlightAbort;
+                return response;
+            }
+
+            response = PerformWithDnsFallback(active_request);
+            if (!response.TransportOk()) {
+                m_client.SecurityPolicy()->OnError(response.transport_error, active_request.url.c_str());
+            }
+            if (!m_client.ShouldRetry(request, response, attempt)) {
+                break;
+            }
+
+            const int backoff = (std::max)(0, request.retry.backoff_ms);
+            if (backoff > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(backoff));
+            }
+        }
+
+        return response;
+    }
+
+private:
+    HttpResponse PerformWithDnsFallback(const HttpRequest& request) {
+        if (!request.dns_fallback.enabled || request.dns_fallback.strategies.empty()) {
+            return m_client.PerformOnce(request, std::nullopt);
+        }
+
+        HttpResponse last_response{};
+        for (const DnsStrategy& strategy : request.dns_fallback.strategies) {
+            last_response = m_client.PerformOnce(request, strategy);
+            if (last_response.TransportOk()) {
+                return last_response;
+            }
+        }
+
+        return last_response;
+    }
+
+    CurlHttpClient& m_client;
+};
+
 CurlHttpClient::CurlHttpClient(const ClientConfig& config)
     : m_config(config) {
+    CurlApi curl_api{};
 #if BURNERNET_HARDEN_IMPORTS
-    m_curl_api = MakeResolvedCurlApi();
-    if (!IsCurlApiComplete(m_curl_api)) {
+    curl_api = MakeResolvedCurlApi();
+    if (!IsCurlApiComplete(curl_api)) {
         m_init_error = ErrorCode::CurlApiIncomplete;
         return;
     }
     if (m_config.verify_curl_api_pointers &&
-        !IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
+        !IsCurlApiTrusted(curl_api, m_config.trusted_curl_module_basenames)) {
         m_config.security_policy.OnTamper();
         m_init_error = ErrorCode::CurlApiUntrusted;
         return;
     }
 #else
     if (m_config.verify_curl_api_pointers) {
-        m_curl_api = MakeResolvedCurlApi();
-        if (!IsCurlApiComplete(m_curl_api)) {
+        curl_api = MakeResolvedCurlApi();
+        if (!IsCurlApiComplete(curl_api)) {
             m_init_error = ErrorCode::CurlApiIncomplete;
             return;
         }
-        if (!IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
+        if (!IsCurlApiTrusted(curl_api, m_config.trusted_curl_module_basenames)) {
             m_config.security_policy.OnTamper();
             m_init_error = ErrorCode::CurlApiUntrusted;
             return;
         }
     } else {
-        m_curl_api = MakeWrappedCurlApi();
+        curl_api = MakeWrappedCurlApi();
     }
 #endif
 
-    m_easy = m_curl_api.easy_init();
-    if (!m_easy) {
+    m_session = std::make_unique<CurlSession>(curl_api);
+    if (!m_session->IsInitialized()) {
         m_init_error = ErrorCode::InitCurl;
     }
 }
 
-CurlHttpClient::~CurlHttpClient() {
-    if (m_easy != nullptr) {
-        m_curl_api.easy_cleanup(static_cast<CURL*>(m_easy));
-        m_easy = nullptr;
-    }
-}
+CurlHttpClient::~CurlHttpClient() = default;
 
 CurlHttpClient::CurlHttpClient(CurlHttpClient&& other) noexcept
-    : m_easy(other.m_easy),
-      m_config(std::move(other.m_config))
-#if BURNER_ENABLE_CURL
-    , m_curl_api(other.m_curl_api)
-#endif
-    , m_init_error(other.m_init_error),
-      m_heartbeat_aborted(other.m_heartbeat_aborted),
-      m_active_dns_strategy(std::move(other.m_active_dns_strategy)) {
-    other.m_easy = nullptr;
+    : m_config(std::move(other.m_config)),
+      m_session(std::move(other.m_session)),
+      m_init_error(other.m_init_error),
+      m_heartbeat_aborted(other.m_heartbeat_aborted) {
     other.m_init_error = ErrorCode::None;
     other.m_heartbeat_aborted = false;
-    other.m_active_dns_strategy.reset();
 }
 
 CurlHttpClient& CurlHttpClient::operator=(CurlHttpClient&& other) noexcept {
@@ -373,51 +442,19 @@ CurlHttpClient& CurlHttpClient::operator=(CurlHttpClient&& other) noexcept {
         return *this;
     }
 
-    if (m_easy != nullptr) {
-        m_curl_api.easy_cleanup(static_cast<CURL*>(m_easy));
-    }
-
-    m_easy = other.m_easy;
     m_config = std::move(other.m_config);
-#if BURNER_ENABLE_CURL
-    m_curl_api = other.m_curl_api;
-#endif
+    m_session = std::move(other.m_session);
     m_init_error = other.m_init_error;
     m_heartbeat_aborted = other.m_heartbeat_aborted;
-    m_active_dns_strategy = std::move(other.m_active_dns_strategy);
 
-    other.m_easy = nullptr;
     other.m_init_error = ErrorCode::None;
     other.m_heartbeat_aborted = false;
-    other.m_active_dns_strategy.reset();
     return *this;
 }
 
 HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
-    HttpResponse response{};
-
-    const int attempts = (std::max)(1, request.retry.max_attempts);
-
-    for (int attempt = 1; attempt <= attempts; ++attempt) {
-        HttpRequest active_request = request;
-        if (!m_config.security_policy.OnPreRequest(active_request)) {
-            response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
-            response.transport_error = ErrorCode::PreFlightAbort;
-            return response;
-        }
-        response = PerformOnceWithDnsFallback(active_request);
-        if (!response.TransportOk()) {
-            m_config.security_policy.OnError(response.transport_error, active_request.url.c_str());
-        }
-        if (!ShouldRetry(request, response, attempt)) {
-            break;
-        }
-
-        const int backoff = (std::max)(0, request.retry.backoff_ms);
-        if (backoff > 0) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(backoff));
-        }
-    }
+    TransportOrchestrator orchestrator(*this);
+    HttpResponse response = orchestrator.Execute(request);
 
     if (response.TransportOk()) {
         if (!m_config.security_policy.OnResponseReceived(request, response)) {
@@ -446,10 +483,16 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
     return response;
 }
 
-HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
+bool CurlHttpClient::IsInitialized() const {
+    return m_session != nullptr && m_session->IsInitialized();
+}
+
+HttpResponse CurlHttpClient::PerformOnce(
+    const HttpRequest& request,
+    const std::optional<DnsStrategy>& strategy) {
     HttpResponse response{};
 
-    auto* easy = static_cast<CURL*>(m_easy);
+    auto* easy = m_session ? m_session->EasyHandle() : nullptr;
     if (easy == nullptr) {
         response.transport_code = static_cast<int>(CURLE_FAILED_INIT);
         response.transport_error = ErrorCode::NoCurlHandle;
@@ -472,6 +515,7 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
         }
 #endif
     };
+
     BodyWriteContext body_ctx{};
     body_ctx.body = &response.body;
     body_ctx.max_body_bytes = request.max_body_bytes;
@@ -482,6 +526,7 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
                 : (std::min)(body_ctx.max_body_bytes, m_config.global_max_body_bytes);
     }
     body_ctx.on_chunk_received = request.on_chunk_received;
+
     std::string protocol_scheme;
     std::string redirect_protocol_scheme;
     std::string custom_user_agent;
@@ -490,7 +535,7 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
     std::string key_type;
 
     m_heartbeat_aborted = false;
-    m_curl_api.easy_reset(easy);
+    m_session->Reset();
     ApplyCommonOptions(
         request,
         response,
@@ -498,10 +543,12 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
         &body_ctx,
         &protocol_scheme,
         &redirect_protocol_scheme,
-        &custom_user_agent);
+        &custom_user_agent,
+        strategy);
     ApplyMethodAndBody(request, &custom_method);
     ApplyTlsOptions(&cert_type, &key_type);
 
+    const CurlApi& curl_api = m_session->Api();
     curl_slist* headers = nullptr;
     for (const auto& [name, value] : m_config.default_headers) {
         if (!internal::IsValidHeaderName(name) || !internal::IsValidHeaderValue(value)) {
@@ -512,7 +559,7 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
             return response;
         }
         std::string header = BuildHeaderLine(name, value);
-        headers = m_curl_api.slist_append(headers, header.c_str());
+        headers = curl_api.slist_append(headers, header.c_str());
         SecureWipe(header);
     }
     for (const auto& [name, value] : request.headers) {
@@ -524,9 +571,10 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
             return response;
         }
         std::string header = BuildHeaderLine(name, value);
-        headers = m_curl_api.slist_append(headers, header.c_str());
+        headers = curl_api.slist_append(headers, header.c_str());
         SecureWipe(header);
     }
+
     std::string active_bearer_token;
     if (request.bearer_token_provider) {
         request.bearer_token_provider(active_bearer_token);
@@ -535,7 +583,6 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
     }
 
     const std::string_view active_bearer = active_bearer_token;
-
     const bool request_has_auth_header =
         !active_bearer.empty() || HasAuthorizationHeader(m_config.default_headers) || HasAuthorizationHeader(request.headers);
     if (request.follow_redirects && request_has_auth_header) {
@@ -554,21 +601,23 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
         auth.append(auth_prefix);
         auth.append(active_bearer.data(), active_bearer.size());
         SecureWipe(auth_prefix);
-        headers = m_curl_api.slist_append(headers, auth.c_str());
+        headers = curl_api.slist_append(headers, auth.c_str());
         SecureWipe(auth);
     }
     SecureWipe(active_bearer_token);
+
     if (headers != nullptr) {
-        m_curl_api.easy_setopt(easy, CURLOPT_HTTPHEADER, headers);
+        curl_api.easy_setopt(easy, CURLOPT_HTTPHEADER, headers);
     }
 
-    const CURLcode code = m_curl_api.easy_perform(easy);
+    const CURLcode code = curl_api.easy_perform(easy);
     SecureWipe(protocol_scheme);
     SecureWipe(redirect_protocol_scheme);
     SecureWipe(custom_user_agent);
     SecureWipe(custom_method);
     SecureWipe(cert_type);
     SecureWipe(key_type);
+
     response.transport_code = static_cast<int>(code);
     if (code != CURLE_OK) {
         if (code == CURLE_PEER_FAILED_VERIFICATION
@@ -582,7 +631,6 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
         } else if (code == CURLE_ABORTED_BY_CALLBACK && m_heartbeat_aborted) {
             response.transport_error = ErrorCode::HeartbeatAbort;
         } else {
-            (void)error_buffer;
             response.transport_error = ErrorCode::CurlGeneric;
         }
         WipeResponse(response);
@@ -590,7 +638,7 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
 
     if (response.TransportOk()) {
         char* primary_ip = nullptr;
-        if (m_curl_api.easy_getinfo(easy, CURLINFO_PRIMARY_IP, &primary_ip) == CURLE_OK &&
+        if (curl_api.easy_getinfo(easy, CURLINFO_PRIMARY_IP, &primary_ip) == CURLE_OK &&
             primary_ip != nullptr &&
             !m_config.security_policy.OnVerifyTransport(request.url.c_str(), primary_ip)) {
             response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
@@ -599,11 +647,10 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
         }
     }
 
-    response.dns_strategy_used =
-        m_active_dns_strategy.has_value() ? m_active_dns_strategy->name : BURNER_OBF_LITERAL("System DNS");
+    response.dns_strategy_used = strategy.has_value() ? strategy->name : BURNER_OBF_LITERAL("System DNS");
     response.streamed_body_bytes = body_ctx.streamed_body_bytes;
 
-    m_curl_api.easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &response.status_code);
+    curl_api.easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &response.status_code);
 
     if (headers != nullptr) {
         WipeHeaderList(headers);
@@ -612,25 +659,6 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
     ResetMethodState();
     wipe_error_buffer();
     return response;
-}
-
-HttpResponse CurlHttpClient::PerformOnceWithDnsFallback(const HttpRequest& request) {
-    if (!request.dns_fallback.enabled || request.dns_fallback.strategies.empty()) {
-        m_active_dns_strategy.reset();
-        return PerformOnce(request);
-    }
-
-    HttpResponse last_response{};
-    for (const DnsStrategy& strategy : request.dns_fallback.strategies) {
-        m_active_dns_strategy = strategy;
-        last_response = PerformOnce(request);
-        if (last_response.TransportOk()) {
-            return last_response;
-        }
-    }
-
-    m_active_dns_strategy.reset();
-    return last_response;
 }
 
 bool CurlHttpClient::ShouldRetry(const HttpRequest& request, const HttpResponse& response, int attempt) const {
@@ -695,10 +723,16 @@ size_t CurlHttpClient::WriteHeaderCallback(void* contents, size_t size, size_t n
         std::string value = line.substr(it + 1);
 
         auto trim = [](std::string& x) {
-            while (!x.empty() && (x.back() == '\r' || x.back() == '\n' || x.back() == ' ' || x.back() == '\t')) x.pop_back();
+            while (!x.empty() && (x.back() == '\r' || x.back() == '\n' || x.back() == ' ' || x.back() == '\t')) {
+                x.pop_back();
+            }
             size_t start = 0;
-            while (start < x.size() && (x[start] == ' ' || x[start] == '\t')) ++start;
-            if (start > 0) x.erase(0, start);
+            while (start < x.size() && (x[start] == ' ' || x[start] == '\t')) {
+                ++start;
+            }
+            if (start > 0) {
+                x.erase(0, start);
+            }
         };
 
         trim(name);
@@ -710,7 +744,6 @@ size_t CurlHttpClient::WriteHeaderCallback(void* contents, size_t size, size_t n
     }
 
     SecureWipe(line);
-
     return total;
 }
 
@@ -749,7 +782,9 @@ void CurlHttpClient::WipeHeaderList(curl_slist* headers) const {
         }
     }
 
-    m_curl_api.slist_free_all(headers);
+    if (headers != nullptr && m_session != nullptr) {
+        m_session->Api().slist_free_all(headers);
+    }
 }
 
 void CurlHttpClient::ApplyCommonOptions(
@@ -759,66 +794,76 @@ void CurlHttpClient::ApplyCommonOptions(
     void* body_ctx,
     std::string* protocol_scheme,
     std::string* redirect_protocol_scheme,
-    std::string* user_agent_storage) {
-    auto* easy = static_cast<CURL*>(m_easy);
-    (void)protocol_scheme;
-    (void)redirect_protocol_scheme;
-    (void)user_agent_storage;
+    std::string* user_agent_storage,
+    const std::optional<DnsStrategy>& strategy) {
+    auto* easy = m_session ? m_session->EasyHandle() : nullptr;
+    if (easy == nullptr) {
+        return;
+    }
 
-    m_curl_api.easy_setopt(easy, CURLOPT_URL, request.url.c_str());
-    m_curl_api.easy_setopt(easy, CURLOPT_ERRORBUFFER, error_buffer);
-    m_curl_api.easy_setopt(easy, CURLOPT_WRITEFUNCTION, &CurlHttpClient::WriteBodyCallback);
-    m_curl_api.easy_setopt(easy, CURLOPT_WRITEDATA, body_ctx);
-    m_curl_api.easy_setopt(easy, CURLOPT_HEADERFUNCTION, &CurlHttpClient::WriteHeaderCallback);
-    m_curl_api.easy_setopt(easy, CURLOPT_HEADERDATA, &response.headers);
-#ifdef CURLOPT_XFERINFOFUNCTION
-    m_curl_api.easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, &CurlHttpClient::ProgressCallback);
-    m_curl_api.easy_setopt(easy, CURLOPT_XFERINFODATA, this);
-    m_curl_api.easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
+    const CurlApi& curl_api = m_session->Api();
+#ifndef CURLOPT_PROTOCOLS_STR
+    (void)protocol_scheme;
 #endif
-    m_curl_api.easy_setopt(easy, CURLOPT_FOLLOWLOCATION, request.follow_redirects ? 1L : 0L);
+#ifndef CURLOPT_REDIR_PROTOCOLS_STR
+    (void)redirect_protocol_scheme;
+#endif
+
+    curl_api.easy_setopt(easy, CURLOPT_URL, request.url.c_str());
+    curl_api.easy_setopt(easy, CURLOPT_ERRORBUFFER, error_buffer);
+    curl_api.easy_setopt(easy, CURLOPT_WRITEFUNCTION, &CurlHttpClient::WriteBodyCallback);
+    curl_api.easy_setopt(easy, CURLOPT_WRITEDATA, body_ctx);
+    curl_api.easy_setopt(easy, CURLOPT_HEADERFUNCTION, &CurlHttpClient::WriteHeaderCallback);
+    curl_api.easy_setopt(easy, CURLOPT_HEADERDATA, &response.headers);
+#ifdef CURLOPT_XFERINFOFUNCTION
+    curl_api.easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, &CurlHttpClient::ProgressCallback);
+    curl_api.easy_setopt(easy, CURLOPT_XFERINFODATA, this);
+    curl_api.easy_setopt(easy, CURLOPT_NOPROGRESS, 0L);
+#endif
+    curl_api.easy_setopt(easy, CURLOPT_FOLLOWLOCATION, request.follow_redirects ? 1L : 0L);
     if (!m_config.use_system_proxy) {
-        m_curl_api.easy_setopt(easy, CURLOPT_PROXY, "");
+        curl_api.easy_setopt(easy, CURLOPT_PROXY, "");
     }
 #ifdef CURLOPT_PROTOCOLS_STR
     if (protocol_scheme != nullptr) {
         *protocol_scheme = BURNER_OBF_LITERAL("https");
-        m_curl_api.easy_setopt(easy, CURLOPT_PROTOCOLS_STR, protocol_scheme->c_str());
+        curl_api.easy_setopt(easy, CURLOPT_PROTOCOLS_STR, protocol_scheme->c_str());
     }
 #elif defined(CURLOPT_PROTOCOLS)
-    m_curl_api.easy_setopt(easy, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
+    curl_api.easy_setopt(easy, CURLOPT_PROTOCOLS, CURLPROTO_HTTPS);
 #endif
 #ifdef CURLOPT_DISALLOW_USERNAME_IN_URL
-    m_curl_api.easy_setopt(easy, CURLOPT_DISALLOW_USERNAME_IN_URL, 1L);
+    curl_api.easy_setopt(easy, CURLOPT_DISALLOW_USERNAME_IN_URL, 1L);
 #endif
     if (request.follow_redirects) {
 #ifdef CURLOPT_REDIR_PROTOCOLS_STR
         if (redirect_protocol_scheme != nullptr) {
             *redirect_protocol_scheme = BURNER_OBF_LITERAL("https");
-            m_curl_api.easy_setopt(easy, CURLOPT_REDIR_PROTOCOLS_STR, redirect_protocol_scheme->c_str());
+            curl_api.easy_setopt(easy, CURLOPT_REDIR_PROTOCOLS_STR, redirect_protocol_scheme->c_str());
         }
 #elif defined(CURLOPT_REDIR_PROTOCOLS)
-        m_curl_api.easy_setopt(easy, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
+        curl_api.easy_setopt(easy, CURLOPT_REDIR_PROTOCOLS, CURLPROTO_HTTPS);
 #endif
-        m_curl_api.easy_setopt(easy, CURLOPT_MAXREDIRS, 10L);
+        curl_api.easy_setopt(easy, CURLOPT_MAXREDIRS, 10L);
     }
-    m_curl_api.easy_setopt(easy, CURLOPT_TIMEOUT, request.timeout_seconds);
-    m_curl_api.easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, request.connect_timeout_seconds);
+    curl_api.easy_setopt(easy, CURLOPT_TIMEOUT, request.timeout_seconds);
+    curl_api.easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, request.connect_timeout_seconds);
+
     if (user_agent_storage != nullptr) {
         *user_agent_storage = m_config.security_policy.GetUserAgent();
     }
     if (user_agent_storage != nullptr && !user_agent_storage->empty()) {
-        m_curl_api.easy_setopt(easy, CURLOPT_USERAGENT, user_agent_storage->c_str());
+        curl_api.easy_setopt(easy, CURLOPT_USERAGENT, user_agent_storage->c_str());
     } else if (!m_config.user_agent.empty()) {
-        m_curl_api.easy_setopt(easy, CURLOPT_USERAGENT, m_config.user_agent.c_str());
+        curl_api.easy_setopt(easy, CURLOPT_USERAGENT, m_config.user_agent.c_str());
     }
 
-    m_curl_api.easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, m_config.verify_peer ? 1L : 0L);
-    m_curl_api.easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, m_config.verify_host ? 2L : 0L);
-    m_curl_api.easy_setopt(easy, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
+    curl_api.easy_setopt(easy, CURLOPT_SSL_VERIFYPEER, m_config.verify_peer ? 1L : 0L);
+    curl_api.easy_setopt(easy, CURLOPT_SSL_VERIFYHOST, m_config.verify_host ? 2L : 0L);
+    curl_api.easy_setopt(easy, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2);
 #ifdef CURLSSLOPT_NATIVE_CA
     if (m_config.use_native_ca) {
-        m_curl_api.easy_setopt(easy, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
+        curl_api.easy_setopt(easy, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
     }
 #endif
     if (!m_config.pinned_public_keys.empty()) {
@@ -830,45 +875,53 @@ void CurlHttpClient::ApplyCommonOptions(
                 pinned_keys.push_back(';');
             }
         }
-        m_curl_api.easy_setopt(easy, CURLOPT_PINNEDPUBLICKEY, pinned_keys.c_str());
+        curl_api.easy_setopt(easy, CURLOPT_PINNEDPUBLICKEY, pinned_keys.c_str());
         SecureWipe(pinned_keys);
     }
 
     ClearDnsStrategy();
-    if (m_active_dns_strategy.has_value()) {
-        ApplyDnsStrategy(*m_active_dns_strategy);
+    if (strategy.has_value()) {
+        ApplyDnsStrategy(*strategy);
     }
 }
 
 void CurlHttpClient::ApplyMethodAndBody(const HttpRequest& request, std::string* custom_method_storage) {
-    auto* easy = static_cast<CURL*>(m_easy);
+    auto* easy = m_session ? m_session->EasyHandle() : nullptr;
+    if (easy == nullptr) {
+        return;
+    }
+
+    const CurlApi& curl_api = m_session->Api();
 
     switch (request.method) {
     case HttpMethod::Get:
-        m_curl_api.easy_setopt(easy, CURLOPT_HTTPGET, 1L);
+        curl_api.easy_setopt(easy, CURLOPT_HTTPGET, 1L);
         break;
     case HttpMethod::Post:
-        m_curl_api.easy_setopt(easy, CURLOPT_POST, 1L);
-        m_curl_api.easy_setopt(easy, CURLOPT_POSTFIELDS, request.body.c_str());
-        m_curl_api.easy_setopt(easy, CURLOPT_POSTFIELDSIZE, static_cast<long>(request.body.size()));
+        curl_api.easy_setopt(easy, CURLOPT_POST, 1L);
+        curl_api.easy_setopt(easy, CURLOPT_POSTFIELDS, request.body.c_str());
+        curl_api.easy_setopt(easy, CURLOPT_POSTFIELDSIZE, static_cast<long>(request.body.size()));
         break;
     case HttpMethod::Put:
     case HttpMethod::Delete:
     case HttpMethod::Patch:
         if (custom_method_storage != nullptr) {
             *custom_method_storage = ToCurlMethod(request.method);
-            m_curl_api.easy_setopt(easy, CURLOPT_CUSTOMREQUEST, custom_method_storage->c_str());
+            curl_api.easy_setopt(easy, CURLOPT_CUSTOMREQUEST, custom_method_storage->c_str());
         }
         if (!request.body.empty()) {
-            m_curl_api.easy_setopt(easy, CURLOPT_POSTFIELDS, request.body.c_str());
-            m_curl_api.easy_setopt(easy, CURLOPT_POSTFIELDSIZE, static_cast<long>(request.body.size()));
+            curl_api.easy_setopt(easy, CURLOPT_POSTFIELDS, request.body.c_str());
+            curl_api.easy_setopt(easy, CURLOPT_POSTFIELDSIZE, static_cast<long>(request.body.size()));
         }
         break;
     }
 }
 
 void CurlHttpClient::ApplyTlsOptions(std::string* cert_type_storage, std::string* key_type_storage) {
-    auto* easy = static_cast<CURL*>(m_easy);
+    auto* easy = m_session ? m_session->EasyHandle() : nullptr;
+    if (easy == nullptr) {
+        return;
+    }
 
     MtlsCredentials credentials{};
     if (m_config.mtls_provider) {
@@ -893,53 +946,60 @@ void CurlHttpClient::ApplyTlsOptions(std::string* cert_type_storage, std::string
         credentials.key_pem.size(),
         CURL_BLOB_COPY
     };
-    m_curl_api.easy_setopt(easy, CURLOPT_SSLCERT_BLOB, &cert_blob);
-    m_curl_api.easy_setopt(easy, CURLOPT_SSLKEY_BLOB, &key_blob);
-    m_curl_api.easy_setopt(easy, CURLOPT_KEYPASSWD, credentials.key_password.c_str());
+
+    const CurlApi& curl_api = m_session->Api();
+    curl_api.easy_setopt(easy, CURLOPT_SSLCERT_BLOB, &cert_blob);
+    curl_api.easy_setopt(easy, CURLOPT_SSLKEY_BLOB, &key_blob);
+    curl_api.easy_setopt(easy, CURLOPT_KEYPASSWD, credentials.key_password.c_str());
     if (cert_type_storage != nullptr) {
         *cert_type_storage = BURNER_OBF_LITERAL("PEM");
-        m_curl_api.easy_setopt(easy, CURLOPT_SSLCERTTYPE, cert_type_storage->c_str());
+        curl_api.easy_setopt(easy, CURLOPT_SSLCERTTYPE, cert_type_storage->c_str());
     }
     if (key_type_storage != nullptr) {
         *key_type_storage = BURNER_OBF_LITERAL("PEM");
-        m_curl_api.easy_setopt(easy, CURLOPT_SSLKEYTYPE, key_type_storage->c_str());
+        curl_api.easy_setopt(easy, CURLOPT_SSLKEYTYPE, key_type_storage->c_str());
     }
 }
 
 void CurlHttpClient::ApplyDnsStrategy(const DnsStrategy& strategy) {
-    auto* easy = static_cast<CURL*>(m_easy);
+    auto* easy = m_session ? m_session->EasyHandle() : nullptr;
     if (easy == nullptr) {
         return;
     }
 
     if (strategy.mode == DnsMode::Doh) {
-        m_curl_api.easy_setopt(easy, CURLOPT_DOH_URL, strategy.doh_url.c_str());
-        m_curl_api.easy_setopt(easy, CURLOPT_DOH_SSL_VERIFYPEER, m_config.verify_peer ? 1L : 0L);
-        m_curl_api.easy_setopt(easy, CURLOPT_DOH_SSL_VERIFYHOST, m_config.verify_host ? 2L : 0L);
+        const CurlApi& curl_api = m_session->Api();
+        curl_api.easy_setopt(easy, CURLOPT_DOH_URL, strategy.doh_url.c_str());
+        curl_api.easy_setopt(easy, CURLOPT_DOH_SSL_VERIFYPEER, m_config.verify_peer ? 1L : 0L);
+        curl_api.easy_setopt(easy, CURLOPT_DOH_SSL_VERIFYHOST, m_config.verify_host ? 2L : 0L);
     }
 }
 
 void CurlHttpClient::ClearDnsStrategy() {
-    auto* easy = static_cast<CURL*>(m_easy);
+    auto* easy = m_session ? m_session->EasyHandle() : nullptr;
     if (easy == nullptr) {
         return;
     }
 
-    m_curl_api.easy_setopt(easy, CURLOPT_DOH_URL, nullptr);
+    m_session->Api().easy_setopt(easy, CURLOPT_DOH_URL, nullptr);
 }
 
 void CurlHttpClient::ResetMethodState() {
-    auto* easy = static_cast<CURL*>(m_easy);
+    auto* easy = m_session ? m_session->EasyHandle() : nullptr;
+    if (easy == nullptr) {
+        return;
+    }
 
-    m_curl_api.easy_setopt(easy, CURLOPT_HTTPGET, 0L);
-    m_curl_api.easy_setopt(easy, CURLOPT_POST, 0L);
-    m_curl_api.easy_setopt(easy, CURLOPT_CUSTOMREQUEST, nullptr);
-    m_curl_api.easy_setopt(easy, CURLOPT_POSTFIELDS, nullptr);
-    m_curl_api.easy_setopt(easy, CURLOPT_POSTFIELDSIZE, 0L);
+    const CurlApi& curl_api = m_session->Api();
+    curl_api.easy_setopt(easy, CURLOPT_HTTPGET, 0L);
+    curl_api.easy_setopt(easy, CURLOPT_POST, 0L);
+    curl_api.easy_setopt(easy, CURLOPT_CUSTOMREQUEST, nullptr);
+    curl_api.easy_setopt(easy, CURLOPT_POSTFIELDS, nullptr);
+    curl_api.easy_setopt(easy, CURLOPT_POSTFIELDSIZE, 0L);
 #ifdef CURLOPT_XFERINFOFUNCTION
-    m_curl_api.easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, nullptr);
-    m_curl_api.easy_setopt(easy, CURLOPT_XFERINFODATA, nullptr);
-    m_curl_api.easy_setopt(easy, CURLOPT_NOPROGRESS, 1L);
+    curl_api.easy_setopt(easy, CURLOPT_XFERINFOFUNCTION, nullptr);
+    curl_api.easy_setopt(easy, CURLOPT_XFERINFODATA, nullptr);
+    curl_api.easy_setopt(easy, CURLOPT_NOPROGRESS, 1L);
 #endif
 }
 
