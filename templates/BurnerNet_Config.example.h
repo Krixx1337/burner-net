@@ -20,8 +20,20 @@ struct MySecurity {
 };
 
 struct MyProjectSecurity {
+    // Runs once during InitializeNetworkingRuntime. Return false to fail closed.
+    static inline bool OnVerifyEnvironment() {
+        return true;
+    }
+
     static inline void OnPreRequest(burner::net::HttpRequest& request) {
         request.headers["X-Timestamp"] = "replace-me";
+    }
+
+    // Runs after a successful transfer using cURL's reported remote IP.
+    static inline bool OnVerifyTransport(const char* url, const char* remote_ip) {
+        (void)(url);
+        (void)(remote_ip);
+        return true;
     }
 
     static inline void OnSignatureVerified(bool success, burner::net::ErrorCode reason) {

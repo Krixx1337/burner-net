@@ -35,8 +35,10 @@ ERROR_CODE_NAMES = [
     "RequestBodyTooLarge",
     "CurlApiIncomplete",
     "CurlApiUntrusted",
+    "EnvironmentCompromised",
     "PreFlightAbort",
     "HeartbeatAbort",
+    "TransportVerificationFailed",
     "TlsVerificationFailed",
 ]
 
@@ -70,8 +72,18 @@ namespace burnernet_config {{
 // Override these to plug in your own Anti-RE or Logging.
 
 struct MyProjectSecurity {{
+    static inline bool OnVerifyEnvironment() {{
+        return true;
+    }}
+
     static inline void OnPreRequest(burner::net::HttpRequest& request) {{
         request.headers["X-Timestamp"] = "replace-me";
+    }}
+
+    static inline bool OnVerifyTransport(const char* url, const char* remote_ip) {{
+        (void)(url);
+        (void)(remote_ip);
+        return true;
     }}
 
     static inline void OnSignatureVerified(bool success, burner::net::ErrorCode reason) {{
