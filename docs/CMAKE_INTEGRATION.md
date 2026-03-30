@@ -51,6 +51,24 @@ This guide assumes:
 - Windows target
 - curl provided either by vcpkg manifest mode or by a local prebuilt dependency prefix
 
+## `VCPKG_ROOT` note
+
+If you use the recommended vcpkg-toolchain workflow, make sure `VCPKG_ROOT` is set in your environment.
+
+Example:
+
+- `VCPKG_ROOT=C:\path\to\vcpkg`
+
+Why this matters:
+
+- the consumer `CMakePresets.json` typically points `CMAKE_TOOLCHAIN_FILE` at `$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake`
+- if `VCPKG_ROOT` is not set correctly, the preferred manifest-based CMake path will not configure correctly
+
+In vcpkg terms:
+
+- `VCPKG_ROOT` can be set to the root directory of the vcpkg instance
+- it is used when the vcpkg executable is not already being resolved from a valid root and no explicit `--vcpkg-root` override is supplied
+
 This guide does **not** replace the Visual Studio `.vcxproj` path. If your downstream project is MSBuild-first, see [VISUAL_STUDIO_INTEGRATION.md](VISUAL_STUDIO_INTEGRATION.md).
 
 ## Integration Modes
