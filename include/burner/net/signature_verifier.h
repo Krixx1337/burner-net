@@ -9,7 +9,7 @@ namespace burner::net {
 
 struct SignatureVerifierConfig {
     std::string signature_header;
-    std::string secret;
+    SecureString secret;
     std::function<bool(std::string& out)> secret_provider;
 };
 

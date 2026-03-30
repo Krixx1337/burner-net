@@ -12,6 +12,7 @@
 #include "burner/net/policy.h"
 #include "burner/net/security_auditor.h"
 #include "burner/net/signature_verifier.h"
+#include "burner/net/detail/pointer_mangling.h"
 #include "curl/curl_http_client.h"
 #include "internal/import_pointer_trust.h"
 #include "internal/header_validation.h"
@@ -186,6 +187,31 @@ TEST_CASE("SecureWipe clears active vector bytes before emptying the buffer") {
     for (std::size_t i = 0; i < bytes; ++i) {
         CHECK(raw[i] == 0);
     }
+}
+
+TEST_CASE("SecureString behaves like std::string for public request fields") {
+    burner::net::HttpRequest request{};
+    request.body = "payload";
+    request.body.append("-extra");
+
+    CHECK(request.body.str() == "payload-extra");
+    CHECK(request.body.size() == 13);
+}
+
+namespace {
+
+int IncrementValue(int value) {
+    return value + 1;
+}
+
+} // namespace
+
+TEST_CASE("EncodedPointer decodes and invokes function pointers") {
+    burner::net::EncodedPointer<int (*)(int)> pointer = &IncrementValue;
+
+    REQUIRE(pointer);
+    CHECK(pointer.get() != nullptr);
+    CHECK(pointer(41) == 42);
 }
 
 TEST_CASE("client aborts immediately when security policy rejects preflight") {

@@ -10,6 +10,7 @@
 #include <utility>
 #include <vector>
 
+#include "detail/memory_hygiene.h"
 #include "export.h"
 #include "error.h"
 #include "obfuscation.h"
@@ -154,15 +155,15 @@ struct RetryPolicy {
 
 struct MtlsCredentials {
     bool enabled = false;
-    std::string cert_pem;
-    std::string key_pem;
-    std::string key_password;
+    SecureString cert_pem;
+    SecureString key_pem;
+    SecureString key_password;
 };
 
 struct HttpRequest {
     HttpMethod method = HttpMethod::Get;
     std::string url;
-    std::string body;
+    SecureString body;
     HeaderMap headers;
     TokenProvider bearer_token_provider;
     ChunkCallback on_chunk_received;

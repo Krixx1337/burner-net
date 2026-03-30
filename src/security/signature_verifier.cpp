@@ -167,38 +167,37 @@ HmacSha256HeaderVerifier::HmacSha256HeaderVerifier(SignatureVerifierConfig confi
     : m_config(std::move(config)) {}
 
 bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& response, ErrorCode* reason) {
-    std::string secret;
+    SecureString secret;
     if (m_config.secret_provider) {
-        if (!m_config.secret_provider(secret)) {
-            SecureWipe(secret);
+        std::string provided_secret;
+        if (!m_config.secret_provider(provided_secret)) {
+            SecureWipe(provided_secret);
             if (reason) *reason = ErrorCode::SigProvider;
             return false;
         }
+        secret = std::move(provided_secret);
+        SecureWipe(provided_secret);
     } else {
         secret = m_config.secret;
     }
 
     if (secret.empty()) {
-        SecureWipe(secret);
         if (reason) *reason = ErrorCode::SigEmpty;
         return false;
     }
 
     std::string received = Trim(GetHeaderCaseInsensitive(response.headers, m_config.signature_header));
     if (received.empty()) {
-        SecureWipe(secret);
         if (reason) *reason = ErrorCode::SigHeaderMissing;
         return false;
     }
 
     std::string computed;
     if (!ComputeHmacSha256Hex(response.body, secret, &computed)) {
-        SecureWipe(secret);
         SecureWipe(received);
         if (reason) *reason = ErrorCode::SigCompute;
         return false;
     }
-    SecureWipe(secret);
 
     std::string lhs = ToLowerCopy(received);
     std::string rhs = ToLowerCopy(computed);

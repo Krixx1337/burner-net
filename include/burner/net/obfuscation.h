@@ -31,9 +31,19 @@ inline void SecureWipe(std::string& value) {
     value.clear();
 }
 
+inline void SecureWipe(SecureString& value) {
+    ::burner::net::obf::secure_wipe(value.data(), value.capacity());
+    value.clear();
+}
+
 template <typename T>
 inline void SecureWipe(std::vector<T>& value) {
     ::burner::net::obf::secure_wipe(value.data(), value.size() * sizeof(T));
+    value.clear();
+}
+
+inline void SecureWipe(SecureBuffer& value) {
+    ::burner::net::obf::secure_wipe(value.data(), value.capacity() * sizeof(SecureBuffer::value_type));
     value.clear();
 }
 

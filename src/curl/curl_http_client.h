@@ -1,6 +1,7 @@
 #pragma once
 
 #include "burner/net/http.h"
+#include "burner/net/detail/pointer_mangling.h"
 
 #include <curl/curl.h>
 #include <optional>
@@ -24,15 +25,15 @@ using CurlSlistFreeAllFn = void (*)(curl_slist*);
 using CurlEasyStrerrorFn = const char* (*)(CURLcode);
 
 struct CurlApi {
-    CurlEasyInitFn easy_init = nullptr;
-    CurlEasyCleanupFn easy_cleanup = nullptr;
-    CurlEasyResetFn easy_reset = nullptr;
-    CurlEasySetoptFn easy_setopt = nullptr;
-    CurlEasyPerformFn easy_perform = nullptr;
-    CurlEasyGetinfoFn easy_getinfo = nullptr;
-    CurlSlistAppendFn slist_append = nullptr;
-    CurlSlistFreeAllFn slist_free_all = nullptr;
-    CurlEasyStrerrorFn easy_strerror = nullptr;
+    EncodedPointer<CurlEasyInitFn> easy_init = nullptr;
+    EncodedPointer<CurlEasyCleanupFn> easy_cleanup = nullptr;
+    EncodedPointer<CurlEasyResetFn> easy_reset = nullptr;
+    EncodedPointer<CurlEasySetoptFn> easy_setopt = nullptr;
+    EncodedPointer<CurlEasyPerformFn> easy_perform = nullptr;
+    EncodedPointer<CurlEasyGetinfoFn> easy_getinfo = nullptr;
+    EncodedPointer<CurlSlistAppendFn> slist_append = nullptr;
+    EncodedPointer<CurlSlistFreeAllFn> slist_free_all = nullptr;
+    EncodedPointer<CurlEasyStrerrorFn> easy_strerror = nullptr;
 };
 
 class CurlHttpClient final : public IHttpClient {

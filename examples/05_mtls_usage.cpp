@@ -10,24 +10,20 @@
 namespace {
 
 bool ProvideEphemeralMtlsCredentials(burner::net::MtlsCredentials& out) {
-    std::string cert_pem =
+    burner::net::SecureString cert_pem =
         "-----BEGIN CERTIFICATE-----\n"
         "replace-with-short-lived-client-cert\n"
         "-----END CERTIFICATE-----\n";
-    std::string key_pem =
+    burner::net::SecureString key_pem =
         "-----BEGIN PRIVATE KEY-----\n"
         "replace-with-short-lived-client-key\n"
         "-----END PRIVATE KEY-----\n";
-    std::string key_password = "replace-with-short-lived-passphrase";
+    burner::net::SecureString key_password = "replace-with-short-lived-passphrase";
 
     out.enabled = true;
     out.cert_pem = cert_pem;
     out.key_pem = key_pem;
     out.key_password = key_password;
-
-    burner::net::SecureWipe(cert_pem);
-    burner::net::SecureWipe(key_pem);
-    burner::net::SecureWipe(key_password);
     return true;
 }
 

@@ -84,15 +84,15 @@ TFn ResolveCurlExport(std::string export_name) {
 #endif
 
 bool IsCurlApiComplete(const CurlApi& api) {
-    return api.easy_init != nullptr &&
-        api.easy_cleanup != nullptr &&
-        api.easy_reset != nullptr &&
-        api.easy_setopt != nullptr &&
-        api.easy_perform != nullptr &&
-        api.easy_getinfo != nullptr &&
-        api.slist_append != nullptr &&
-        api.slist_free_all != nullptr &&
-        api.easy_strerror != nullptr;
+    return static_cast<bool>(api.easy_init) &&
+        static_cast<bool>(api.easy_cleanup) &&
+        static_cast<bool>(api.easy_reset) &&
+        static_cast<bool>(api.easy_setopt) &&
+        static_cast<bool>(api.easy_perform) &&
+        static_cast<bool>(api.easy_getinfo) &&
+        static_cast<bool>(api.slist_append) &&
+        static_cast<bool>(api.slist_free_all) &&
+        static_cast<bool>(api.easy_strerror);
 }
 
 CURL* DefaultCurlEasyInit() {
@@ -247,15 +247,15 @@ CurlApi MakeResolvedCurlApi() {
 }
 
 bool IsCurlApiTrusted(const CurlApi& api, const std::vector<std::wstring>& trusted_module_basenames) {
-    return internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_init), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_cleanup), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_reset), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_setopt), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_perform), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_getinfo), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.slist_append), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.slist_free_all), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_strerror), trusted_module_basenames);
+    return internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_init.get()), trusted_module_basenames) &&
+        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_cleanup.get()), trusted_module_basenames) &&
+        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_reset.get()), trusted_module_basenames) &&
+        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_setopt.get()), trusted_module_basenames) &&
+        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_perform.get()), trusted_module_basenames) &&
+        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_getinfo.get()), trusted_module_basenames) &&
+        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.slist_append.get()), trusted_module_basenames) &&
+        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.slist_free_all.get()), trusted_module_basenames) &&
+        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_strerror.get()), trusted_module_basenames);
 }
 
 bool IsAuthorizationHeaderName(std::string_view name) {
@@ -834,9 +834,6 @@ void CurlHttpClient::ApplyTlsOptions(std::string* cert_type_storage, std::string
     MtlsCredentials credentials{};
     if (m_config.mtls_provider) {
         if (!m_config.mtls_provider(credentials)) {
-            SecureWipe(credentials.cert_pem);
-            SecureWipe(credentials.key_pem);
-            SecureWipe(credentials.key_password);
             return;
         }
     } else {
@@ -844,9 +841,6 @@ void CurlHttpClient::ApplyTlsOptions(std::string* cert_type_storage, std::string
     }
 
     if (!credentials.enabled) {
-        SecureWipe(credentials.cert_pem);
-        SecureWipe(credentials.key_pem);
-        SecureWipe(credentials.key_password);
         return;
     }
 
@@ -871,10 +865,6 @@ void CurlHttpClient::ApplyTlsOptions(std::string* cert_type_storage, std::string
         *key_type_storage = BURNER_OBF_LITERAL("PEM");
         m_curl_api.easy_setopt(easy, CURLOPT_SSLKEYTYPE, key_type_storage->c_str());
     }
-
-    SecureWipe(credentials.cert_pem);
-    SecureWipe(credentials.key_pem);
-    SecureWipe(credentials.key_password);
 }
 
 void CurlHttpClient::ApplyDnsStrategy(const DnsStrategy& strategy) {
