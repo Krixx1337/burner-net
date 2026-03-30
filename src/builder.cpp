@@ -8,6 +8,9 @@ namespace detail {
 
 class BuilderSecurityPolicy final : public DefaultSecurityPolicy {
 public:
+    // Guardrail: this decorator should stay as a near-1:1 bridge between the
+    // builder's short-lived lambdas and ISecurityPolicy's reusable hooks.
+    // When adding a security stage on either side, wire the other side too.
     std::shared_ptr<ISecurityPolicy> wrapped_policy;
     PreFlightCallback pre_flight;
     EnvironmentCheckCallback environment_check;
@@ -15,6 +18,7 @@ public:
     HeartbeatCallback heartbeat;
     ResponseReceivedCallback response_received;
     PostVerificationCallback post_verification;
+    TamperActionCallback tamper_action;
 
     bool OnVerifyEnvironment() const override {
         if (environment_check && !environment_check()) {
@@ -61,6 +65,9 @@ public:
     }
 
     void OnTamper() const override {
+        if (tamper_action) {
+            tamper_action();
+        }
         if (wrapped_policy) {
             wrapped_policy->OnTamper();
             return;
@@ -262,6 +269,11 @@ ClientBuilder& ClientBuilder::WithResponseReceived(ResponseReceivedCallback call
 
 ClientBuilder& ClientBuilder::WithPostVerification(PostVerificationCallback callback) {
     detail::EnsureBuilderSecurityPolicy(m_config).post_verification = std::move(callback);
+    return *this;
+}
+
+ClientBuilder& ClientBuilder::WithTamperAction(TamperActionCallback callback) {
+    detail::EnsureBuilderSecurityPolicy(m_config).tamper_action = std::move(callback);
     return *this;
 }
 

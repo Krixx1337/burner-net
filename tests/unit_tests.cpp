@@ -338,6 +338,25 @@ TEST_CASE("security auditor triggers tamper callback on transport audit failure"
     CHECK(policy.tamper_count == 1);
 }
 
+TEST_CASE("builder tamper action layers on top of wrapped policy tamper handling") {
+    auto policy = std::make_shared<RecordingPolicy>();
+    bool tamper_action_called = false;
+
+    auto build_result = burner::net::ClientBuilder()
+        .WithTamperAction([&] {
+            tamper_action_called = true;
+        })
+        .WithSecurityPolicy(policy)
+        .Build();
+
+    REQUIRE(build_result.Ok());
+    REQUIRE(build_result.client != nullptr);
+
+    CHECK_FALSE(burner::net::SecurityAuditor::CheckTransportIntegrity(build_result.client->Raw()));
+    CHECK(tamper_action_called);
+    CHECK(policy->tamper_count == 1);
+}
+
 TEST_CASE("import pointer trust accepts allowed system module and rejects wrong one") {
 #ifdef _WIN32
     const auto* fn_ptr = reinterpret_cast<const void*>(&GetModuleHandleA);

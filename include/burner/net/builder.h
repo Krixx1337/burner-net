@@ -51,6 +51,10 @@ private:
 
 class BURNER_API ClientBuilder {
 public:
+    // Guardrail: the fluent "fire-and-burn" hooks below are meant to mirror
+    // the security stages exposed by ISecurityPolicy. If a new builder hook is
+    // introduced here, add or review the matching policy hook too so callers
+    // can choose either per-client lambdas or a reusable global policy.
     ClientBuilder& WithUserAgent(std::string user_agent);
     ClientBuilder& WithVerifyPeer(bool enabled);
     ClientBuilder& WithVerifyHost(bool enabled);
@@ -65,6 +69,7 @@ public:
     ClientBuilder& WithHeartbeat(HeartbeatCallback heartbeat);
     ClientBuilder& WithResponseReceived(ResponseReceivedCallback callback);
     ClientBuilder& WithPostVerification(PostVerificationCallback callback);
+    ClientBuilder& WithTamperAction(TamperActionCallback callback);
     ClientBuilder& WithSecurityPolicy(std::shared_ptr<ISecurityPolicy> policy);
     ClientBuilder& WithGlobalMaxBodyLimit(std::size_t max_body_bytes);
     ClientBuilder& WithApiVerification(bool enabled);

@@ -17,6 +17,11 @@ class BURNER_API ISecurityPolicy {
 public:
     virtual ~ISecurityPolicy() = default;
 
+    // Guardrail: keep this interface aligned with ClientBuilder hook coverage.
+    // If a new "fire-and-burn" builder lambda is added for a security stage,
+    // add the corresponding "global policy" hook here too so both composition
+    // paths stay available and BuilderSecurityPolicy can mirror the lifecycle.
+
     virtual bool OnVerifyEnvironment() const {
         return true;
     }

@@ -124,6 +124,7 @@ using EnvironmentCheckCallback = std::function<bool()>;
 using TransportCheckCallback = std::function<bool(const char* url, const char* remote_ip)>;
 using ResponseReceivedCallback = std::function<bool(const struct HttpRequest& request, const struct HttpResponse& response)>;
 using PostVerificationCallback = std::function<void(bool verified, ErrorCode reason)>;
+using TamperActionCallback = std::function<void()>;
 
 enum class DnsMode {
     System,
