@@ -58,13 +58,15 @@ public:
     ClientBuilder& WithMtls(MtlsCredentials creds);
     ClientBuilder& WithMtlsProvider(std::function<bool(MtlsCredentials&)> provider);
     ClientBuilder& WithBearerTokenProvider(TokenProvider provider);
-    ClientBuilder& WithBeforeRequest(BeforeRequestCallback callback);
     ClientBuilder& WithPreFlight(PreFlightCallback callback);
+    ClientBuilder& WithEnvironmentCheck(EnvironmentCheckCallback callback);
+    ClientBuilder& WithTransportCheck(TransportCheckCallback callback);
     ClientBuilder& WithResponseVerifier(std::shared_ptr<IResponseVerifier> verifier);
     ClientBuilder& WithHeartbeat(HeartbeatCallback heartbeat);
     ClientBuilder& WithResponseReceived(ResponseReceivedCallback callback);
     ClientBuilder& WithPostVerification(PostVerificationCallback callback);
     ClientBuilder& WithSecurityPolicy(std::shared_ptr<ISecurityPolicy> policy);
+    ClientBuilder& WithGlobalMaxBodyLimit(std::size_t max_body_bytes);
     ClientBuilder& WithApiVerification(bool enabled);
     ClientBuilder& WithTrustedCurlModules(std::vector<std::wstring> modules);
     ClientBuilder& WithCasualDefaults();

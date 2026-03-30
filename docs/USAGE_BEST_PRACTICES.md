@@ -80,7 +80,7 @@ auto utility = burner::net::ClientBuilder()
 - Use `ClientConfig::mtls_provider` for cert/key/password.
 - Use `ClientConfig::bearer_token_provider` for access token.
 - Use `SignatureVerifierConfig::secret_provider` for signature secret.
-- Use `ClientBuilder::WithBeforeRequest(...)`, `WithPreFlight(...)`, `WithHeartbeat(...)`, and `WithResponseReceived(...)` for synchronous integrity checks around the transport lifecycle when you do not need a full custom `ISecurityPolicy`.
+- Use `ClientBuilder::WithPreFlight(...)`, `WithEnvironmentCheck(...)`, `WithTransportCheck(...)`, `WithHeartbeat(...)`, and `WithResponseReceived(...)` for synchronous integrity checks around the transport lifecycle when you do not need a full custom `ISecurityPolicy`.
 - If you do need a full policy, implement `ISecurityPolicy` and pass it with `WithSecurityPolicy(...)`.
 
 Avoid long-lived plaintext in:
@@ -230,7 +230,7 @@ auto init = burner::net::InitializeNetworkingRuntime(boot);
 - Run that check separately for each dynamic triplet you ship (`x64-windows`, `x86-windows`).
 
 ## 13. Startup canary
-- For high-risk paths, run `burner::net::SecurityAuditor::CheckTransportIntegrity(client->Raw())` during startup or before auth.
+- For high-risk paths, run `burner::net::SecurityAuditor::CheckTransportIntegrity(client->Raw())` during startup or before auth. If the audit fails, BurnerNet now forwards that result into `ISecurityPolicy::OnTamper()`.
 - A `true` result means the transport rejected the `expired.badssl.com` canary exactly as expected.
 - A `false` result means the environment is compromised or inconclusive; fail closed for sensitive flows.
 

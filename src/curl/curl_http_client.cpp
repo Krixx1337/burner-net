@@ -320,6 +320,7 @@ CurlHttpClient::CurlHttpClient(const ClientConfig& config)
     }
     if (m_config.verify_curl_api_pointers &&
         !IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
+        m_config.security_policy->OnTamper();
         m_init_error = ErrorCode::CurlApiUntrusted;
         return;
     }
@@ -331,6 +332,7 @@ CurlHttpClient::CurlHttpClient(const ClientConfig& config)
             return;
         }
         if (!IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
+            m_config.security_policy->OnTamper();
             m_init_error = ErrorCode::CurlApiUntrusted;
             return;
         }
@@ -434,6 +436,12 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
     BodyWriteContext body_ctx{};
     body_ctx.body = &response.body;
     body_ctx.max_body_bytes = request.max_body_bytes;
+    if (m_config.global_max_body_bytes != 0) {
+        body_ctx.max_body_bytes =
+            body_ctx.max_body_bytes == 0
+                ? m_config.global_max_body_bytes
+                : (std::min)(body_ctx.max_body_bytes, m_config.global_max_body_bytes);
+    }
     body_ctx.on_chunk_received = request.on_chunk_received;
     std::string protocol_scheme;
     std::string redirect_protocol_scheme;
@@ -619,14 +627,14 @@ size_t CurlHttpClient::WriteBodyCallback(void* contents, size_t size, size_t nme
 
     ctx->streamed_body_bytes += total;
 
+    if (detail::WouldExceedBodyLimit(ctx->streamed_body_bytes - total, total, ctx->max_body_bytes)) {
+        ctx->limit_exceeded = true;
+        return 0;
+    }
+
     if (ctx->on_chunk_received) {
         ctx->on_chunk_received(reinterpret_cast<const uint8_t*>(contents), total);
         return total;
-    }
-
-    if (detail::WouldExceedBodyLimit(ctx->body->size(), total, ctx->max_body_bytes)) {
-        ctx->limit_exceeded = true;
-        return 0;
     }
 
     ctx->body->append(static_cast<const char*>(contents), total);

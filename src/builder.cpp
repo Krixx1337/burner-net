@@ -9,13 +9,17 @@ namespace detail {
 class BuilderSecurityPolicy final : public DefaultSecurityPolicy {
 public:
     std::shared_ptr<ISecurityPolicy> wrapped_policy;
-    BeforeRequestCallback before_request;
     PreFlightCallback pre_flight;
+    EnvironmentCheckCallback environment_check;
+    TransportCheckCallback transport_check;
     HeartbeatCallback heartbeat;
     ResponseReceivedCallback response_received;
     PostVerificationCallback post_verification;
 
     bool OnVerifyEnvironment() const override {
+        if (environment_check && !environment_check()) {
+            return false;
+        }
         return !wrapped_policy || wrapped_policy->OnVerifyEnvironment();
     }
 
@@ -23,13 +27,13 @@ public:
         if (pre_flight && !pre_flight(request)) {
             return false;
         }
-        if (before_request && !before_request(request)) {
-            return false;
-        }
         return !wrapped_policy || wrapped_policy->OnPreRequest(request);
     }
 
     bool OnVerifyTransport(const char* url, const char* remote_ip) const override {
+        if (transport_check && !transport_check(url, remote_ip)) {
+            return false;
+        }
         return !wrapped_policy || wrapped_policy->OnVerifyTransport(url, remote_ip);
     }
 
@@ -226,13 +230,18 @@ ClientBuilder& ClientBuilder::WithBearerTokenProvider(TokenProvider provider) {
     return *this;
 }
 
-ClientBuilder& ClientBuilder::WithBeforeRequest(BeforeRequestCallback callback) {
-    detail::EnsureBuilderSecurityPolicy(m_config).before_request = std::move(callback);
+ClientBuilder& ClientBuilder::WithPreFlight(PreFlightCallback callback) {
+    detail::EnsureBuilderSecurityPolicy(m_config).pre_flight = std::move(callback);
     return *this;
 }
 
-ClientBuilder& ClientBuilder::WithPreFlight(PreFlightCallback callback) {
-    detail::EnsureBuilderSecurityPolicy(m_config).pre_flight = std::move(callback);
+ClientBuilder& ClientBuilder::WithEnvironmentCheck(EnvironmentCheckCallback callback) {
+    detail::EnsureBuilderSecurityPolicy(m_config).environment_check = std::move(callback);
+    return *this;
+}
+
+ClientBuilder& ClientBuilder::WithTransportCheck(TransportCheckCallback callback) {
+    detail::EnsureBuilderSecurityPolicy(m_config).transport_check = std::move(callback);
     return *this;
 }
 
@@ -262,6 +271,11 @@ ClientBuilder& ClientBuilder::WithSecurityPolicy(std::shared_ptr<ISecurityPolicy
         return *this;
     }
     m_config.security_policy = std::move(policy);
+    return *this;
+}
+
+ClientBuilder& ClientBuilder::WithGlobalMaxBodyLimit(std::size_t max_body_bytes) {
+    m_config.global_max_body_bytes = max_body_bytes;
     return *this;
 }
 
@@ -341,6 +355,9 @@ ClientBuilder& ClientBuilder::WithPinnedKey(std::string pin) {
 
 ClientBuilder::ClientBuildResult ClientBuilder::Build() {
     m_config.security_policy = ResolveSecurityPolicy(std::move(m_config.security_policy));
+    if (!m_config.security_policy->OnVerifyEnvironment()) {
+        return {nullptr, ErrorCode::EnvironmentCompromised};
+    }
     ClientCreateResult created = CreateHttpClient(m_config);
     if (!created.Ok()) {
         return {nullptr, created.error};

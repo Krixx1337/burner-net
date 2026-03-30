@@ -90,6 +90,29 @@ TEST_CASE("max_body_bytes aborts oversized responses mid-stream") {
     CHECK(response.streamed_body_bytes > request.max_body_bytes);
 }
 
+TEST_CASE("global max body limit caps requests even without a per-request limit") {
+    auto client = burner::net::ClientBuilder()
+        .WithUseNativeCa(true)
+        .WithGlobalMaxBodyLimit(10)
+        .Build();
+
+    REQUIRE(client.client != nullptr);
+
+    burner::net::HttpRequest request{};
+    request.method = burner::net::HttpMethod::Get;
+    request.url = "https://example.com";
+    request.timeout_seconds = 15;
+    request.connect_timeout_seconds = 10;
+    request.dns_fallback.enabled = false;
+
+    const auto response = client.client->Send(request);
+
+    CHECK_FALSE(response.TransportOk());
+    CHECK(response.transport_error == burner::net::ErrorCode::BodyTooLarge);
+    CHECK(response.body.empty());
+    CHECK(response.streamed_body_bytes > 10);
+}
+
 TEST_CASE("timeouts fail closed for slow or unroutable endpoints") {
     auto client = burner::net::ClientBuilder()
         .WithUseNativeCa(true)

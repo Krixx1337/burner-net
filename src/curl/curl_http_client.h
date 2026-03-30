@@ -41,6 +41,7 @@ public:
     ~CurlHttpClient() override;
 
     HttpResponse Send(const HttpRequest& request) override;
+    const ISecurityPolicy* SecurityPolicy() const override { return m_config.security_policy.get(); }
 
     bool IsInitialized() const { return m_easy != nullptr; }
     ErrorCode InitError() const { return m_init_error; }

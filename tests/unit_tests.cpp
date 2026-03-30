@@ -10,6 +10,7 @@
 #include "burner/net/http.h"
 #include "burner/net/obfuscation.h"
 #include "burner/net/policy.h"
+#include "burner/net/security_auditor.h"
 #include "burner/net/signature_verifier.h"
 #include "curl/curl_http_client.h"
 #include "internal/import_pointer_trust.h"
@@ -36,6 +37,44 @@ public:
 };
 
 class AllowAllPolicy final : public burner::net::ISecurityPolicy {};
+
+class RecordingPolicy final : public burner::net::ISecurityPolicy {
+public:
+    bool transport_allowed = true;
+    mutable int tamper_count = 0;
+
+    bool OnVerifyTransport(const char*, const char*) const override {
+        return transport_allowed;
+    }
+
+    void OnTamper() const override {
+        ++tamper_count;
+    }
+};
+
+class SecurityAuditorStubClient final : public burner::net::IHttpClient {
+public:
+    explicit SecurityAuditorStubClient(const burner::net::ISecurityPolicy* policy)
+        : m_policy(policy) {}
+
+    burner::net::HttpResponse Send(const burner::net::HttpRequest&) override {
+        burner::net::HttpResponse response{};
+        response.transport_code = 1;
+        response.transport_error =
+            m_call_count++ == 0
+                ? burner::net::ErrorCode::TlsVerificationFailed
+                : burner::net::ErrorCode::CurlGeneric;
+        return response;
+    }
+
+    const burner::net::ISecurityPolicy* SecurityPolicy() const override {
+        return m_policy;
+    }
+
+private:
+    const burner::net::ISecurityPolicy* m_policy = nullptr;
+    int m_call_count = 0;
+};
 
 } // namespace
 
@@ -201,6 +240,39 @@ TEST_CASE("custom security policy layers on top of an existing builder preflight
     CHECK(response.transport_code != 0);
 }
 
+TEST_CASE("builder environment check fails build closed") {
+    auto build_result = burner::net::ClientBuilder()
+        .WithEnvironmentCheck([] {
+            return false;
+        })
+        .Build();
+
+    CHECK_FALSE(build_result.Ok());
+    CHECK(build_result.error == burner::net::ErrorCode::EnvironmentCompromised);
+}
+
+TEST_CASE("builder transport check layers on top of an existing custom security policy") {
+    auto build_result = burner::net::ClientBuilder()
+        .WithSecurityPolicy(std::make_shared<AllowAllPolicy>())
+        .WithTransportCheck([](const char*, const char*) {
+            return false;
+        })
+        .Build();
+
+    REQUIRE(build_result.Ok());
+
+    burner::net::HttpRequest request{};
+    request.method = burner::net::HttpMethod::Get;
+    request.url = "https://example.com";
+    request.dns_fallback.enabled = false;
+
+    const auto response = build_result.client->Send(request);
+
+    CHECK_FALSE(response.TransportOk());
+    CHECK(response.transport_error == burner::net::ErrorCode::TransportVerificationFailed);
+    CHECK(response.transport_code != 0);
+}
+
 TEST_CASE("response-received callback can fail closed with HeartbeatAbort") {
     auto build_result = burner::net::ClientBuilder()
         .WithResponseReceived([](const burner::net::HttpRequest&, const burner::net::HttpResponse&) {
@@ -256,6 +328,14 @@ TEST_CASE("transport retry budget is honored through the public client API") {
     CHECK_FALSE(single_attempt_response.TransportOk());
     CHECK(single_attempt_response.transport_error == burner::net::ErrorCode::InvalidHeader);
     CHECK(preflight_calls == 1);
+}
+
+TEST_CASE("security auditor triggers tamper callback on transport audit failure") {
+    RecordingPolicy policy{};
+    SecurityAuditorStubClient client(&policy);
+
+    CHECK_FALSE(burner::net::SecurityAuditor::CheckTransportIntegrity(&client));
+    CHECK(policy.tamper_count == 1);
 }
 
 TEST_CASE("import pointer trust accepts allowed system module and rejects wrong one") {

@@ -3,6 +3,10 @@
 namespace burner::net {
 
 bool SecurityAuditor::CheckTransportIntegrity(IHttpClient* client) {
+    return CheckTransportIntegrity(client, client != nullptr ? client->SecurityPolicy() : nullptr);
+}
+
+bool SecurityAuditor::CheckTransportIntegrity(IHttpClient* client, const ISecurityPolicy* policy) {
     if (client == nullptr) {
         return false;
     }
@@ -22,8 +26,11 @@ bool SecurityAuditor::CheckTransportIntegrity(IHttpClient* client) {
 
     const bool expired_rejected = check_domain("https://expired.badssl.com");
     const bool wrong_host_rejected = check_domain("https://wrong.host.badssl.com");
-
-    return expired_rejected && wrong_host_rejected;
+    const bool ok = expired_rejected && wrong_host_rejected;
+    if (!ok && policy != nullptr) {
+        policy->OnTamper();
+    }
+    return ok;
 }
 
 } // namespace burner::net

@@ -119,8 +119,9 @@ inline void HeaderMap::clear() noexcept {
 using TokenProvider = std::function<bool(std::string& out)>;
 using ChunkCallback = std::function<void(const uint8_t*, size_t)>;
 using HeartbeatCallback = std::function<bool()>;
-using BeforeRequestCallback = std::function<bool(const struct HttpRequest& request)>;
 using PreFlightCallback = std::function<bool(const struct HttpRequest& request)>;
+using EnvironmentCheckCallback = std::function<bool()>;
+using TransportCheckCallback = std::function<bool(const char* url, const char* remote_ip)>;
 using ResponseReceivedCallback = std::function<bool(const struct HttpRequest& request, const struct HttpResponse& response)>;
 using PostVerificationCallback = std::function<void(bool verified, ErrorCode reason)>;
 
@@ -202,6 +203,7 @@ public:
     virtual ~IHttpClient() = default;
 
     virtual HttpResponse Send(const HttpRequest& request) = 0;
+    virtual const ISecurityPolicy* SecurityPolicy() const = 0;
 };
 
 struct ClientConfig {
@@ -217,6 +219,7 @@ struct ClientConfig {
     TokenProvider bearer_token_provider;
     std::shared_ptr<IResponseVerifier> response_verifier;
     std::shared_ptr<ISecurityPolicy> security_policy;
+    std::size_t global_max_body_bytes = 0;
     std::vector<std::string> pinned_public_keys;
     bool verify_curl_api_pointers = false;
     std::vector<std::wstring> trusted_curl_module_basenames = {
