@@ -9,7 +9,12 @@
 #include "burner/net/obfuscation.h"
 #include "burner/net/signature_verifier.h"
 #include "curl/curl_http_client.h"
+#include "internal/import_pointer_trust.h"
 #include "internal/header_validation.h"
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 TEST_CASE("header validation rejects CRLF injection") {
     CHECK_FALSE(burner::net::internal::IsValidHeaderName("Content-Type\r\nSet-Cookie: pwned=1"));
@@ -91,6 +96,29 @@ TEST_CASE("body limit helper rejects chunks that exceed max body bytes") {
     CHECK_FALSE(burner::net::detail::WouldExceedBodyLimit(0, 10, 10));
     CHECK(burner::net::detail::WouldExceedBodyLimit(10, 1, 10));
     CHECK(burner::net::detail::WouldExceedBodyLimit(5, 6, 10));
+}
+
+TEST_CASE("import pointer trust accepts allowed system module and rejects wrong one") {
+#ifdef _WIN32
+    const auto* fn_ptr = reinterpret_cast<const void*>(&GetModuleHandleA);
+
+    CHECK(burner::net::internal::IsFunctionPointerInAllowedModules(
+        fn_ptr,
+        {L"kernel32.dll"}));
+    CHECK_FALSE(burner::net::internal::IsFunctionPointerInAllowedModules(
+        fn_ptr,
+        {L"malicious.dll"}));
+    CHECK(burner::net::internal::IsFunctionPointerExecutable(fn_ptr));
+    CHECK(burner::net::internal::IsFunctionPointerTrusted(
+        fn_ptr,
+        {L"kernel32.dll"}));
+    CHECK_FALSE(burner::net::internal::IsFunctionPointerTrusted(
+        fn_ptr,
+        {L"malicious.dll"}));
+#else
+    MESSAGE("Import pointer trust is Windows-only.");
+    CHECK(true);
+#endif
 }
 
 TEST_CASE("builder returns result object") {
