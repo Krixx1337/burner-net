@@ -1,6 +1,16 @@
 #include "burner/net/error.h"
+#include "burner/net/detail/constexpr_obfuscation.h"
 
 namespace burner::net {
+
+namespace detail {
+
+std::uint32_t ErrorXorKey() noexcept {
+    static constinit const std::uint32_t key = ::burner::net::obf::build_error_xor_key();
+    return key;
+}
+
+} // namespace detail
 
 const char* ErrorCodeDebugString(ErrorCode code) noexcept {
 #if defined(BURNERNET_HARDEN_ERRORS) && BURNERNET_HARDEN_ERRORS

@@ -1,17 +1,13 @@
 #include "burner/net/builder.h"
-#include "burner/net/obfuscation.h"
-#include "burner/net/detail/constexpr_obfuscation.h"
+
+#include "curl/curl_http_client.h"
 
 namespace burner::net {
 
 namespace detail {
 
-class BuilderSecurityPolicy final : public DefaultSecurityPolicy {
-public:
-    // Guardrail: this decorator should stay as a near-1:1 bridge between the
-    // builder's short-lived lambdas and ISecurityPolicy's reusable hooks.
-    // When adding a security stage on either side, wire the other side too.
-    std::shared_ptr<ISecurityPolicy> wrapped_policy;
+struct BuilderSecurityPolicy final {
+    SecurityPolicy wrapped_policy;
     PreFlightCallback pre_flight;
     EnvironmentCheckCallback environment_check;
     TransportCheckCallback transport_check;
@@ -20,187 +16,65 @@ public:
     PostVerificationCallback post_verification;
     TamperActionCallback tamper_action;
 
-    bool OnVerifyEnvironment() const override {
+    bool OnVerifyEnvironment() const {
         if (environment_check && !environment_check()) {
             return false;
         }
-        return !wrapped_policy || wrapped_policy->OnVerifyEnvironment();
+        return wrapped_policy.OnVerifyEnvironment();
     }
 
-    bool OnPreRequest(HttpRequest& request) const override {
+    bool OnPreRequest(HttpRequest& request) const {
         if (pre_flight && !pre_flight(request)) {
             return false;
         }
-        return !wrapped_policy || wrapped_policy->OnPreRequest(request);
+        return wrapped_policy.OnPreRequest(request);
     }
 
-    bool OnVerifyTransport(const char* url, const char* remote_ip) const override {
+    bool OnVerifyTransport(const char* url, const char* remote_ip) const {
         if (transport_check && !transport_check(url, remote_ip)) {
             return false;
         }
-        return !wrapped_policy || wrapped_policy->OnVerifyTransport(url, remote_ip);
+        return wrapped_policy.OnVerifyTransport(url, remote_ip);
     }
 
-    bool OnHeartbeat() const override {
+    bool OnHeartbeat() const {
         if (heartbeat && !heartbeat()) {
             return false;
         }
-        return !wrapped_policy || wrapped_policy->OnHeartbeat();
+        return wrapped_policy.OnHeartbeat();
     }
 
-    bool OnResponseReceived(const HttpRequest& request, const HttpResponse& response) const override {
+    bool OnResponseReceived(const HttpRequest& request, const HttpResponse& response) const {
         if (response_received && !response_received(request, response)) {
             return false;
         }
-        return !wrapped_policy || wrapped_policy->OnResponseReceived(request, response);
+        return wrapped_policy.OnResponseReceived(request, response);
     }
 
-    void OnSignatureVerified(bool success, ErrorCode reason) const override {
+    void OnSignatureVerified(bool success, ErrorCode reason) const {
         if (post_verification) {
             post_verification(success, reason);
         }
-        if (wrapped_policy) {
-            wrapped_policy->OnSignatureVerified(success, reason);
-        }
+        wrapped_policy.OnSignatureVerified(success, reason);
     }
 
-    void OnTamper() const override {
+    void OnTamper() const {
         if (tamper_action) {
             tamper_action();
         }
-        if (wrapped_policy) {
-            wrapped_policy->OnTamper();
-            return;
-        }
-        DefaultSecurityPolicy::OnTamper();
+        wrapped_policy.OnTamper();
     }
 
-    void OnError(ErrorCode code, const char* url) const override {
-        if (wrapped_policy) {
-            wrapped_policy->OnError(code, url);
-        }
+    void OnError(ErrorCode code, const char* url) const {
+        wrapped_policy.OnError(code, url);
     }
 
-    std::string GetUserAgent() const override {
-        if (wrapped_policy) {
-            return wrapped_policy->GetUserAgent();
-        }
-        return DefaultSecurityPolicy::GetUserAgent();
-    }
-
-    void Wrap(std::shared_ptr<ISecurityPolicy> policy) {
-        if (policy.get() == this) {
-            return;
-        }
-        wrapped_policy = std::move(policy);
+    std::string GetUserAgent() const {
+        return wrapped_policy.GetUserAgent();
     }
 };
 
-std::uint32_t ErrorXorKey() noexcept {
-    static constinit const std::uint32_t key = ::burner::net::obf::build_error_xor_key();
-    return key;
-}
-
-BuilderSecurityPolicy& EnsureBuilderSecurityPolicy(ClientConfig& config) {
-    if (auto* existing = dynamic_cast<BuilderSecurityPolicy*>(config.security_policy.get())) {
-        return *existing;
-    }
-
-    auto policy = std::make_shared<BuilderSecurityPolicy>();
-    policy->Wrap(std::move(config.security_policy));
-    config.security_policy = policy;
-    return *policy;
-}
-
-std::shared_ptr<BuilderSecurityPolicy> GetBuilderSecurityPolicy(ClientConfig& config) {
-    if (auto* existing = dynamic_cast<BuilderSecurityPolicy*>(config.security_policy.get())) {
-        (void)existing;
-        return std::static_pointer_cast<BuilderSecurityPolicy>(config.security_policy);
-    }
-    return {};
-}
-
 } // namespace detail
-
-RequestBuilder::RequestBuilder(FluentClient& client, HttpMethod method, std::string url)
-    : m_client(&client) {
-    m_request.method = method;
-    m_request.url = std::move(url);
-    // Fluent requests inherit the client policy unless the caller later sets a per-request policy explicitly.
-    m_request.dns_fallback.enabled = false;
-    m_request.dns_fallback.strategies.clear();
-}
-
-RequestBuilder& RequestBuilder::WithHeader(std::string name, std::string value) {
-    m_request.headers[std::move(name)] = std::move(value);
-    return *this;
-}
-
-RequestBuilder& RequestBuilder::WithBody(std::string body) {
-    m_request.body = std::move(body);
-    return *this;
-}
-
-RequestBuilder& RequestBuilder::WithEphemeralToken(TokenProvider provider) {
-    m_request.bearer_token_provider = std::move(provider);
-    return *this;
-}
-
-RequestBuilder& RequestBuilder::OnChunkReceived(ChunkCallback callback) {
-    m_request.on_chunk_received = std::move(callback);
-    return *this;
-}
-
-RequestBuilder& RequestBuilder::WithTimeoutSeconds(long seconds) {
-    m_request.timeout_seconds = seconds;
-    return *this;
-}
-
-RequestBuilder& RequestBuilder::WithConnectTimeoutSeconds(long seconds) {
-    m_request.connect_timeout_seconds = seconds;
-    return *this;
-}
-
-RequestBuilder& RequestBuilder::FollowRedirects(bool enabled) {
-    m_request.follow_redirects = enabled;
-    return *this;
-}
-
-HttpResponse RequestBuilder::Send() {
-    return m_client->Send(std::move(m_request));
-}
-
-FluentClient::FluentClient(std::unique_ptr<IHttpClient> transport, DnsFallbackPolicy default_dns_fallback)
-    : m_transport(std::move(transport)),
-      m_default_dns_fallback(std::move(default_dns_fallback)) {}
-
-RequestBuilder FluentClient::Get(std::string url) {
-    return RequestBuilder(*this, HttpMethod::Get, std::move(url));
-}
-
-RequestBuilder FluentClient::Post(std::string url) {
-    return RequestBuilder(*this, HttpMethod::Post, std::move(url));
-}
-
-RequestBuilder FluentClient::Put(std::string url) {
-    return RequestBuilder(*this, HttpMethod::Put, std::move(url));
-}
-
-RequestBuilder FluentClient::Delete(std::string url) {
-    return RequestBuilder(*this, HttpMethod::Delete, std::move(url));
-}
-
-RequestBuilder FluentClient::Patch(std::string url) {
-    return RequestBuilder(*this, HttpMethod::Patch, std::move(url));
-}
-
-HttpResponse FluentClient::Send(HttpRequest request) {
-    if (!request.dns_fallback.enabled && !m_default_dns_fallback.strategies.empty()) {
-        request.dns_fallback = m_default_dns_fallback;
-        request.dns_fallback.enabled = true;
-    }
-    return m_transport->Send(request);
-}
 
 ClientBuilder& ClientBuilder::WithUserAgent(std::string user_agent) {
     m_config.user_agent = std::move(user_agent);
@@ -238,51 +112,37 @@ ClientBuilder& ClientBuilder::WithBearerTokenProvider(TokenProvider provider) {
 }
 
 ClientBuilder& ClientBuilder::WithPreFlight(PreFlightCallback callback) {
-    detail::EnsureBuilderSecurityPolicy(m_config).pre_flight = std::move(callback);
+    m_pre_flight = std::move(callback);
     return *this;
 }
 
 ClientBuilder& ClientBuilder::WithEnvironmentCheck(EnvironmentCheckCallback callback) {
-    detail::EnsureBuilderSecurityPolicy(m_config).environment_check = std::move(callback);
+    m_environment_check = std::move(callback);
     return *this;
 }
 
 ClientBuilder& ClientBuilder::WithTransportCheck(TransportCheckCallback callback) {
-    detail::EnsureBuilderSecurityPolicy(m_config).transport_check = std::move(callback);
-    return *this;
-}
-
-ClientBuilder& ClientBuilder::WithResponseVerifier(std::shared_ptr<IResponseVerifier> verifier) {
-    m_config.response_verifier = std::move(verifier);
+    m_transport_check = std::move(callback);
     return *this;
 }
 
 ClientBuilder& ClientBuilder::WithHeartbeat(HeartbeatCallback heartbeat) {
-    detail::EnsureBuilderSecurityPolicy(m_config).heartbeat = std::move(heartbeat);
+    m_heartbeat = std::move(heartbeat);
     return *this;
 }
 
 ClientBuilder& ClientBuilder::WithResponseReceived(ResponseReceivedCallback callback) {
-    detail::EnsureBuilderSecurityPolicy(m_config).response_received = std::move(callback);
+    m_response_received = std::move(callback);
     return *this;
 }
 
 ClientBuilder& ClientBuilder::WithPostVerification(PostVerificationCallback callback) {
-    detail::EnsureBuilderSecurityPolicy(m_config).post_verification = std::move(callback);
+    m_post_verification = std::move(callback);
     return *this;
 }
 
 ClientBuilder& ClientBuilder::WithTamperAction(TamperActionCallback callback) {
-    detail::EnsureBuilderSecurityPolicy(m_config).tamper_action = std::move(callback);
-    return *this;
-}
-
-ClientBuilder& ClientBuilder::WithSecurityPolicy(std::shared_ptr<ISecurityPolicy> policy) {
-    if (auto builder_policy = detail::GetBuilderSecurityPolicy(m_config)) {
-        builder_policy->Wrap(std::move(policy));
-        return *this;
-    }
-    m_config.security_policy = std::move(policy);
+    m_tamper_action = std::move(callback);
     return *this;
 }
 
@@ -366,15 +226,30 @@ ClientBuilder& ClientBuilder::WithPinnedKey(std::string pin) {
 }
 
 ClientBuilder::ClientBuildResult ClientBuilder::Build() {
-    m_config.security_policy = ResolveSecurityPolicy(std::move(m_config.security_policy));
-    if (!m_config.security_policy->OnVerifyEnvironment()) {
+    ClientConfig config = m_config;
+    config.security_policy = SecurityPolicy(detail::BuilderSecurityPolicy{
+        .wrapped_policy = m_security_policy,
+        .pre_flight = m_pre_flight,
+        .environment_check = m_environment_check,
+        .transport_check = m_transport_check,
+        .heartbeat = m_heartbeat,
+        .response_received = m_response_received,
+        .post_verification = m_post_verification,
+        .tamper_action = m_tamper_action,
+    });
+    config.response_verifier = m_response_verifier;
+
+    if (!config.security_policy.OnVerifyEnvironment()) {
         return {nullptr, ErrorCode::EnvironmentCompromised};
     }
-    ClientCreateResult created = CreateHttpClient(m_config);
-    if (!created.Ok()) {
-        return {nullptr, created.error};
+
+    CurlHttpClient transport(config);
+    if (!transport.IsInitialized()) {
+        return {nullptr, transport.InitError()};
     }
-    return {std::make_unique<FluentClient>(std::move(created.client), m_default_dns_fallback), ErrorCode::None};
+
+    return {std::make_shared<FluentClient<CurlHttpClient>>(std::move(transport), m_default_dns_fallback), ErrorCode::None};
 }
 
 } // namespace burner::net
+

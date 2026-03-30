@@ -311,7 +311,6 @@ std::string ToCurlMethod(HttpMethod method) {
 
 CurlHttpClient::CurlHttpClient(const ClientConfig& config)
     : m_config(config) {
-    m_config.security_policy = ResolveSecurityPolicy(std::move(m_config.security_policy));
 #if BURNERNET_HARDEN_IMPORTS
     m_curl_api = MakeResolvedCurlApi();
     if (!IsCurlApiComplete(m_curl_api)) {
@@ -320,7 +319,7 @@ CurlHttpClient::CurlHttpClient(const ClientConfig& config)
     }
     if (m_config.verify_curl_api_pointers &&
         !IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
-        m_config.security_policy->OnTamper();
+        m_config.security_policy.OnTamper();
         m_init_error = ErrorCode::CurlApiUntrusted;
         return;
     }
@@ -332,7 +331,7 @@ CurlHttpClient::CurlHttpClient(const ClientConfig& config)
             return;
         }
         if (!IsCurlApiTrusted(m_curl_api, m_config.trusted_curl_module_basenames)) {
-            m_config.security_policy->OnTamper();
+            m_config.security_policy.OnTamper();
             m_init_error = ErrorCode::CurlApiUntrusted;
             return;
         }
@@ -354,6 +353,46 @@ CurlHttpClient::~CurlHttpClient() {
     }
 }
 
+CurlHttpClient::CurlHttpClient(CurlHttpClient&& other) noexcept
+    : m_easy(other.m_easy),
+      m_config(std::move(other.m_config))
+#if BURNER_ENABLE_CURL
+    , m_curl_api(other.m_curl_api)
+#endif
+    , m_init_error(other.m_init_error),
+      m_heartbeat_aborted(other.m_heartbeat_aborted),
+      m_active_dns_strategy(std::move(other.m_active_dns_strategy)) {
+    other.m_easy = nullptr;
+    other.m_init_error = ErrorCode::None;
+    other.m_heartbeat_aborted = false;
+    other.m_active_dns_strategy.reset();
+}
+
+CurlHttpClient& CurlHttpClient::operator=(CurlHttpClient&& other) noexcept {
+    if (this == &other) {
+        return *this;
+    }
+
+    if (m_easy != nullptr) {
+        m_curl_api.easy_cleanup(static_cast<CURL*>(m_easy));
+    }
+
+    m_easy = other.m_easy;
+    m_config = std::move(other.m_config);
+#if BURNER_ENABLE_CURL
+    m_curl_api = other.m_curl_api;
+#endif
+    m_init_error = other.m_init_error;
+    m_heartbeat_aborted = other.m_heartbeat_aborted;
+    m_active_dns_strategy = std::move(other.m_active_dns_strategy);
+
+    other.m_easy = nullptr;
+    other.m_init_error = ErrorCode::None;
+    other.m_heartbeat_aborted = false;
+    other.m_active_dns_strategy.reset();
+    return *this;
+}
+
 HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
     HttpResponse response{};
 
@@ -361,14 +400,14 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
 
     for (int attempt = 1; attempt <= attempts; ++attempt) {
         HttpRequest active_request = request;
-        if (!m_config.security_policy->OnPreRequest(active_request)) {
+        if (!m_config.security_policy.OnPreRequest(active_request)) {
             response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
             response.transport_error = ErrorCode::PreFlightAbort;
             return response;
         }
         response = PerformOnceWithDnsFallback(active_request);
         if (!response.TransportOk()) {
-            m_config.security_policy->OnError(response.transport_error, active_request.url.c_str());
+            m_config.security_policy.OnError(response.transport_error, active_request.url.c_str());
         }
         if (!ShouldRetry(request, response, attempt)) {
             break;
@@ -381,7 +420,7 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
     }
 
     if (response.TransportOk()) {
-        if (!m_config.security_policy->OnResponseReceived(request, response)) {
+        if (!m_config.security_policy.OnResponseReceived(request, response)) {
             response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
             response.transport_error = ErrorCode::HeartbeatAbort;
             WipeResponse(response);
@@ -389,16 +428,16 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
         }
     }
 
-    if (response.TransportOk() && m_config.response_verifier) {
+    if (response.TransportOk() && m_config.response_verifier.Enabled()) {
         if (request.on_chunk_received) {
             response.verified = false;
             response.verification_error = ErrorCode::VerifyGeneric;
-            m_config.security_policy->OnSignatureVerified(false, response.verification_error);
+            m_config.security_policy.OnSignatureVerified(false, response.verification_error);
             return response;
         }
         ErrorCode reason = ErrorCode::None;
-        response.verified = m_config.response_verifier->Verify(request, response, &reason);
-        m_config.security_policy->OnSignatureVerified(response.verified, reason);
+        response.verified = m_config.response_verifier.Verify(request, response, &reason);
+        m_config.security_policy.OnSignatureVerified(response.verified, reason);
         if (!response.verified) {
             response.verification_error = (reason == ErrorCode::None) ? ErrorCode::VerifyGeneric : reason;
         }
@@ -553,7 +592,7 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
         char* primary_ip = nullptr;
         if (m_curl_api.easy_getinfo(easy, CURLINFO_PRIMARY_IP, &primary_ip) == CURLE_OK &&
             primary_ip != nullptr &&
-            !m_config.security_policy->OnVerifyTransport(request.url.c_str(), primary_ip)) {
+            !m_config.security_policy.OnVerifyTransport(request.url.c_str(), primary_ip)) {
             response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
             response.transport_error = ErrorCode::TransportVerificationFailed;
             WipeResponse(response);
@@ -681,7 +720,7 @@ int CurlHttpClient::ProgressCallback(void* clientp, curl_off_t, curl_off_t, curl
         return 0;
     }
 
-    if (!self->m_config.security_policy->OnHeartbeat()) {
+    if (!self->m_config.security_policy.OnHeartbeat()) {
         self->m_heartbeat_aborted = true;
         return 1;
     }
@@ -766,7 +805,7 @@ void CurlHttpClient::ApplyCommonOptions(
     m_curl_api.easy_setopt(easy, CURLOPT_TIMEOUT, request.timeout_seconds);
     m_curl_api.easy_setopt(easy, CURLOPT_CONNECTTIMEOUT, request.connect_timeout_seconds);
     if (user_agent_storage != nullptr) {
-        *user_agent_storage = m_config.security_policy->GetUserAgent();
+        *user_agent_storage = m_config.security_policy.GetUserAgent();
     }
     if (user_agent_storage != nullptr && !user_agent_storage->empty()) {
         m_curl_api.easy_setopt(easy, CURLOPT_USERAGENT, user_agent_storage->c_str());

@@ -1,7 +1,6 @@
 #pragma once
 
 #include <filesystem>
-#include <memory>
 #include <string>
 #include <vector>
 
@@ -30,7 +29,7 @@ struct DependencyIntegrityPolicy {
 struct BootstrapConfig {
     LinkMode link_mode = LinkMode::Static;
     bool preload_dependencies = true;
-    std::shared_ptr<ISecurityPolicy> security_policy;
+    SecurityPolicy security_policy;
     std::filesystem::path dependency_directory;
     DependencyIntegrityPolicy integrity_policy;
     std::vector<std::wstring> dependency_dlls = {

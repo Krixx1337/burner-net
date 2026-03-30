@@ -13,11 +13,11 @@ struct SignatureVerifierConfig {
     std::function<bool(std::string& out)> secret_provider;
 };
 
-class BURNER_API HmacSha256HeaderVerifier final : public IResponseVerifier {
+class BURNER_API HmacSha256HeaderVerifier final {
 public:
     explicit HmacSha256HeaderVerifier(SignatureVerifierConfig config);
 
-    bool Verify(const HttpRequest& request, const HttpResponse& response, ErrorCode* reason) override;
+    bool Verify(const HttpRequest& request, const HttpResponse& response, ErrorCode* reason) const;
 
 private:
     SignatureVerifierConfig m_config;

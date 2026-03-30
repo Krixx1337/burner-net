@@ -166,7 +166,7 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
 HmacSha256HeaderVerifier::HmacSha256HeaderVerifier(SignatureVerifierConfig config)
     : m_config(std::move(config)) {}
 
-bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& response, ErrorCode* reason) {
+bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& response, ErrorCode* reason) const {
     SecureString secret;
     if (m_config.secret_provider) {
         std::string provided_secret;

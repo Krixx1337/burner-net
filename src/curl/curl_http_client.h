@@ -36,13 +36,18 @@ struct CurlApi {
     EncodedPointer<CurlEasyStrerrorFn> easy_strerror = nullptr;
 };
 
-class CurlHttpClient final : public IHttpClient {
+class CurlHttpClient final {
 public:
     explicit CurlHttpClient(const ClientConfig& config);
-    ~CurlHttpClient() override;
+    ~CurlHttpClient();
 
-    HttpResponse Send(const HttpRequest& request) override;
-    const ISecurityPolicy* SecurityPolicy() const override { return m_config.security_policy.get(); }
+    CurlHttpClient(const CurlHttpClient&) = delete;
+    CurlHttpClient& operator=(const CurlHttpClient&) = delete;
+    CurlHttpClient(CurlHttpClient&& other) noexcept;
+    CurlHttpClient& operator=(CurlHttpClient&& other) noexcept;
+
+    HttpResponse Send(const HttpRequest& request);
+    const burner::net::SecurityPolicy* SecurityPolicy() const { return &m_config.security_policy; }
 
     bool IsInitialized() const { return m_easy != nullptr; }
     ErrorCode InitError() const { return m_init_error; }

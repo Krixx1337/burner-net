@@ -23,42 +23,40 @@
 
 namespace {
 
-class RejectPreFlightPolicy final : public burner::net::ISecurityPolicy {
-public:
-    bool OnPreRequest(burner::net::HttpRequest&) const override {
+struct RejectPreFlightPolicy final : burner::net::ISecurityPolicy {
+    bool OnPreRequest(burner::net::HttpRequest&) const {
         return false;
     }
 };
 
-class RejectHeartbeatPolicy final : public burner::net::ISecurityPolicy {
-public:
-    bool OnHeartbeat() const override {
+struct RejectHeartbeatPolicy final : burner::net::ISecurityPolicy {
+    bool OnHeartbeat() const {
         return false;
     }
 };
 
-class AllowAllPolicy final : public burner::net::ISecurityPolicy {};
+struct AllowAllPolicy final : burner::net::ISecurityPolicy {};
 
-class RecordingPolicy final : public burner::net::ISecurityPolicy {
+struct RecordingPolicy final : burner::net::ISecurityPolicy {
 public:
     bool transport_allowed = true;
-    mutable int tamper_count = 0;
+    std::shared_ptr<int> tamper_count = std::make_shared<int>(0);
 
-    bool OnVerifyTransport(const char*, const char*) const override {
+    bool OnVerifyTransport(const char*, const char*) const {
         return transport_allowed;
     }
 
-    void OnTamper() const override {
-        ++tamper_count;
+    void OnTamper() const {
+        ++(*tamper_count);
     }
 };
 
-class SecurityAuditorStubClient final : public burner::net::IHttpClient {
+class SecurityAuditorStubClient final {
 public:
-    explicit SecurityAuditorStubClient(const burner::net::ISecurityPolicy* policy)
+    explicit SecurityAuditorStubClient(const burner::net::SecurityPolicy* policy)
         : m_policy(policy) {}
 
-    burner::net::HttpResponse Send(const burner::net::HttpRequest&) override {
+    burner::net::HttpResponse Send(const burner::net::HttpRequest&) {
         burner::net::HttpResponse response{};
         response.transport_code = 1;
         response.transport_error =
@@ -68,12 +66,12 @@ public:
         return response;
     }
 
-    const burner::net::ISecurityPolicy* SecurityPolicy() const override {
+    const burner::net::SecurityPolicy* SecurityPolicy() const {
         return m_policy;
     }
 
 private:
-    const burner::net::ISecurityPolicy* m_policy = nullptr;
+    const burner::net::SecurityPolicy* m_policy = nullptr;
     int m_call_count = 0;
 };
 
@@ -216,7 +214,7 @@ TEST_CASE("EncodedPointer decodes and invokes function pointers") {
 
 TEST_CASE("client aborts immediately when security policy rejects preflight") {
     auto build_result = burner::net::ClientBuilder()
-        .WithSecurityPolicy(std::make_shared<RejectPreFlightPolicy>())
+        .WithSecurityPolicy(RejectPreFlightPolicy{})
         .Build();
 
     REQUIRE(build_result.Ok());
@@ -232,7 +230,7 @@ TEST_CASE("builder preflight callback layers on top of an existing custom securi
     bool callback_invoked = false;
 
     auto build_result = burner::net::ClientBuilder()
-        .WithSecurityPolicy(std::make_shared<RejectPreFlightPolicy>())
+        .WithSecurityPolicy(RejectPreFlightPolicy{})
         .WithPreFlight([&](const burner::net::HttpRequest&) {
             callback_invoked = true;
             return true;
@@ -254,7 +252,7 @@ TEST_CASE("custom security policy layers on top of an existing builder preflight
         .WithPreFlight([](const burner::net::HttpRequest&) {
             return false;
         })
-        .WithSecurityPolicy(std::make_shared<AllowAllPolicy>())
+        .WithSecurityPolicy(AllowAllPolicy{})
         .Build();
 
     REQUIRE(build_result.Ok());
@@ -279,7 +277,7 @@ TEST_CASE("builder environment check fails build closed") {
 
 TEST_CASE("builder transport check layers on top of an existing custom security policy") {
     auto build_result = burner::net::ClientBuilder()
-        .WithSecurityPolicy(std::make_shared<AllowAllPolicy>())
+        .WithSecurityPolicy(AllowAllPolicy{})
         .WithTransportCheck([](const char*, const char*) {
             return false;
         })
@@ -358,14 +356,15 @@ TEST_CASE("transport retry budget is honored through the public client API") {
 
 TEST_CASE("security auditor triggers tamper callback on transport audit failure") {
     RecordingPolicy policy{};
-    SecurityAuditorStubClient client(&policy);
+    burner::net::SecurityPolicy erased_policy = policy;
+    SecurityAuditorStubClient client(&erased_policy);
 
     CHECK_FALSE(burner::net::SecurityAuditor::CheckTransportIntegrity(&client));
-    CHECK(policy.tamper_count == 1);
+    CHECK(*policy.tamper_count == 1);
 }
 
 TEST_CASE("builder tamper action layers on top of wrapped policy tamper handling") {
-    auto policy = std::make_shared<RecordingPolicy>();
+    RecordingPolicy policy{};
     bool tamper_action_called = false;
 
     auto build_result = burner::net::ClientBuilder()
@@ -376,11 +375,11 @@ TEST_CASE("builder tamper action layers on top of wrapped policy tamper handling
         .Build();
 
     REQUIRE(build_result.Ok());
-    REQUIRE(build_result.client != nullptr);
+    REQUIRE(static_cast<bool>(build_result.client));
 
     build_result.client->Raw()->SecurityPolicy()->OnTamper();
     CHECK(tamper_action_called);
-    CHECK(policy->tamper_count == 1);
+    CHECK(*policy.tamper_count == 1);
 }
 
 TEST_CASE("import pointer trust accepts allowed system module and rejects wrong one") {

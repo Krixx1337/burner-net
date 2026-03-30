@@ -7,9 +7,11 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
+#include "concepts.h"
 #include "detail/memory_hygiene.h"
 #include "export.h"
 #include "error.h"
@@ -194,18 +196,46 @@ struct HttpResponse {
     bool Ok() const { return TransportOk() && HttpOk() && verified; }
 };
 
-class BURNER_API IResponseVerifier {
-public:
-    virtual ~IResponseVerifier() = default;
-    virtual bool Verify(const HttpRequest& request, const HttpResponse& response, ErrorCode* reason) = 0;
+struct BURNER_API IResponseVerifier {
+    bool Verify(const HttpRequest&, const HttpResponse&, ErrorCode* reason) const {
+        if (reason != nullptr) {
+            *reason = ErrorCode::VerifyGeneric;
+        }
+        return false;
+    }
 };
 
-class BURNER_API IHttpClient {
+class BURNER_API ResponseVerifier {
 public:
-    virtual ~IHttpClient() = default;
+    ResponseVerifier() = default;
 
-    virtual HttpResponse Send(const HttpRequest& request) = 0;
-    virtual const ISecurityPolicy* SecurityPolicy() const = 0;
+    template <ResponseVerifierConcept TVerifier>
+    ResponseVerifier(TVerifier verifier) {
+        emplace(std::move(verifier));
+    }
+
+    [[nodiscard]] bool Enabled() const noexcept {
+        return m_state != nullptr;
+    }
+
+    [[nodiscard]] bool Verify(const HttpRequest& request, const HttpResponse& response, ErrorCode* reason) const {
+        return m_verify(m_state.get(), request, response, reason);
+    }
+
+private:
+    template <ResponseVerifierConcept TVerifier>
+    void emplace(TVerifier verifier) {
+        using VerifierType = std::decay_t<TVerifier>;
+
+        auto state = std::make_shared<VerifierType>(std::move(verifier));
+        m_state = state;
+        m_verify = [](const void* raw, const HttpRequest& request, const HttpResponse& response, ErrorCode* reason) {
+            return static_cast<const VerifierType*>(raw)->Verify(request, response, reason);
+        };
+    }
+
+    std::shared_ptr<const void> m_state;
+    bool (*m_verify)(const void*, const HttpRequest&, const HttpResponse&, ErrorCode*) = nullptr;
 };
 
 struct ClientConfig {
@@ -219,8 +249,8 @@ struct ClientConfig {
     MtlsCredentials mtls{};
     std::function<bool(MtlsCredentials& out)> mtls_provider;
     TokenProvider bearer_token_provider;
-    std::shared_ptr<IResponseVerifier> response_verifier;
-    std::shared_ptr<ISecurityPolicy> security_policy;
+    ResponseVerifier response_verifier;
+    SecurityPolicy security_policy;
     std::size_t global_max_body_bytes = 0;
     std::vector<std::string> pinned_public_keys;
     bool verify_curl_api_pointers = false;
@@ -231,14 +261,5 @@ struct ClientConfig {
         L"libcurl-x86.dll"
     };
 };
-
-struct ClientCreateResult {
-    std::unique_ptr<IHttpClient> client;
-    ErrorCode error = ErrorCode::None;
-
-    bool Ok() const { return client != nullptr; }
-};
-
-BURNER_API ClientCreateResult CreateHttpClient(const ClientConfig& config);
 
 } // namespace burner::net

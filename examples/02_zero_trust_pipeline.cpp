@@ -1,6 +1,4 @@
 #include <iostream>
-#include <memory>
-
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
 #include "burner/net/security_auditor.h"
@@ -17,7 +15,7 @@ int RunZeroTrustPipeline() {
         .WithUseNativeCa(true)
         .WithApiVerification(true)
         .WithPinnedKey(kPinnedKey)
-        .WithResponseVerifier(std::make_shared<HmacSha256HeaderVerifier>(
+        .WithResponseVerifier(HmacSha256HeaderVerifier(
             SignatureVerifierConfig{
                 .signature_header = "X-Auth-Verify",
                 .secret = kSharedSecret,

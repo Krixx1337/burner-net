@@ -5,56 +5,127 @@
 #include <utility>
 #include <vector>
 
+#include "curl/curl_http_client.h"
 #include "export.h"
 #include "http.h"
 
 namespace burner::net {
 
+template <typename TTransport>
 class FluentClient;
 
+template <typename TTransport>
 class BURNER_API RequestBuilder {
 public:
-    RequestBuilder(FluentClient& client, HttpMethod method, std::string url);
+    RequestBuilder(FluentClient<TTransport>& client, HttpMethod method, std::string url)
+        : m_client(&client) {
+        m_request.method = method;
+        m_request.url = std::move(url);
+        m_request.dns_fallback.enabled = false;
+        m_request.dns_fallback.strategies.clear();
+    }
 
-    RequestBuilder& WithHeader(std::string name, std::string value);
-    RequestBuilder& WithBody(std::string body);
-    RequestBuilder& WithEphemeralToken(TokenProvider provider);
-    RequestBuilder& OnChunkReceived(ChunkCallback callback);
-    RequestBuilder& WithTimeoutSeconds(long seconds);
-    RequestBuilder& WithConnectTimeoutSeconds(long seconds);
-    RequestBuilder& FollowRedirects(bool enabled);
+    RequestBuilder& WithHeader(std::string name, std::string value) {
+        m_request.headers[std::move(name)] = std::move(value);
+        return *this;
+    }
 
-    HttpResponse Send();
+    RequestBuilder& WithBody(std::string body) {
+        m_request.body = std::move(body);
+        return *this;
+    }
+
+    RequestBuilder& WithEphemeralToken(TokenProvider provider) {
+        m_request.bearer_token_provider = std::move(provider);
+        return *this;
+    }
+
+    RequestBuilder& OnChunkReceived(ChunkCallback callback) {
+        m_request.on_chunk_received = std::move(callback);
+        return *this;
+    }
+
+    RequestBuilder& WithTimeoutSeconds(long seconds) {
+        m_request.timeout_seconds = seconds;
+        return *this;
+    }
+
+    RequestBuilder& WithConnectTimeoutSeconds(long seconds) {
+        m_request.connect_timeout_seconds = seconds;
+        return *this;
+    }
+
+    RequestBuilder& FollowRedirects(bool enabled) {
+        m_request.follow_redirects = enabled;
+        return *this;
+    }
+
+    [[nodiscard]] HttpResponse Send() {
+        return m_client->Send(std::move(m_request));
+    }
 
 private:
-    FluentClient* m_client = nullptr;
+    FluentClient<TTransport>* m_client = nullptr;
     HttpRequest m_request;
 };
 
+template <typename TTransport>
 class BURNER_API FluentClient {
 public:
-    FluentClient(std::unique_ptr<IHttpClient> transport, DnsFallbackPolicy default_dns_fallback);
+    FluentClient(TTransport transport, DnsFallbackPolicy default_dns_fallback)
+        : m_transport(std::move(transport)),
+          m_default_dns_fallback(std::move(default_dns_fallback)) {}
 
-    RequestBuilder Get(std::string url);
-    RequestBuilder Post(std::string url);
-    RequestBuilder Put(std::string url);
-    RequestBuilder Delete(std::string url);
-    RequestBuilder Patch(std::string url);
+    [[nodiscard]] RequestBuilder<TTransport> Get(std::string url) {
+        return RequestBuilder<TTransport>(*this, HttpMethod::Get, std::move(url));
+    }
 
-    IHttpClient* Raw() const { return m_transport.get(); }
-    HttpResponse Send(HttpRequest request);
+    [[nodiscard]] RequestBuilder<TTransport> Post(std::string url) {
+        return RequestBuilder<TTransport>(*this, HttpMethod::Post, std::move(url));
+    }
+
+    [[nodiscard]] RequestBuilder<TTransport> Put(std::string url) {
+        return RequestBuilder<TTransport>(*this, HttpMethod::Put, std::move(url));
+    }
+
+    [[nodiscard]] RequestBuilder<TTransport> Delete(std::string url) {
+        return RequestBuilder<TTransport>(*this, HttpMethod::Delete, std::move(url));
+    }
+
+    [[nodiscard]] RequestBuilder<TTransport> Patch(std::string url) {
+        return RequestBuilder<TTransport>(*this, HttpMethod::Patch, std::move(url));
+    }
+
+    [[nodiscard]] TTransport* Raw() { return &m_transport; }
+    [[nodiscard]] const TTransport* Raw() const { return &m_transport; }
+
+    [[nodiscard]] HttpResponse Send(HttpRequest request) {
+        if (!request.dns_fallback.enabled && !m_default_dns_fallback.strategies.empty()) {
+            request.dns_fallback = m_default_dns_fallback;
+            request.dns_fallback.enabled = true;
+        }
+        return m_transport.Send(request);
+    }
 
 private:
-    std::unique_ptr<IHttpClient> m_transport;
+    TTransport m_transport;
     DnsFallbackPolicy m_default_dns_fallback;
 };
 
 class BURNER_API ClientBuilder {
 public:
-    // Guardrail: the fluent "fire-and-burn" hooks below are meant to mirror
-    // the security stages exposed by ISecurityPolicy. If a new builder hook is
-    // introduced here, add or review the matching policy hook too so callers
-    // can choose either per-client lambdas or a reusable global policy.
+    template <SecurityPolicyConcept TPolicy>
+    ClientBuilder& WithSecurityPolicy(TPolicy policy) {
+        m_security_policy = SecurityPolicy(std::move(policy));
+        return *this;
+    }
+
+    template <ResponseVerifierConcept TVerifier>
+    ClientBuilder& WithResponseVerifier(TVerifier verifier) {
+        m_response_verifier = ResponseVerifier(std::move(verifier));
+        return *this;
+    }
+
     ClientBuilder& WithUserAgent(std::string user_agent);
     ClientBuilder& WithVerifyPeer(bool enabled);
     ClientBuilder& WithVerifyHost(bool enabled);
@@ -65,12 +136,10 @@ public:
     ClientBuilder& WithPreFlight(PreFlightCallback callback);
     ClientBuilder& WithEnvironmentCheck(EnvironmentCheckCallback callback);
     ClientBuilder& WithTransportCheck(TransportCheckCallback callback);
-    ClientBuilder& WithResponseVerifier(std::shared_ptr<IResponseVerifier> verifier);
     ClientBuilder& WithHeartbeat(HeartbeatCallback heartbeat);
     ClientBuilder& WithResponseReceived(ResponseReceivedCallback callback);
     ClientBuilder& WithPostVerification(PostVerificationCallback callback);
     ClientBuilder& WithTamperAction(TamperActionCallback callback);
-    ClientBuilder& WithSecurityPolicy(std::shared_ptr<ISecurityPolicy> policy);
     ClientBuilder& WithGlobalMaxBodyLimit(std::size_t max_body_bytes);
     ClientBuilder& WithApiVerification(bool enabled);
     ClientBuilder& WithTrustedCurlModules(std::vector<std::wstring> modules);
@@ -80,16 +149,25 @@ public:
     ClientBuilder& WithPinnedKey(std::string pin);
 
     struct ClientBuildResult {
-        std::unique_ptr<FluentClient> client;
+        std::shared_ptr<FluentClient<CurlHttpClient>> client;
         ErrorCode error = ErrorCode::None;
 
-        bool Ok() const { return client != nullptr; }
+        [[nodiscard]] bool Ok() const { return client != nullptr; }
     };
 
-    ClientBuildResult Build();
+    [[nodiscard]] ClientBuildResult Build();
 
 private:
     ClientConfig m_config;
+    SecurityPolicy m_security_policy;
+    ResponseVerifier m_response_verifier;
+    PreFlightCallback m_pre_flight;
+    EnvironmentCheckCallback m_environment_check;
+    TransportCheckCallback m_transport_check;
+    HeartbeatCallback m_heartbeat;
+    ResponseReceivedCallback m_response_received;
+    PostVerificationCallback m_post_verification;
+    TamperActionCallback m_tamper_action;
     DnsFallbackPolicy m_default_dns_fallback;
     bool m_custom_dns_fallback = false;
 };

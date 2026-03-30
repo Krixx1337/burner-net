@@ -1,5 +1,4 @@
 #include <iostream>
-#include <memory>
 #include <string>
 #include <string_view>
 
@@ -9,9 +8,8 @@
 
 namespace {
 
-class ExampleSecurityPolicy final : public burner::net::ISecurityPolicy {
-public:
-    bool OnVerifyTransport(const char* url, const char* remote_ip) const override {
+struct ExampleSecurityPolicy final : burner::net::ISecurityPolicy {
+    bool OnVerifyTransport(const char* url, const char* remote_ip) const {
         if (remote_ip == nullptr) {
             return false;
         }
@@ -34,7 +32,7 @@ public:
         return true;
     }
 
-    std::string GetUserAgent() const override {
+    std::string GetUserAgent() const {
         return "BurnerNetExampleCustomPolicy/1.0";
     }
 };
@@ -44,7 +42,7 @@ public:
 int RunCustomPolicy() {
     auto build_result = burner::net::ClientBuilder()
         .WithUseNativeCa(true)
-        .WithSecurityPolicy(std::make_shared<ExampleSecurityPolicy>())
+        .WithSecurityPolicy(ExampleSecurityPolicy{})
         .Build();
 
     if (build_result.client == nullptr) {

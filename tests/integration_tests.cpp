@@ -15,7 +15,7 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
         .WithUseNativeCa(true)
         .Build();
 
-    REQUIRE(client.client != nullptr);
+    REQUIRE(static_cast<bool>(client.client));
 
     auto check_tls_rejection = [&](const char* url) {
         const auto resp = client.client->Get(url).Send();
@@ -63,7 +63,7 @@ TEST_CASE("security auditor rejects compromised or inconclusive transport") {
         .WithUseNativeCa(true)
         .Build();
 
-    REQUIRE(client.client != nullptr);
+    REQUIRE(static_cast<bool>(client.client));
     CHECK(burner::net::SecurityAuditor::CheckTransportIntegrity(client.client->Raw()));
 }
 
@@ -72,7 +72,7 @@ TEST_CASE("max_body_bytes aborts oversized responses mid-stream") {
         .WithUseNativeCa(true)
         .Build();
 
-    REQUIRE(client.client != nullptr);
+    REQUIRE(static_cast<bool>(client.client));
 
     burner::net::HttpRequest request{};
     request.method = burner::net::HttpMethod::Get;
@@ -96,7 +96,7 @@ TEST_CASE("global max body limit caps requests even without a per-request limit"
         .WithGlobalMaxBodyLimit(10)
         .Build();
 
-    REQUIRE(client.client != nullptr);
+    REQUIRE(static_cast<bool>(client.client));
 
     burner::net::HttpRequest request{};
     request.method = burner::net::HttpMethod::Get;
@@ -118,7 +118,7 @@ TEST_CASE("timeouts fail closed for slow or unroutable endpoints") {
         .WithUseNativeCa(true)
         .Build();
 
-    REQUIRE(client.client != nullptr);
+    REQUIRE(static_cast<bool>(client.client));
 
     SUBCASE("connect timeout against unroutable address") {
         burner::net::HttpRequest request{};
