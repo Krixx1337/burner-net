@@ -69,6 +69,7 @@ See also:
 - [examples/02_security_audit.cpp](examples/02_security_audit.cpp)
 - [examples/03_traffic_lanes.cpp](examples/03_traffic_lanes.cpp)
 - [examples/04_custom_security_policy.cpp](examples/04_custom_security_policy.cpp)
+- [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
 - [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)
 
 ## Build & Integration
@@ -79,10 +80,10 @@ BurnerNet requires C++20 and libcurl. There are three supported integration path
    Add BurnerNet with `add_subdirectory(...)`, link `BurnerNet::BurnerNet`, and let CMake carry the `libcurl` dependency and compile requirements. This is the cleanest dependency-managed path and the default recommendation when your downstream project already uses CMake.
 
 2. **Standard: Visual Studio Source-Drop**
-   Add BurnerNet's `src/` files directly to your `.vcxproj` and add `include/` to your include paths when you want BurnerNet compiled inside your own executable. BurnerNet now survives MSVC's default `/ZI` Debug mode and auto-links the required Windows subsystem libraries under MSVC. You still need to provide `libcurl` headers and the appropriate curl import/static library through vcpkg or your own dependency layout.
+   Add BurnerNet's `src/` files directly to your `.vcxproj` when you want BurnerNet compiled inside your own executable. For the practical setup, required files, and runtime layout details, see [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md).
 
 3. **Advanced: Bootstrap Runtime Loading**
-   Use `InitializeNetworkingRuntime(...)` when you intentionally want curl/OpenSSL/zlib runtime DLLs loaded from a custom directory instead of relying on the normal executable-adjacent runtime layout.
+   Use `InitializeNetworkingRuntime(...)` when you intentionally want curl/OpenSSL/zlib runtime DLLs loaded from a custom directory instead of relying on the normal executable-adjacent runtime layout. See [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md).
 
 ## Security Reality
 
