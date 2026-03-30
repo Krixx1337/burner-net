@@ -6,7 +6,7 @@ It focuses on three Windows/MSVC workflows:
 
 1. recommended local subproject integration with normal curl linking
 2. advanced bootstrap-based runtime loading with `InitializeNetworkingRuntime(...)`
-3. package-style consumption through `find_package(BurnerNet CONFIG)`
+3. local or package-style integration with curl linked statically
 
 ## What Is Static vs Dynamic
 
@@ -55,6 +55,12 @@ This guide does **not** replace the Visual Studio `.vcxproj` path. If your downs
 
 ## Integration Modes
 
+**Which mode should I choose?**
+
+- Want it to just work? **Mode 1.**
+- Want a single `.exe` with no extra DLLs? **Mode 3.**
+- Building something that needs to hide its dependencies? **Mode 2.**
+
 ### Mode 1: Local subproject integration (Recommended)
 
 Use this when:
@@ -91,20 +97,22 @@ In this mode:
 
 This mode is more configurable, but it is also the more advanced integration path.
 
-### Mode 3: Installed package consumption
+### Mode 3: Integration with curl linked statically
 
 Use this when:
 
-- BurnerNet has already been installed somewhere reachable through `CMAKE_PREFIX_PATH`
-- you want a package-style dependency boundary instead of a sibling repo checkout
+- you want to avoid shipping curl/OpenSSL/zlib runtime DLLs
+- you already have a true static curl dependency build available
+- you want either local subproject consumption or package consumption with static dependencies
 
 In this mode:
 
-- the consumer uses `find_package(BurnerNet CONFIG REQUIRED)`
-- the consumer links `BurnerNet::BurnerNet`
-- curl is resolved through BurnerNet's exported package dependency chain
+- BurnerNet is still consumed as a normal CMake target
+- `BURNERNET_HARDEN_IMPORTS=0`
+- curl is **static**
+- no curl/OpenSSL/zlib runtime DLLs are required at deployment time
 
-This is the cleanest long-term dependency-managed path once you have a proper install/package workflow in place.
+This is usually the simplest deployment model once a static curl dependency build is available, but it depends on having the correct static curl and dependency libraries prepared up front.
 
 ## Prerequisites
 
@@ -183,6 +191,27 @@ This is valid for smoke tests and local integration work, but it has one importa
 
 - vcpkg AppLocal deployment is usually not driving the consumer build directly
 - you may need an explicit post-build DLL copy step for the runtime set
+
+### Option C: installed package consumption
+
+Use this when BurnerNet has already been installed somewhere reachable through `CMAKE_PREFIX_PATH`.
+
+Consumer project sketch:
+
+```cmake
+cmake_minimum_required(VERSION 3.21)
+project(MyApp LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(BurnerNet CONFIG REQUIRED)
+
+add_executable(MyApp main.cpp)
+target_link_libraries(MyApp PRIVATE BurnerNet::BurnerNet)
+```
+
+This is the cleanest long-term dependency-managed path once you have a proper install/package workflow in place.
 
 ## Runtime DLL Staging
 

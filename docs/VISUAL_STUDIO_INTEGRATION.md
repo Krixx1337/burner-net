@@ -55,6 +55,12 @@ This guide does **not** replace the CMake integration path. If your downstream p
 
 ## Integration Modes
 
+**Which mode should I choose?**
+
+- Want it to just work? **Mode 1.**
+- Want a single `.exe` with no extra DLLs? **Mode 3.**
+- Building something that needs to hide its dependencies? **Mode 2.**
+
 ### Mode 1: Standard source-drop (Recommended)
 
 Use this when:
