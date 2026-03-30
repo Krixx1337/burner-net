@@ -39,7 +39,6 @@ Anti-Reverse Engineering (Anti-RE) is a cat-and-mouse game. BurnerNet is a **Pro
 *   **Weapon Mounts, Not Weapons:** Rather than forcing specific anti-debug, anti-VM, or anti-tamper logic that may break builds or create false positives, BurnerNet provides the welded mounts where those checks can run safely.
 *   **Woven Logic:** Policy hooks are compiled into the transport path through concrete types, concepts, and hardened dispatch rather than standard virtual inheritance. That keeps the source auditable while making those checks harder to unplug at runtime.
 *   **Respect for the Developer:** We provide the armor: hidden imports, mangled pointers, vtable-free dispatch, and secure transport defaults. You provide the weapons: debugger detection, VM heuristics, integrity scans, and application-specific enforcement.
-*   **Execution Witnesses:** Critical security paths (like HMAC verification) use state-machine witnesses to ensure logic hasn't been bypassed by "JMP" patches.
 
 ## 5. Disposable Transports (Short-Lived Clients)
 Standard networking libraries optimize for long-lived clients, shared connection pools, and process-wide singletons. In a hostile environment, that pattern creates a stationary target.
