@@ -24,8 +24,12 @@ endif()
 
 if(WIN32)
     find_library(BURNERNET_BCRYPT_LIBRARY NAMES bcrypt)
-    if(NOT BURNERNET_BCRYPT_LIBRARY)
-        message(FATAL_ERROR "BurnerNet requires the Windows BCrypt library, but it was not found during configuration.")
+    find_library(BURNERNET_CRYPT32_LIBRARY NAMES crypt32)
+    find_library(BURNERNET_WS2_32_LIBRARY NAMES ws2_32)
+    if(NOT BURNERNET_BCRYPT_LIBRARY OR NOT BURNERNET_CRYPT32_LIBRARY OR NOT BURNERNET_WS2_32_LIBRARY)
+        message(FATAL_ERROR
+            "BurnerNet requires the Windows SDK libraries bcrypt, crypt32, and ws2_32, "
+            "but one or more were not found during configuration.")
     endif()
 endif()
 
@@ -104,12 +108,12 @@ if(WIN32)
     target_link_libraries(BurnerNet
         PUBLIC
             ${BURNERNET_BCRYPT_LIBRARY}
-            crypt32
-            ws2_32
+            ${BURNERNET_CRYPT32_LIBRARY}
+            ${BURNERNET_WS2_32_LIBRARY}
     )
 endif()
 
-function(burner_configure_runtime target_name)
+function(burnernet_configure_runtime target_name)
     set_target_properties(${target_name} PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${BURNERNET_RUNTIME_DIR}"
     )
@@ -129,6 +133,10 @@ function(burner_configure_runtime target_name)
     endif()
 endfunction()
 
+function(burner_configure_runtime target_name)
+    burnernet_configure_runtime(${target_name})
+endfunction()
+
 function(burner_apply_example_warnings target_name)
     if(MSVC)
         target_compile_options(${target_name} PRIVATE /W4 /WX /permissive-)
@@ -141,22 +149,22 @@ if(BURNERNET_BUILD_EXAMPLES)
     add_executable(BurnerNetExampleBasic examples/01_basic_usage.cpp)
     target_link_libraries(BurnerNetExampleBasic PRIVATE BurnerNet)
     burner_apply_example_warnings(BurnerNetExampleBasic)
-    burner_configure_runtime(BurnerNetExampleBasic)
+    burnernet_configure_runtime(BurnerNetExampleBasic)
 
     add_executable(BurnerNetExampleAudit examples/02_security_audit.cpp)
     target_link_libraries(BurnerNetExampleAudit PRIVATE BurnerNet)
     burner_apply_example_warnings(BurnerNetExampleAudit)
-    burner_configure_runtime(BurnerNetExampleAudit)
+    burnernet_configure_runtime(BurnerNetExampleAudit)
 
     add_executable(BurnerNetExampleTrafficLanes examples/03_traffic_lanes.cpp)
     target_link_libraries(BurnerNetExampleTrafficLanes PRIVATE BurnerNet)
     burner_apply_example_warnings(BurnerNetExampleTrafficLanes)
-    burner_configure_runtime(BurnerNetExampleTrafficLanes)
+    burnernet_configure_runtime(BurnerNetExampleTrafficLanes)
 
     add_executable(BurnerNetExampleCustomPolicy examples/04_custom_security_policy.cpp)
     target_link_libraries(BurnerNetExampleCustomPolicy PRIVATE BurnerNet)
     burner_apply_example_warnings(BurnerNetExampleCustomPolicy)
-    burner_configure_runtime(BurnerNetExampleCustomPolicy)
+    burnernet_configure_runtime(BurnerNetExampleCustomPolicy)
 endif()
 
 if(BURNERNET_BUILD_TESTING OR BURNERNET_BUILD_INTEGRATION_TESTS)
@@ -175,7 +183,7 @@ if(BURNERNET_BUILD_TESTING)
     else()
         target_compile_options(BurnerNetTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
-    burner_configure_runtime(BurnerNetTests)
+    burnernet_configure_runtime(BurnerNetTests)
     add_test(NAME BurnerNet.Unit COMMAND BurnerNetTests)
 endif()
 
@@ -191,7 +199,7 @@ if(BURNERNET_BUILD_INTEGRATION_TESTS)
     else()
         target_compile_options(BurnerNetIntegrationTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
-    burner_configure_runtime(BurnerNetIntegrationTests)
+    burnernet_configure_runtime(BurnerNetIntegrationTests)
     add_test(NAME BurnerNet.Integration COMMAND BurnerNetIntegrationTests)
 
     add_custom_target(run_integration_tests

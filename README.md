@@ -30,14 +30,17 @@ It is built for:
 
 ## Provisioning
 
-BurnerNet now builds without a generator step. The recommended integration model is **static linking via CMake**: add the repository with `add_subdirectory(...)`, link `BurnerNet::BurnerNet`, and let CMake carry the `libcurl` and compile requirements for you.
+BurnerNet now builds without a generator step.
 
-Why this is the recommended path:
-- it is the cleanest way to manage BurnerNet's `libcurl` dependency surface
-- static linking keeps deployment simpler than shipping a separate runtime library
-- BurnerNet still gets compiled inside the downstream build instead of forcing consumers onto one shared public binary artifact
+Recommended integration:
+- use CMake and link `BurnerNet::BurnerNet`
 
-If you prefer, you can still do a **source-drop** by vendoring the relevant `src/` and `include/` files into your own project. That is best treated as an advanced, security-first path for teams that explicitly want compilation to happen inside their own application build and are willing to manage `libcurl` and project settings manually.
+Alternative integration:
+- use Visual Studio `.vcxproj` source-drop when your environment is MSBuild-first
+
+For the actual setup details, see:
+- [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
+- [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
 
 Error strings are hardened by default. Define `BURNERNET_LEAK_STRINGS_FOR_DEBUGGING` only when you explicitly want plaintext debug strings.
 
@@ -69,21 +72,17 @@ See also:
 - [examples/02_security_audit.cpp](examples/02_security_audit.cpp)
 - [examples/03_traffic_lanes.cpp](examples/03_traffic_lanes.cpp)
 - [examples/04_custom_security_policy.cpp](examples/04_custom_security_policy.cpp)
+- [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
 - [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
 - [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)
 
 ## Build & Integration
 
-BurnerNet requires C++20 and libcurl. There are three supported integration paths depending on how you build and deploy.
+BurnerNet requires C++20 and libcurl.
 
-1. **Standard: Static via CMake**
-   Add BurnerNet with `add_subdirectory(...)`, link `BurnerNet::BurnerNet`, and let CMake carry the `libcurl` dependency and compile requirements. This is the cleanest dependency-managed path and the default recommendation when your downstream project already uses CMake.
-
-2. **Recommended for `.vcxproj`: Standard Visual Studio Source-Drop**
-   Add BurnerNet's `src/` files directly to your `.vcxproj` when you want BurnerNet compiled inside your own executable. For the practical setup, required files, and runtime layout details, see [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md).
-
-3. **Advanced: Bootstrap Runtime Loading**
-   Use `InitializeNetworkingRuntime(...)` when you intentionally want curl/OpenSSL/zlib runtime DLLs loaded from a custom directory instead of relying on the normal executable-adjacent runtime layout. See [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md).
+Integration guides:
+- CMake consumers: [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
+- Visual Studio `.vcxproj` consumers: [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
 
 ## Security Reality
 

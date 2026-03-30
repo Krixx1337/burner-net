@@ -3,16 +3,18 @@
 This guide shows recommended usage patterns for short-lived secrets and mixed security levels (public + login APIs).
 
 ## 1. Choose your integration path
-- **CMake static integration:** add BurnerNet as a CMake subdirectory and link `BurnerNet::BurnerNet` when you want CMake to carry the `libcurl` dependency, compile definitions, and runtime staging behavior.
-- **Recommended for `.vcxproj`: Visual Studio source-drop:** add BurnerNet's `src/` files directly to your `.vcxproj` when you want BurnerNet compiled inside your own executable and are managing the consumer project in MSBuild.
-- **Advanced bootstrap runtime loading:** use `InitializeNetworkingRuntime(...)` only when you intentionally want curl/OpenSSL/zlib runtime DLLs loaded from a custom directory instead of the normal executable-adjacent layout.
+- Prefer CMake when your downstream project already uses CMake.
+- Prefer Visual Studio source-drop when your downstream project is MSBuild-first.
+- Use bootstrap runtime loading only for custom runtime DLL redist scenarios.
 
 Why:
 - Compiling BurnerNet inside your own build re-instantiates compile-time obfuscation and hardened error-string generation.
 - This is a hardening advantage, not a cryptographic identity guarantee. Do not treat build-time polymorphism as a substitute for server-side secrets or response verification.
 - CMake is the cleanest dependency-managed path, but `.vcxproj` source-drop is also viable when your environment is anchored to MSBuild.
 
-For the step-by-step Visual Studio `.vcxproj` setup, including source-drop requirements, bootstrap mode, required defines, and runtime DLL layouts, see [VISUAL_STUDIO_INTEGRATION.md](VISUAL_STUDIO_INTEGRATION.md).
+Integration guides:
+- CMake: [CMAKE_INTEGRATION.md](CMAKE_INTEGRATION.md)
+- Visual Studio `.vcxproj`: [VISUAL_STUDIO_INTEGRATION.md](VISUAL_STUDIO_INTEGRATION.md)
 
 ## 2. Treat clients as disposable transports
 - Prefer request-scope or burst-scope clients: create, use, destroy.

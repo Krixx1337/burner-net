@@ -1,0 +1,298 @@
+# BurnerNet CMake Integration
+
+This document covers practical integration of BurnerNet into a downstream CMake project.
+
+It focuses on three Windows/MSVC workflows:
+
+1. recommended local subproject integration with normal curl linking
+2. advanced bootstrap-based runtime loading with `InitializeNetworkingRuntime(...)`
+3. package-style consumption through `find_package(BurnerNet CONFIG)`
+
+## What Is Static vs Dynamic
+
+There are two separate things to think about:
+
+1. `burner-net` itself
+2. curl/OpenSSL/zlib underneath it
+
+These can vary independently.
+
+### `burner-net` itself
+
+If you add BurnerNet with `add_subdirectory(...)`, then BurnerNet is built as part of your own CMake build graph.
+
+That means:
+
+- BurnerNet is integrated into your app build as a normal CMake library target
+- the consumer links `BurnerNet::BurnerNet`
+- the consumer does **not** need to re-list BurnerNet `.cpp` files manually
+
+If you consume an installed package with `find_package(BurnerNet CONFIG REQUIRED)`, BurnerNet is still a normal CMake target from the consumer perspective, but the build boundary is now package-based instead of sibling-source based.
+
+### curl/OpenSSL/zlib
+
+The curl stack can be integrated in different ways:
+
+- **dynamic via normal linking:** link `CURL::libcurl`, then ship the required runtime DLLs
+- **dynamic via bootstrap:** set `BURNERNET_HARDEN_IMPORTS=1` and preload the runtime DLLs with `InitializeNetworkingRuntime(...)`
+- **static:** link curl and its dependency stack statically, so no curl/OpenSSL/zlib runtime DLLs are needed
+
+So the important distinction is:
+
+- BurnerNet via CMake subproject/package is still a normal linked target
+- curl can still be **dynamic** or **static**
+
+## Scope
+
+This guide assumes:
+
+- CMake consumer project
+- C++20 enabled
+- Windows target
+- curl provided either by vcpkg manifest mode or by a local prebuilt dependency prefix
+
+This guide does **not** replace the Visual Studio `.vcxproj` path. If your downstream project is MSBuild-first, see [VISUAL_STUDIO_INTEGRATION.md](VISUAL_STUDIO_INTEGRATION.md).
+
+## Integration Modes
+
+### Mode 1: Local subproject integration (Recommended)
+
+Use this when:
+
+- you have the BurnerNet source checkout available
+- your downstream project already uses CMake
+- you want the cleanest local dev and smoke-test integration path
+
+In this mode:
+
+- BurnerNet is added with `add_subdirectory(...)`
+- the consumer links `BurnerNet::BurnerNet`
+- BurnerNet carries its own include paths and compile definitions
+- curl is usually **dynamic**
+- runtime DLL staging is handled either by your dependency manager or a small consumer post-build step
+
+This is the recommended CMake path for most local development and integration work.
+
+### Mode 2: Bootstrap runtime loading
+
+Use this when:
+
+- you want BurnerNet consumed through CMake
+- you do **not** want curl/OpenSSL/zlib resolved through the normal import-table path
+- you want to preload those runtime DLLs from a custom directory
+
+In this mode:
+
+- BurnerNet is still consumed as a normal CMake target
+- `BURNERNET_HARDEN_IMPORTS=1`
+- BurnerNet resolves curl exports dynamically after you call `InitializeNetworkingRuntime(...)`
+- curl is still **dynamic**
+- runtime DLLs live in your chosen redist folder instead of the normal executable-adjacent layout
+
+This mode is more configurable, but it is also the more advanced integration path.
+
+### Mode 3: Installed package consumption
+
+Use this when:
+
+- BurnerNet has already been installed somewhere reachable through `CMAKE_PREFIX_PATH`
+- you want a package-style dependency boundary instead of a sibling repo checkout
+
+In this mode:
+
+- the consumer uses `find_package(BurnerNet CONFIG REQUIRED)`
+- the consumer links `BurnerNet::BurnerNet`
+- curl is resolved through BurnerNet's exported package dependency chain
+
+This is the cleanest long-term dependency-managed path once you have a proper install/package workflow in place.
+
+## Prerequisites
+
+For any mode, you need:
+
+- C++20 enabled in the consumer project
+- BurnerNet available as either source or installed package
+- curl available to CMake
+- curl runtime/import libraries or runtime DLLs available according to the mode you choose
+
+Typical local folders for sibling-repo integration:
+
+- BurnerNet source: `burner-net/`
+- curl package config: `burner-net/out/build/x64-debug/vcpkg_installed/x64-windows/share/curl/CURLConfig.cmake`
+- curl runtime DLLs: `burner-net/out/build/x64-debug/vcpkg_installed/x64-windows/debug/bin/*.dll`
+
+## Recommended Downstream Setup
+
+### Option A: vcpkg manifest mode
+
+This is the preferred "dev no think" path.
+
+Consumer project sketch:
+
+```cmake
+cmake_minimum_required(VERSION 3.21)
+project(MyApp LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+add_subdirectory(external/burner-net)
+
+add_executable(MyApp main.cpp)
+target_link_libraries(MyApp PRIVATE BurnerNet::BurnerNet)
+```
+
+With vcpkg manifest mode active in the consumer project:
+
+- `find_package(CURL REQUIRED)` resolves normally inside BurnerNet
+- vcpkg AppLocal deployment usually stages the required runtime DLLs automatically
+- the consumer usually does **not** need custom DLL copy logic
+
+### Option B: local sibling-repo smoke test
+
+Use this when you want to reuse the already-built curl/OpenSSL/zlib tree from a local BurnerNet checkout.
+
+Consumer project sketch:
+
+```cmake
+cmake_minimum_required(VERSION 3.21)
+project(MyApp LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+set(BURNERNET_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../burner-net" CACHE PATH "")
+set(BURNERNET_DEP_PREFIX
+    "${BURNERNET_SOURCE_DIR}/out/build/x64-debug/vcpkg_installed/x64-windows"
+    CACHE PATH "")
+
+list(PREPEND CMAKE_PREFIX_PATH "${BURNERNET_DEP_PREFIX}")
+
+set(BURNERNET_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+set(BURNERNET_BUILD_INTEGRATION_TESTS OFF CACHE BOOL "" FORCE)
+set(BURNERNET_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+
+add_subdirectory("${BURNERNET_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/_deps/burner-net")
+
+add_executable(MyApp main.cpp)
+target_link_libraries(MyApp PRIVATE BurnerNet::BurnerNet)
+```
+
+This is valid for smoke tests and local integration work, but it has one important tradeoff:
+
+- vcpkg AppLocal deployment is usually not driving the consumer build directly
+- you may need an explicit post-build DLL copy step for the runtime set
+
+## Runtime DLL Staging
+
+### Preferred path: let the consumer dependency manager handle it
+
+If your consumer uses vcpkg manifest mode with the vcpkg CMake toolchain, prefer that.
+
+That usually gives you:
+
+- `CURL::libcurl` resolution during configure
+- automatic runtime DLL staging during build for dynamic triplets
+
+This is the cleanest downstream story.
+
+### Local subproject helper
+
+When BurnerNet is added via `add_subdirectory(...)`, BurnerNet exposes this helper:
+
+- `burnernet_configure_runtime(<target>)`
+
+It is intended for build-tree usage and sets:
+
+- runtime output directory to BurnerNet's configured runtime folder
+- Windows `redist/` DLL staging for dynamic builds
+
+Example:
+
+```cmake
+add_executable(MyApp main.cpp)
+target_link_libraries(MyApp PRIVATE BurnerNet::BurnerNet)
+burnernet_configure_runtime(MyApp)
+```
+
+This helper is useful for local subproject integration.
+
+It is **not** the installed-package runtime story. For installed/package consumption, prefer the consumer's own dependency-management/runtime-staging mechanism.
+
+### Manual fallback
+
+If you explicitly point `CMAKE_PREFIX_PATH` at a sibling repo's already-built `vcpkg_installed` tree instead of using your own manifest/toolchain-driven dependency flow, you may need to manually copy:
+
+- `libcurl*.dll`
+- `libssl*.dll`
+- `libcrypto*.dll`
+- `zlib*.dll`
+
+from the local dependency `debug/bin` or `bin` folder into your executable directory or redist folder.
+
+## Bootstrap Runtime Loading Setup
+
+Use this only when you intentionally want to control where curl/OpenSSL/zlib DLLs are loaded from.
+
+### Required project settings
+
+1. Consume BurnerNet as a target.
+2. Provide curl headers.
+3. Do **not** rely on the normal curl import-table path.
+4. Stage the runtime DLLs in a custom folder, for example:
+   - `MyApp/redist/libcurl-d.dll`
+   - `MyApp/redist/libssl-3-x64.dll`
+   - `MyApp/redist/libcrypto-3-x64.dll`
+   - `MyApp/redist/zlibd1.dll`
+
+### Configure-time option
+
+Set:
+
+- `BURNERNET_HARDEN_IMPORTS=ON`
+
+### App code requirement
+
+Before building a BurnerNet client, call `InitializeNetworkingRuntime(...)`.
+
+Example:
+
+```cpp
+#include <filesystem>
+
+#include "burner/net/bootstrap.h"
+
+int main() {
+    burner::net::BootstrapConfig boot{};
+    boot.link_mode = burner::net::LinkMode::Dynamic;
+    boot.dependency_directory = std::filesystem::current_path() / "redist";
+
+    auto init = burner::net::InitializeNetworkingRuntime(boot);
+    if (!init.Ok()) {
+        return 1;
+    }
+
+    return 0;
+}
+```
+
+## Windows System Libraries
+
+On Windows, BurnerNet resolves these system libraries explicitly during configure:
+
+- `bcrypt`
+- `crypt32`
+- `ws2_32`
+
+This avoids fragile reliance on shell-specific implicit linker search paths and makes MSVC/Ninja/WSL-adjacent environments more robust.
+
+## Summary
+
+For CMake consumers, the recommended order is:
+
+1. use vcpkg manifest mode when possible
+2. consume BurnerNet as a normal CMake target
+3. prefer `add_subdirectory(...)` for local sibling-repo dev and smoke tests
+4. use `burnernet_configure_runtime(...)` for build-tree runtime staging when needed
+5. reserve bootstrap runtime loading for advanced custom redist scenarios
