@@ -3,8 +3,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
-#include <map>
 #include <memory>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -23,7 +23,81 @@ enum class HttpMethod {
     Patch
 };
 
-using HeaderMap = std::map<std::string, std::string>;
+class HeaderMap {
+public:
+    using value_type = std::pair<std::string, std::string>;
+    using storage_type = std::vector<value_type>;
+    using iterator = storage_type::iterator;
+    using const_iterator = storage_type::const_iterator;
+
+    HeaderMap() = default;
+    HeaderMap(const HeaderMap&) = default;
+    HeaderMap(HeaderMap&& other) noexcept
+        : m_items(std::move(other.m_items)) {}
+
+    HeaderMap& operator=(const HeaderMap&) = default;
+    HeaderMap& operator=(HeaderMap&& other) noexcept {
+        if (this != &other) {
+            clear();
+            m_items = std::move(other.m_items);
+        }
+        return *this;
+    }
+
+    ~HeaderMap() {
+        clear();
+    }
+
+    std::string& operator[](std::string key) {
+        if (auto* existing = find_value(key)) {
+            return *existing;
+        }
+
+        m_items.emplace_back(std::move(key), std::string{});
+        return m_items.back().second;
+    }
+
+    void insert_or_assign(std::string key, std::string value) {
+        if (auto* existing = find_value(key)) {
+            *existing = std::move(value);
+            return;
+        }
+
+        m_items.emplace_back(std::move(key), std::move(value));
+    }
+
+    [[nodiscard]] bool empty() const noexcept { return m_items.empty(); }
+    [[nodiscard]] std::size_t size() const noexcept { return m_items.size(); }
+
+    iterator begin() noexcept { return m_items.begin(); }
+    iterator end() noexcept { return m_items.end(); }
+    const_iterator begin() const noexcept { return m_items.begin(); }
+    const_iterator end() const noexcept { return m_items.end(); }
+    const_iterator cbegin() const noexcept { return m_items.cbegin(); }
+    const_iterator cend() const noexcept { return m_items.cend(); }
+
+    void clear() noexcept;
+
+private:
+    std::string* find_value(const std::string& key) noexcept {
+        for (auto& [existing_key, existing_value] : m_items) {
+            if (existing_key == key) {
+                return &existing_value;
+            }
+        }
+        return nullptr;
+    }
+
+    storage_type m_items;
+};
+
+inline void HeaderMap::clear() noexcept {
+    for (auto& [key, value] : m_items) {
+        ::burner::hostile_core::secure_wipe(key);
+        ::burner::hostile_core::secure_wipe(value);
+    }
+    m_items.clear();
+}
 using TokenProvider = std::function<bool(std::string& out)>;
 using ChunkCallback = std::function<void(const uint8_t*, size_t)>;
 using HeartbeatCallback = std::function<bool()>;

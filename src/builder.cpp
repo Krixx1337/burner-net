@@ -280,19 +280,13 @@ ClientBuilder& ClientBuilder::WithPinnedKey(std::string pin) {
     return *this;
 }
 
-std::unique_ptr<FluentClient> ClientBuilder::Build(ErrorCode* error) {
+ClientBuilder::ClientBuildResult ClientBuilder::Build() {
     m_config.security_policy = ResolveSecurityPolicy(std::move(m_config.security_policy));
     ClientCreateResult created = CreateHttpClient(m_config);
     if (!created.Ok()) {
-        if (error != nullptr) {
-            *error = created.error;
-        }
-        return nullptr;
+        return {nullptr, created.error};
     }
-    if (error != nullptr) {
-        *error = ErrorCode::None;
-    }
-    return std::make_unique<FluentClient>(std::move(created.client), m_default_dns_fallback);
+    return {std::make_unique<FluentClient>(std::move(created.client), m_default_dns_fallback), ErrorCode::None};
 }
 
 } // namespace burner::net

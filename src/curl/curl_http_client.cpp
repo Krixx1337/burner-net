@@ -441,8 +441,9 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
             wipe_error_buffer();
             return response;
         }
-        const std::string header = BuildHeaderLine(name, value);
+        std::string header = BuildHeaderLine(name, value);
         headers = m_curl_api.slist_append(headers, header.c_str());
+        SecureWipe(header);
     }
     for (const auto& [name, value] : request.headers) {
         if (!internal::IsValidHeaderName(name) || !internal::IsValidHeaderValue(value)) {
@@ -452,8 +453,9 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request) {
             wipe_error_buffer();
             return response;
         }
-        const std::string header = BuildHeaderLine(name, value);
+        std::string header = BuildHeaderLine(name, value);
         headers = m_curl_api.slist_append(headers, header.c_str());
+        SecureWipe(header);
     }
     std::string active_bearer_token;
     if (request.bearer_token_provider) {
@@ -638,6 +640,8 @@ size_t CurlHttpClient::WriteHeaderCallback(void* contents, size_t size, size_t n
             headers->insert_or_assign(std::move(name), std::move(value));
         }
     }
+
+    SecureWipe(line);
 
     return total;
 }

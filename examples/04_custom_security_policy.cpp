@@ -23,15 +23,14 @@ public:
 } // namespace
 
 int main() {
-    burner::net::ErrorCode build_error = burner::net::ErrorCode::None;
-    auto client = burner::net::ClientBuilder()
+    auto build_result = burner::net::ClientBuilder()
         .WithUseNativeCa(true)
         .WithSecurityPolicy(std::make_shared<ExampleSecurityPolicy>())
-        .Build(&build_error);
+        .Build();
 
-    if (client == nullptr) {
+    if (build_result.client == nullptr) {
         std::cerr << "failed to build client: "
-                  << burner::net::ErrorCodeToString(build_error) << '\n';
+                  << burner::net::ErrorCodeToString(build_result.error) << '\n';
         return 1;
     }
 

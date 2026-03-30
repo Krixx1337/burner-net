@@ -14,10 +14,10 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
         .WithUseNativeCa(true)
         .Build();
 
-    REQUIRE(client != nullptr);
+    REQUIRE(client.client != nullptr);
 
     auto check_tls_rejection = [&](const char* url) {
-        const auto resp = client->Get(url).Send();
+        const auto resp = client.client->Get(url).Send();
         MESSAGE("Testing: " << std::string(url) << " | ErrorCode: "
                             << std::string(ErrorCodeToString(resp.transport_error)));
         CHECK_FALSE(resp.TransportOk());
@@ -33,7 +33,7 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
     }
 
     SUBCASE("Protocol Downgrade Rejections (Enforcing TLS 1.2+)") {
-        const auto resp = client->Get("https://tls-v1-0.badssl.com:1010").Send();
+        const auto resp = client.client->Get("https://tls-v1-0.badssl.com:1010").Send();
         MESSAGE("Testing: TLS 1.0 | ErrorCode: "
                 << std::string(ErrorCodeToString(resp.transport_error)));
         CHECK_FALSE(resp.TransportOk());
@@ -41,7 +41,7 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
     }
 
     SUBCASE("Weak Cipher Rejections") {
-        const auto resp = client->Get("https://rc4.badssl.com").Send();
+        const auto resp = client.client->Get("https://rc4.badssl.com").Send();
         MESSAGE("Testing: RC4 | ErrorCode: "
                 << std::string(ErrorCodeToString(resp.transport_error)));
         CHECK_FALSE(resp.TransportOk());
@@ -49,7 +49,7 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
     }
 
     SUBCASE("Valid Certificate Acceptance") {
-        const auto resp = client->Get("https://sha256.badssl.com").Send();
+        const auto resp = client.client->Get("https://sha256.badssl.com").Send();
         MESSAGE("Testing: Valid SHA256 Cert | Status: " << resp.status_code);
         CHECK(resp.TransportOk());
         CHECK(resp.Ok());
@@ -62,6 +62,6 @@ TEST_CASE("security auditor rejects compromised or inconclusive transport") {
         .WithUseNativeCa(true)
         .Build();
 
-    REQUIRE(client != nullptr);
-    CHECK(burner::net::SecurityAuditor::CheckTransportIntegrity(client->Raw()));
+    REQUIRE(client.client != nullptr);
+    CHECK(burner::net::SecurityAuditor::CheckTransportIntegrity(client.client->Raw()));
 }

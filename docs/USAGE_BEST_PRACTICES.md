@@ -28,17 +28,16 @@ Recommended pattern:
 #include "burner/net/builder.h"
 
 void FetchLoginTicket() {
-    burner::net::ErrorCode build_error = burner::net::ErrorCode::None;
     auto client = burner::net::ClientBuilder()
         .WithPinnedKey("sha256//BASE64_PIN_GOES_HERE")
         .WithBearerTokenProvider(&ProvideBearer)
-        .Build(&build_error);
+        .Build();
 
-    if (client == nullptr) {
+    if (client.client == nullptr) {
         return;
     }
 
-    auto response = client->Post("https://api.example.com/login")
+    auto response = client.client->Post("https://api.example.com/login")
         .WithBody(R"({\"hwid\":\"...\"})")
         .Send();
 

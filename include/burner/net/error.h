@@ -70,6 +70,10 @@ inline constexpr bool IsSuccessCode(ErrorCode code) {
 }
 
 inline const char* ErrorCodeDebugString(ErrorCode code) {
+#if defined(BURNERNET_HARDEN_ERRORS) && BURNERNET_HARDEN_ERRORS
+    (void)code;
+    return "Unknown";
+#else
     static constexpr const char* kNames[] = {
         "None",
         "DisabledBackend",
@@ -109,6 +113,7 @@ inline const char* ErrorCodeDebugString(ErrorCode code) {
 
     const auto index = static_cast<std::size_t>(code);
     return index < (sizeof(kNames) / sizeof(kNames[0])) ? kNames[index] : "Unknown";
+#endif
 }
 
 inline std::string ErrorCodeToString(ErrorCode code) {

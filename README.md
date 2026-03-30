@@ -50,9 +50,10 @@ For custom security hooks, derive from `burner::net::ISecurityPolicy` and pass t
 
 using namespace burner::net;
 
-ErrorCode build_error = ErrorCode::None;
-auto client = ClientBuilder()
-    .Build(&build_error);
+auto result = ClientBuilder().Build();
+if (!result.client) {
+    auto build_error = result.error;
+}
 ```
 
 For lower-trust utility traffic:

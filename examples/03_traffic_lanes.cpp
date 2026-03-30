@@ -8,7 +8,6 @@
 int main() {
     using namespace burner::net;
 
-    ErrorCode paranoid_error = ErrorCode::None;
     auto paranoid = ClientBuilder()
         .WithUseNativeCa(true)
         .WithApiVerification(true)
@@ -16,13 +15,14 @@ int main() {
         .WithResponseVerifier(std::make_shared<HmacSha256HeaderVerifier>(
             SignatureVerifierConfig{
                 .signature_header = "X-Auth-Verify",
-                .secret = "replace-with-a-real-secret"
+                .secret = "replace-with-a-real-secret",
+                .secret_provider = {}
             }))
-        .Build(&paranoid_error);
+        .Build();
 
-    if (paranoid == nullptr) {
+    if (paranoid.client == nullptr) {
         std::cerr << "failed to build paranoid client: "
-                  << ErrorCodeToString(paranoid_error) << '\n';
+                  << ErrorCodeToString(paranoid.error) << '\n';
         return 1;
     }
 
@@ -30,7 +30,7 @@ int main() {
         .WithCasualDefaults()
         .Build();
 
-    if (utility == nullptr) {
+    if (utility.client == nullptr) {
         std::cerr << "failed to build utility client\n";
         return 2;
     }

@@ -72,7 +72,14 @@ public:
     ClientBuilder& WithDnsFallback(DnsMode mode, std::string value, std::string name = {});
     ClientBuilder& WithPinnedKey(std::string pin);
 
-    std::unique_ptr<FluentClient> Build(ErrorCode* error = nullptr);
+    struct ClientBuildResult {
+        std::unique_ptr<FluentClient> client;
+        ErrorCode error = ErrorCode::None;
+
+        bool Ok() const { return client != nullptr; }
+    };
+
+    ClientBuildResult Build();
 
 private:
     ClientConfig m_config;

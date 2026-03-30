@@ -8,17 +8,16 @@
 int main() {
     std::cout << "BurnerNet version: " << burner::net::VersionString << '\n';
 
-    burner::net::ErrorCode build_error = burner::net::ErrorCode::None;
-    auto client = burner::net::ClientBuilder().Build(&build_error);
+    auto build_result = burner::net::ClientBuilder().Build();
 
-    if (client == nullptr) {
+    if (build_result.client == nullptr) {
         std::cerr << "Failed to build client. Error: "
-                  << burner::net::ErrorCodeToString(build_error) << '\n';
+                  << burner::net::ErrorCodeToString(build_result.error) << '\n';
         return 1;
     }
 
     std::cout << "Sending secure DoH request to example.com...\n";
-    const auto response = client->Get("https://example.com").Send();
+    const auto response = build_result.client->Get("https://example.com").Send();
     std::cout << "Response code: " << response.status_code << '\n';
     if (response.TransportOk()) {
         std::cout << "Transport succeeded securely.\n";

@@ -1,5 +1,7 @@
 #include "burner/net/bootstrap.h"
-#include "burner/net/detail/hostile_imports.h"
+#include "internal/hostile_imports.h"
+
+#include "burner/net/obfuscation.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -133,6 +135,9 @@ bool ComputeFileSha256Hex(const std::filesystem::path& path, std::string& out_he
     while ((ok = ReadFile(file, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr)) && read > 0) {
         st = BCryptHashData(hash, buffer.data(), read, 0);
         if (!nt_ok(st)) {
+            burner::net::SecureWipe(buffer);
+            burner::net::SecureWipe(digest);
+            burner::net::SecureWipe(obj);
             BCryptDestroyHash(hash);
             BCryptCloseAlgorithmProvider(alg, 0);
             CloseHandle(file);
@@ -140,6 +145,9 @@ bool ComputeFileSha256Hex(const std::filesystem::path& path, std::string& out_he
         }
     }
     if (!ok) {
+        burner::net::SecureWipe(buffer);
+        burner::net::SecureWipe(digest);
+        burner::net::SecureWipe(obj);
         BCryptDestroyHash(hash);
         BCryptCloseAlgorithmProvider(alg, 0);
         CloseHandle(file);
@@ -151,6 +159,9 @@ bool ComputeFileSha256Hex(const std::filesystem::path& path, std::string& out_he
     BCryptCloseAlgorithmProvider(alg, 0);
     CloseHandle(file);
     if (!nt_ok(st)) {
+        burner::net::SecureWipe(buffer);
+        burner::net::SecureWipe(digest);
+        burner::net::SecureWipe(obj);
         return false;
     }
 
@@ -160,6 +171,9 @@ bool ComputeFileSha256Hex(const std::filesystem::path& path, std::string& out_he
         out_hex.push_back(kHex[(b >> 4) & 0x0F]);
         out_hex.push_back(kHex[b & 0x0F]);
     }
+    burner::net::SecureWipe(buffer);
+    burner::net::SecureWipe(digest);
+    burner::net::SecureWipe(obj);
     return true;
 }
 

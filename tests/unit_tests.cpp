@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <string>
+#include <utility>
 
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
@@ -60,6 +61,26 @@ TEST_CASE("hmac verifier rejects mismatched signature") {
     burner::net::ErrorCode reason = burner::net::ErrorCode::None;
     CHECK_FALSE(verifier.Verify(burner::net::HttpRequest{}, response, &reason));
     CHECK(reason == burner::net::ErrorCode::SigMismatch);
+}
+
+TEST_CASE("header map insert_or_assign preserves unique keys") {
+    burner::net::HeaderMap headers;
+    headers["Authorization"] = "Bearer one";
+    headers.insert_or_assign("Authorization", "Bearer two");
+    headers.insert_or_assign("X-Test", "value");
+
+    CHECK(headers.size() == 2);
+
+    auto it = headers.begin();
+    REQUIRE(it != headers.end());
+    CHECK(it->first == "Authorization");
+    CHECK(it->second == "Bearer two");
+}
+
+TEST_CASE("builder returns result object") {
+    const auto result = burner::net::ClientBuilder().Build();
+    CHECK(result.error == burner::net::ErrorCode::None);
+    CHECK(result.client != nullptr);
 }
 
 TEST_CASE("error codes map to expected output based on hardening") {

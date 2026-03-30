@@ -7,8 +7,11 @@
 #include <string_view>
 #include <utility>
 #include <vector>
+
+#ifdef _WIN32
 #include <windows.h>
 #include <bcrypt.h>
+#endif
 
 namespace burner::net {
 
@@ -64,6 +67,7 @@ bool ConstantTimeEqual(std::string_view a, std::string_view b) {
     return diff == 0;
 }
 
+#ifdef _WIN32
 std::string ToHexLower(const unsigned char* bytes, size_t len) {
     auto nibble_to_hex = [](unsigned char nibble) -> char {
         nibble &= 0x0F;
@@ -78,12 +82,14 @@ std::string ToHexLower(const unsigned char* bytes, size_t len) {
     }
     return out;
 }
+#endif
 
 bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::string* out_hex) {
     if (out_hex == nullptr) {
         return false;
     }
 
+#ifdef _WIN32
     BCRYPT_ALG_HANDLE alg = nullptr;
     BCRYPT_HASH_HANDLE hash = nullptr;
     DWORD object_size = 0;
@@ -104,6 +110,11 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
     std::vector<unsigned char> object_buffer(object_size);
     std::array<unsigned char, 32> hash_bytes{};
 
+    const auto cleanup = [&]() {
+        burner::net::SecureWipe(object_buffer);
+        burner::net::SecureWipe(std::span<unsigned char>(hash_bytes.data(), hash_bytes.size()));
+    };
+
     status = BCryptCreateHash(
         alg,
         &hash,
@@ -113,6 +124,7 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
         static_cast<ULONG>(secret.size()),
         0);
     if (status < 0) {
+        cleanup();
         BCryptCloseAlgorithmProvider(alg, 0);
         return false;
     }
@@ -121,6 +133,7 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
         reinterpret_cast<PUCHAR>(const_cast<char*>(data.data())),
         static_cast<ULONG>(data.size()), 0);
     if (status < 0) {
+        cleanup();
         BCryptDestroyHash(hash);
         BCryptCloseAlgorithmProvider(alg, 0);
         return false;
@@ -128,6 +141,7 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
 
     status = BCryptFinishHash(hash, hash_bytes.data(), static_cast<ULONG>(hash_bytes.size()), 0);
     if (status < 0) {
+        cleanup();
         BCryptDestroyHash(hash);
         BCryptCloseAlgorithmProvider(alg, 0);
         return false;
@@ -137,7 +151,13 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
     BCryptCloseAlgorithmProvider(alg, 0);
 
     *out_hex = ToHexLower(hash_bytes.data(), hash_bytes.size());
+    cleanup();
     return true;
+#else
+    (void)data;
+    (void)secret;
+    return false;
+#endif
 }
 
 } // namespace
