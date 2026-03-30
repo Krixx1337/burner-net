@@ -9,6 +9,7 @@
 #include <vector>
 
 #ifdef _WIN32
+#pragma comment(lib, "bcrypt.lib")
 #include <windows.h>
 #include <bcrypt.h>
 #endif

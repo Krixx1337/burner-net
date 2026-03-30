@@ -12,7 +12,7 @@
 #include <windows.h>
 #endif
 
-namespace HOSTILE_CORE_NAMESPACE {
+namespace burner::net::obf {
 
 template <typename TFn>
 inline TFn resolve_import(std::string dll_name, std::string function_name) {
@@ -37,7 +37,7 @@ inline TFn resolve_import(std::string dll_name, std::string function_name) {
 #endif
 }
 
-} // namespace HOSTILE_CORE_NAMESPACE
+} // namespace burner::net::obf
 
 #define BURNER_HOSTILE_IMPORT(FnType, dll_lit, func_lit) \
-    ::HOSTILE_CORE_NAMESPACE::resolve_import<FnType>(BURNER_OBF_LITERAL(dll_lit), BURNER_OBF_LITERAL(func_lit))
+    ::burner::net::obf::resolve_import<FnType>(BURNER_OBF_LITERAL(dll_lit), BURNER_OBF_LITERAL(func_lit))

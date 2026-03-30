@@ -1,5 +1,7 @@
 #pragma once
 
+#include "burner/net/export.h"
+
 #include <cstddef>
 #include <span>
 #include <string>
@@ -9,7 +11,7 @@
 #define HOSTILE_CORE_EXPORT
 #endif
 
-namespace HOSTILE_CORE_NAMESPACE {
+namespace burner::net::obf {
 
 HOSTILE_CORE_EXPORT void secure_wipe(void* ptr, std::size_t size) noexcept;
 
@@ -29,4 +31,4 @@ inline void secure_wipe(std::span<T> value) noexcept {
     secure_wipe(value.data(), value.size_bytes());
 }
 
-} // namespace HOSTILE_CORE_NAMESPACE
+} // namespace burner::net::obf

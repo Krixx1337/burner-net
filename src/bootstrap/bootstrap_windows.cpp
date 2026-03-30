@@ -4,6 +4,9 @@
 #include "burner/net/obfuscation.h"
 
 #ifdef _WIN32
+#pragma comment(lib, "bcrypt.lib")
+#pragma comment(lib, "crypt32.lib")
+#pragma comment(lib, "ws2_32.lib")
 #include <windows.h>
 #include <bcrypt.h>
 #include <algorithm>

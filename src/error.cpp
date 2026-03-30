@@ -51,7 +51,7 @@ const char* ErrorCodeDebugString(ErrorCode code) noexcept {
 
 std::string ErrorCodeToString(ErrorCode code) {
 #if defined(BURNERNET_HARDEN_ERRORS) && BURNERNET_HARDEN_ERRORS
-    return ::HOSTILE_CORE_NAMESPACE::harden_error_code(code, detail::ErrorXorKey());
+    return ::burner::net::obf::harden_error_code(code, detail::ErrorXorKey());
 #else
     return ErrorCodeDebugString(code);
 #endif

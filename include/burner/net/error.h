@@ -1,9 +1,5 @@
 #pragma once
 
-#ifndef HOSTILE_CORE_NAMESPACE
-#define HOSTILE_CORE_NAMESPACE burner_hostile
-#endif
-
 #include "burner/net/export.h"
 #include "burner/net/detail/polymorphic_error.h"
 
@@ -20,12 +16,12 @@ BURNER_API std::uint32_t ErrorXorKey() noexcept;
 } // namespace detail
 
 #ifndef BURNERNET_HARDEN_ERRORS
-#if defined(BURNER_HARDEN_ERRORS)
-#define BURNERNET_HARDEN_ERRORS BURNER_HARDEN_ERRORS
-#elif defined(NDEBUG) && !defined(_DEBUG)
-#define BURNERNET_HARDEN_ERRORS 1
-#else
+#if defined(BURNERNET_LEAK_STRINGS_FOR_DEBUGGING) || defined(BURNERNET_DEBUG_LEAK_ENUM_STRINGS)
 #define BURNERNET_HARDEN_ERRORS 0
+#elif defined(BURNER_HARDEN_ERRORS)
+#define BURNERNET_HARDEN_ERRORS BURNER_HARDEN_ERRORS
+#else
+#define BURNERNET_HARDEN_ERRORS 1
 #endif
 #endif
 
