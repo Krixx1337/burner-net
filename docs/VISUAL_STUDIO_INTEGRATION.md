@@ -4,7 +4,7 @@ This document covers practical integration of BurnerNet into a Visual Studio `.v
 
 It focuses on three Windows/MSVC workflows:
 
-1. standard source-drop with normal curl import-library linking
+1. recommended standard source-drop with normal curl import-library linking
 2. advanced bootstrap-based runtime loading with `InitializeNetworkingRuntime(...)`
 3. source-drop with curl linked statically
 
@@ -55,13 +55,13 @@ This guide does **not** replace the CMake integration path. If your downstream p
 
 ## Integration Modes
 
-### Mode 1: Standard source-drop
+### Mode 1: Standard source-drop (Recommended)
 
 Use this when:
 
 - you want BurnerNet compiled directly into your own `.exe` or `.dll`
 - you are fine with curl/OpenSSL/zlib runtime DLLs being resolved in the normal way
-- you want the simplest `.vcxproj` integration path
+- you want the simplest `dev no think` `.vcxproj` integration path
 
 In this mode:
 
@@ -71,6 +71,8 @@ In this mode:
 - you link curl normally, typically through `libcurl.lib` or `libcurl-d.lib`
 - curl is **dynamic**
 - runtime DLLs usually sit next to the executable or are staged there by your dependency manager
+
+This is the recommended Visual Studio path for most consumers.
 
 ### Mode 2: Bootstrap runtime loading
 

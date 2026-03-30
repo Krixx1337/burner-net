@@ -79,7 +79,7 @@ BurnerNet requires C++20 and libcurl. There are three supported integration path
 1. **Standard: Static via CMake**
    Add BurnerNet with `add_subdirectory(...)`, link `BurnerNet::BurnerNet`, and let CMake carry the `libcurl` dependency and compile requirements. This is the cleanest dependency-managed path and the default recommendation when your downstream project already uses CMake.
 
-2. **Standard: Visual Studio Source-Drop**
+2. **Recommended for `.vcxproj`: Standard Visual Studio Source-Drop**
    Add BurnerNet's `src/` files directly to your `.vcxproj` when you want BurnerNet compiled inside your own executable. For the practical setup, required files, and runtime layout details, see [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md).
 
 3. **Advanced: Bootstrap Runtime Loading**

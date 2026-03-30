@@ -4,8 +4,8 @@ This guide shows recommended usage patterns for short-lived secrets and mixed se
 
 ## 1. Choose your integration path
 - **CMake static integration:** add BurnerNet as a CMake subdirectory and link `BurnerNet::BurnerNet` when you want CMake to carry the `libcurl` dependency, compile definitions, and runtime staging behavior.
-- **Visual Studio source-drop:** add BurnerNet's `src/` files directly to your `.vcxproj` when you want BurnerNet compiled inside your own executable and are managing the consumer project in MSBuild.
-- **Bootstrap runtime loading:** use `InitializeNetworkingRuntime(...)` only when you intentionally want curl/OpenSSL/zlib runtime DLLs loaded from a custom directory instead of the normal executable-adjacent layout.
+- **Recommended for `.vcxproj`: Visual Studio source-drop:** add BurnerNet's `src/` files directly to your `.vcxproj` when you want BurnerNet compiled inside your own executable and are managing the consumer project in MSBuild.
+- **Advanced bootstrap runtime loading:** use `InitializeNetworkingRuntime(...)` only when you intentionally want curl/OpenSSL/zlib runtime DLLs loaded from a custom directory instead of the normal executable-adjacent layout.
 
 Why:
 - Compiling BurnerNet inside your own build re-instantiates compile-time obfuscation and hardened error-string generation.
