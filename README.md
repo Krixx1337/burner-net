@@ -30,7 +30,14 @@ It is built for:
 
 ## Provisioning
 
-BurnerNet now builds without a generator step. Add the `.cpp` files to your project or link the library, include the headers, and compile.
+BurnerNet now builds without a generator step. The recommended integration model is a **Source-Drop**: add the relevant `src/` and `include/` files directly to your project, compile them with your app, and ship one binary.
+
+Why this is the recommended path:
+- it keeps integration simple and avoids separate library packaging friction
+- BurnerNet's compile-time hardening then gets instantiated as part of your own build
+- each consuming build gets its own build-local polymorphic shape instead of sharing one prebuilt release artifact
+
+If you prefer, you can still link a prebuilt static or dynamic library. That is a valid distribution model, but the compile-time hardening shape is then shared by consumers of that specific build artifact instead of being regenerated inside each downstream build.
 
 Release builds harden error strings automatically when `NDEBUG` is defined. Debug builds keep symbolic error names by default.
 
@@ -67,6 +74,7 @@ See also:
 
 BurnerNet requires C++20, CMake 3.21+, and libcurl.
 
+- **Source-Drop:** recommended for consumers who want the simplest integration path and per-build compile-time hardening. Vendor the needed `include/` and `src/` files into your project and compile BurnerNet as part of your normal application build.
 - **Static linking:** recommended for the smallest attack surface. Link against `BurnerNet::BurnerNet` and use a static vcpkg triplet such as `x64-windows-static-md`.
 - **Dynamic linking:** use `InitializeNetworkingRuntime(...)` only when you intentionally load the runtime DLLs yourself from a custom directory.
 

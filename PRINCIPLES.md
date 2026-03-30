@@ -30,6 +30,7 @@ Plaintext strings are the "breadcrumbs" of reverse engineering. Strings like `"S
 *   **Magic-Numberless Core:** In an open-source library, unique hex constants become perfect signatures for static analysis. BurnerNet avoids public magic numbers entirely by compiling error codes down to small sequential integers that blend into ordinary control flow.
 *   **Jump-Table Destruction:** Release builds harden `ErrorCode` stringification automatically, replacing recognizable switch-based strings with numeric output.
 *   **Protocol Stealth:** Essential internal strings (like HTTP methods and headers) are stack-obfuscated and wiped after use to ensure a `strings` dump reveals nothing.
+*   **Source-Drop Advantage (Recommended):** The preferred integration model is to compile BurnerNet's source directly inside the host project. That keeps setup simple and lets compile-time hardening be instantiated inside each downstream build instead of being frozen into one shared prebuilt library artifact.
 
 ## 4. Bring Your Own Weapons (Custom Integrity Hooks)
 Anti-Reverse Engineering (Anti-RE) is a cat-and-mouse game. Rather than forcing a specific, heavy-handed anti-debug or anti-tamper implementation that might break your build, BurnerNet provides the **Weapon Mounts**.

@@ -2,7 +2,18 @@
 
 This guide shows recommended usage patterns for short-lived secrets and mixed security levels (public + login APIs).
 
-## 1. Treat clients as disposable transports
+## 1. Prefer Source-Drop integration
+- Recommended: vendor the needed `include/` and `src/` files into your application and compile BurnerNet as part of your normal build.
+- This is the simplest integration path for many consumers, including private projects, and avoids separate packaging, runtime mismatch, or DLL deployment friction.
+- It also preserves the per-build compile-time hardening behavior because BurnerNet gets compiled inside your own build graph.
+- If you distribute a prebuilt library instead, all consumers of that exact artifact share the same compiled hardening shape for that release.
+
+Why:
+- Source-Drop keeps the "just build the app" workflow intact.
+- Compile-time obfuscation and hardened error-string generation are re-instantiated when your project compiles.
+- This is a hardening advantage, not a cryptographic identity guarantee. Do not treat build-time polymorphism as a substitute for server-side secrets or response verification.
+
+## 2. Treat clients as disposable transports
 - Prefer request-scope or burst-scope clients: create, use, destroy.
 - Avoid process-wide singletons, global clients, and long-lived member-held transports for sensitive paths.
 - Rebuild the client when policy changes instead of mutating transport state over time.
@@ -43,7 +54,7 @@ public:
 };
 ```
 
-## 2. Split clients by trust level
+## 3. Split clients by trust level
 - Use one client for public/simple endpoints (no mTLS/signature).
 - Use one client for auth/login endpoints (mTLS + optional response signature verifier).
 
@@ -63,7 +74,7 @@ auto utility = burner::net::ClientBuilder()
     .Build();
 ```
 
-## 3. Prefer provider callbacks for sensitive values
+## 4. Prefer provider callbacks for sensitive values
 - Use `ClientConfig::mtls_provider` for cert/key/password.
 - Use `ClientConfig::bearer_token_provider` for access token.
 - Use `SignatureVerifierConfig::secret_provider` for signature secret.
@@ -75,7 +86,7 @@ Avoid long-lived plaintext in:
 - static strings
 - config structs persisted for process lifetime
 
-## 4. Example: secure client with short-lived providers
+## 5. Example: secure client with short-lived providers
 ```cpp
 #include "burner/net/http.h"
 #include "burner/net/signature_verifier.h"
@@ -139,7 +150,7 @@ void BuildSecureClient() {
 }
 ```
 
-## 5. Example: public client (no mTLS/signature)
+## 6. Example: public client (no mTLS/signature)
 ```cpp
 burner::net::ClientConfig cfg{};
 cfg.verify_peer = true;
@@ -150,7 +161,7 @@ cfg.mtls.enabled = false;
 auto created = burner::net::CreateHttpClient(cfg);
 ```
 
-## 6. Host bootstrap templates
+## 7. Host bootstrap templates
 
 ### `.exe` host
 ```cpp
@@ -180,44 +191,45 @@ boot.dependency_directory = LR"(C:\Games\Guild Wars 2\addons\kxvision)";
 auto init = burner::net::InitializeNetworkingRuntime(boot);
 ```
 
-## 7. Dependency integrity policy (dynamic mode)
+## 8. Dependency integrity policy (dynamic mode)
 - Integrity checks happen once per dependency, immediately before `LoadLibraryExW`.
 - If allowlist hash mismatches and `fail_closed=true`, bootstrap fails.
 - Keep hashes in app code (policy), not in shared library code.
 - Recompute hashes when you upgrade runtime DLLs.
 - Ensure `dependency_directory` is not writable by standard users; prefer app-owned folder with strict ACLs.
 
-## 8. Response body limits
+## 9. Response body limits
 - Use `HttpRequest::max_body_bytes` for endpoints that should never return large payloads.
 - Keep `0` only for trusted/internal endpoints where unlimited buffering is acceptable.
 - In integration coverage, pass `--tiny-body-limit` to force the cap path and verify expected transport failure.
 
-## 9. Redirect and header safety
+## 10. Redirect and header safety
 - Keep `follow_redirects=false` for auth/login requests.
 - If authorization headers/token are present and redirects are enabled, the client blocks the request by design.
 - Header names/values with CR/LF are rejected to prevent header injection.
 
-## 10. Recommended defaults
+## 11. Recommended defaults
 - Release builds harden `ErrorCodeToString(...)` automatically when `NDEBUG` is defined.
 - Debug builds keep symbolic error names by default for easier local diagnosis.
 - BurnerNet includes a built-in compile-time literal obfuscator by default.
+- Prefer Source-Drop integration when you want that compile-time hardening to be instantiated inside your own app build.
 - Treat `ErrorCode::TlsVerificationFailed` and `ErrorCode::TransportVerificationFailed` as distinct trust failures, not generic connectivity errors.
 - Keep login/business logic in app code, not inside `BurnerNet`.
 - Prefer one disposable HTTP client instance per worker/thread or burst of requests.
 - Prefer separate client instances for paranoid and utility traffic instead of toggling one client back and forth.
 - Keep transport integrity hooks synchronous and fail closed by returning `false`.
 
-## 11. CI recommendation for redist
+## 12. CI recommendation for redist
 - Build the example or test targets in CI so CMake stages the runtime set into `out/build/<preset>/bin/redist`.
 - Treat missing runtime DLLs in that generated `redist` folder as a build failure.
 - Run that check separately for each dynamic triplet you ship (`x64-windows`, `x86-windows`).
 
-## 12. Startup canary
+## 13. Startup canary
 - For high-risk paths, run `burner::net::SecurityAuditor::CheckTransportIntegrity(client->Raw())` during startup or before auth.
 - A `true` result means the transport rejected the `expired.badssl.com` canary exactly as expected.
 - A `false` result means the environment is compromised or inconclusive; fail closed for sensitive flows.
 
-## 13. Defeating Local DNS Hijacking & API Spoofing
+## 14. Defeating Local DNS Hijacking & API Spoofing
 
 **The Threat:** In hostile environments such as compromised machines or game modding contexts, attackers often use PowerShell scripts, local DNS overrides, or `hosts` file modifications to redirect your API domains to a malicious server. They may then supply a valid or locally-trusted TLS certificate and return spoofed `200 OK` responses to bypass auth checks or feed malicious data to your application.
 
