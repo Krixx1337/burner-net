@@ -5,7 +5,7 @@
 #include "burner/net/http.h"
 #include "burner/net/version.h"
 
-int main() {
+int RunBasicUsage() {
     std::cout << "BurnerNet version: " << burner::net::VersionString << '\n';
 
     auto build_result = burner::net::ClientBuilder().Build();

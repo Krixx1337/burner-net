@@ -6,7 +6,7 @@
 #include "burner/net/security_auditor.h"
 #include "burner/net/signature_verifier.h"
 
-int main() {
+int RunSecurityAudit() {
     auto build_result = burner::net::ClientBuilder()
         .WithUseNativeCa(true)
         .WithResponseVerifier(std::make_shared<burner::net::HmacSha256HeaderVerifier>(

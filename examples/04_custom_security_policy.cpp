@@ -22,7 +22,7 @@ public:
 
 } // namespace
 
-int main() {
+int RunCustomPolicy() {
     auto build_result = burner::net::ClientBuilder()
         .WithUseNativeCa(true)
         .WithSecurityPolicy(std::make_shared<ExampleSecurityPolicy>())

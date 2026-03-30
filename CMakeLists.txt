@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.21)
 
 project(BurnerNet VERSION 0.1.0 LANGUAGES CXX)
 
+set_property(GLOBAL PROPERTY USE_FOLDERS ON)
+
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
@@ -149,25 +151,7 @@ function(burner_apply_example_warnings target_name)
 endfunction()
 
 if(BURNERNET_BUILD_EXAMPLES)
-    add_executable(BurnerNetExampleBasic examples/01_basic_usage.cpp)
-    target_link_libraries(BurnerNetExampleBasic PRIVATE BurnerNet)
-    burner_apply_example_warnings(BurnerNetExampleBasic)
-    burnernet_configure_runtime(BurnerNetExampleBasic)
-
-    add_executable(BurnerNetExampleAudit examples/02_security_audit.cpp)
-    target_link_libraries(BurnerNetExampleAudit PRIVATE BurnerNet)
-    burner_apply_example_warnings(BurnerNetExampleAudit)
-    burnernet_configure_runtime(BurnerNetExampleAudit)
-
-    add_executable(BurnerNetExampleTrafficLanes examples/03_traffic_lanes.cpp)
-    target_link_libraries(BurnerNetExampleTrafficLanes PRIVATE BurnerNet)
-    burner_apply_example_warnings(BurnerNetExampleTrafficLanes)
-    burnernet_configure_runtime(BurnerNetExampleTrafficLanes)
-
-    add_executable(BurnerNetExampleCustomPolicy examples/04_custom_security_policy.cpp)
-    target_link_libraries(BurnerNetExampleCustomPolicy PRIVATE BurnerNet)
-    burner_apply_example_warnings(BurnerNetExampleCustomPolicy)
-    burnernet_configure_runtime(BurnerNetExampleCustomPolicy)
+    add_subdirectory(examples)
 endif()
 
 if(BURNERNET_BUILD_TESTING OR BURNERNET_BUILD_INTEGRATION_TESTS)
@@ -187,6 +171,7 @@ if(BURNERNET_BUILD_TESTING)
         target_compile_options(BurnerNetTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     burnernet_configure_runtime(BurnerNetTests)
+    set_target_properties(BurnerNetTests PROPERTIES FOLDER "Tests")
     add_test(NAME BurnerNet.Unit COMMAND BurnerNetTests)
 endif()
 
@@ -203,6 +188,7 @@ if(BURNERNET_BUILD_INTEGRATION_TESTS)
         target_compile_options(BurnerNetIntegrationTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
     burnernet_configure_runtime(BurnerNetIntegrationTests)
+    set_target_properties(BurnerNetIntegrationTests PROPERTIES FOLDER "Tests")
     add_test(NAME BurnerNet.Integration COMMAND BurnerNetIntegrationTests)
 
     add_custom_target(run_integration_tests
@@ -211,6 +197,7 @@ if(BURNERNET_BUILD_INTEGRATION_TESTS)
         USES_TERMINAL
         COMMENT "Run BurnerNet integration tests"
     )
+    set_target_properties(run_integration_tests PROPERTIES FOLDER "Tests")
 endif()
 
 set(BURNERNET_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/BurnerNet")

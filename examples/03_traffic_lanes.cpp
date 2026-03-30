@@ -5,7 +5,7 @@
 #include "burner/net/error.h"
 #include "burner/net/signature_verifier.h"
 
-int main() {
+int RunTrafficLanes() {
     using namespace burner::net;
 
     auto paranoid = ClientBuilder()
