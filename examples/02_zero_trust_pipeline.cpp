@@ -1,8 +1,37 @@
 #include <iostream>
+#include <string>
+#include <string_view>
+
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
+#include "burner/net/policy.h"
 #include "burner/net/security_auditor.h"
 #include "burner/net/signature_verifier.h"
+
+namespace {
+
+struct ZeroTrustPolicy : burner::net::ISecurityPolicy {
+    bool OnVerifyTransport(const char* url, const char* remote_ip) const {
+        if (url == nullptr || remote_ip == nullptr) {
+            return false;
+        }
+
+        const std::string_view host(url);
+        const std::string_view ip(remote_ip);
+        if (host.find("license") != std::string_view::npos &&
+            (ip == "127.0.0.1" || ip == "::1")) {
+            return false;
+        }
+
+        return true;
+    }
+
+    std::string GetUserAgent() const {
+        return "BurnerNetExamples/ZeroTrust";
+    }
+};
+
+} // namespace
 
 int RunZeroTrustPipeline() {
     using namespace burner::net;
@@ -12,6 +41,7 @@ int RunZeroTrustPipeline() {
     constexpr const char* kEndpoint = "https://example.com/license";
 
     auto paranoid = ClientBuilder()
+        .WithSecurityPolicy(ZeroTrustPolicy{})
         .WithUseNativeCa(true)
         .WithApiVerification(true)
         .WithPinnedKey(kPinnedKey)
@@ -41,6 +71,8 @@ int RunZeroTrustPipeline() {
 
     std::cout << "Paranoid lane: auth, licensing, and high-trust business logic.\n";
     std::cout << "Utility lane: telemetry, metadata, and lower-trust traffic.\n";
+    std::cout << "The paranoid client uses a concrete policy object plus pinning,\n";
+    std::cout << "response verification, and transport integrity auditing.\n";
 
     if (!SecurityAuditor::CheckTransportIntegrity(paranoid.client->Raw())) {
         std::cerr << "Transport integrity check failed before the hardened request.\n";

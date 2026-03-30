@@ -1,3 +1,4 @@
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -8,7 +9,7 @@
 
 namespace {
 
-struct ExampleSecurityPolicy final : burner::net::ISecurityPolicy {
+struct ExampleSecurityPolicy : burner::net::ISecurityPolicy {
     bool OnVerifyTransport(const char* url, const char* remote_ip) const {
         if (remote_ip == nullptr) {
             return false;
@@ -32,6 +33,11 @@ struct ExampleSecurityPolicy final : burner::net::ISecurityPolicy {
         return true;
     }
 
+    [[noreturn]] void OnTamper() const {
+        std::cerr << "Tamper callback fired.\n";
+        std::abort();
+    }
+
     std::string GetUserAgent() const {
         return "BurnerNetExampleCustomPolicy/1.0";
     }
@@ -52,9 +58,12 @@ int RunCustomPolicy() {
     }
 
     std::cout << "Runtime security policy example initialized.\n";
-    std::cout << "ExampleSecurityPolicy blocks loopback redirects and can reject\n";
-    std::cout << "unexpected private-network IPs for sensitive hosts.\n";
-    std::cout << "If OnVerifyTransport rejects the connected IP, BurnerNet fails\n";
-    std::cout << "the request with TransportVerificationFailed.\n";
+    std::cout << "ExampleSecurityPolicy is a concrete policy type passed directly to\n";
+    std::cout << "ClientBuilder::WithSecurityPolicy(...). It derives from ISecurityPolicy\n";
+    std::cout << "for default hook implementations, but still avoids virtual dispatch.\n";
+    std::cout << "It blocks loopback redirects and can reject unexpected private-network\n";
+    std::cout << "IPs for sensitive hosts.\n";
+    std::cout << "If OnVerifyTransport rejects the connected IP, BurnerNet fails the\n";
+    std::cout << "request with TransportVerificationFailed.\n";
     return 0;
 }

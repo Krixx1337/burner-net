@@ -25,6 +25,7 @@ It is built for:
 - **Encrypted DNS:** DNS-over-HTTPS support to reduce dependence on hostile local resolution
 - **Polymorphic builds:** hardened error strings pick up a compile-time XOR key automatically
 - **Built-in literal obfuscation:** internal security-anchor strings are masked at compile time out of the box
+- **Import-light Windows path:** `lazy_importer` is vendored and used for hidden Windows and cURL API resolution
 - **Ephemeral secrets:** request material can be fetched via providers and wiped after use
 - **Integrity hooks:** synchronous pre-flight, request, verification, and heartbeat hooks
 - **Transport canary:** `SecurityAuditor` can detect local TLS interception paths
@@ -44,9 +45,9 @@ For the actual setup details, see:
 - [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
 - [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
 
-Error strings are hardened by default. Define `BURNERNET_LEAK_STRINGS_FOR_DEBUGGING` only when you explicitly want plaintext debug strings.
+Error strings are hardened by default. `ErrorCodeToString(...)` returns a numeric/XORed string unless you explicitly opt into plaintext debugging with `BURNERNET_LEAK_STRINGS_FOR_DEBUGGING`.
 
-For custom security hooks, derive from `burner::net::ISecurityPolicy` and pass the instance into `ClientBuilder::WithSecurityPolicy(...)`. The fluent `WithPreFlight(...)`, `WithEnvironmentCheck(...)`, `WithTransportCheck(...)`, `WithHeartbeat(...)`, `WithResponseReceived(...)`, and `WithPostVerification(...)` helpers layer on top of that runtime policy instead of replacing it. See [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp) and [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md).
+For custom security hooks, pass a concrete policy type into `ClientBuilder::WithSecurityPolicy(...)`. The easiest path is to derive from `ISecurityPolicy` so the unchanged hooks inherit sensible defaults, but the runtime path still avoids virtual dispatch because `ISecurityPolicy` has no virtual methods. The fluent `WithPreFlight(...)`, `WithEnvironmentCheck(...)`, `WithTransportCheck(...)`, `WithHeartbeat(...)`, `WithResponseReceived(...)`, and `WithPostVerification(...)` helpers layer on top of that policy instead of replacing it. See [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp) and [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md).
 
 ## Minimal Example
 
@@ -69,6 +70,15 @@ auto utility = burner::net::ClientBuilder()
     .Build();
 ```
 
+Hook order on the request path:
+- `OnVerifyEnvironment()` during `Build()`
+- `OnPreRequest()` before each attempt
+- `OnHeartbeat()` from the active transfer callback
+- `OnVerifyTransport()` after the connection is established
+- `OnResponseReceived()` after a successful transfer
+- `OnSignatureVerified()` after response verification when enabled
+- `OnTamper()` when an integrity check fails closed
+
 See also:
 - [examples/01_basic_usage.cpp](examples/01_basic_usage.cpp)
 - [examples/02_zero_trust_pipeline.cpp](examples/02_zero_trust_pipeline.cpp)
@@ -82,6 +92,8 @@ See also:
 ## Build & Integration
 
 BurnerNet requires C++20 and libcurl.
+
+The repository includes `lazy_importer` as a vendored header under [include/burner/net/external/lazy_importer/lazy_importer.hpp](include/burner/net/external/lazy_importer/lazy_importer.hpp). Downstream users do not need to fetch it separately.
 
 Integration guides:
 - CMake consumers: [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)

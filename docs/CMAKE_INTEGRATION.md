@@ -8,6 +8,8 @@ It focuses on three Windows/MSVC workflows:
 2. advanced bootstrap-based runtime loading with `InitializeNetworkingRuntime(...)`
 3. local or package-style integration with curl linked statically
 
+BurnerNet vendors `lazy_importer` inside the source tree, so downstream CMake consumers do not need to install any extra package just to satisfy the hardened import-hiding path.
+
 ## What Is Static vs Dynamic
 
 There are two separate things to think about:
@@ -94,6 +96,7 @@ In this mode:
 - the consumer links `BurnerNet::BurnerNet`
 - the consumer owns `curl` resolution through its own `vcpkg.json` and vcpkg toolchain
 - BurnerNet carries its own include paths and compile definitions
+- BurnerNet's vendored `lazy_importer` header is already part of the target include path
 - curl is usually **dynamic**
 - runtime DLL staging is typically handled by the consumer's dependency manager flow
 
@@ -111,7 +114,7 @@ In this mode:
 
 - BurnerNet is still consumed as a normal CMake target
 - `BURNERNET_HARDEN_IMPORTS=1`
-- BurnerNet resolves curl exports dynamically after you call `InitializeNetworkingRuntime(...)`
+- BurnerNet resolves curl and selected Windows exports dynamically after you call `InitializeNetworkingRuntime(...)`
 - curl is still **dynamic**
 - runtime DLLs live in your chosen redist folder instead of the normal executable-adjacent layout
 
@@ -148,6 +151,7 @@ Typical local folders for sibling-repo integration:
 - BurnerNet source: `burner-net/`
 - curl package config: `burner-net/out/build/x64-debug/vcpkg_installed/x64-windows/share/curl/CURLConfig.cmake`
 - curl runtime DLLs: `burner-net/out/build/x64-debug/vcpkg_installed/x64-windows/debug/bin/*.dll`
+- vendored lazy importer header: `burner-net/include/burner/net/external/lazy_importer/lazy_importer.hpp`
 
 ## Recommended Downstream Setup
 

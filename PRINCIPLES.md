@@ -25,17 +25,18 @@ If a secret exists in memory for more than a few milliseconds, it is a target fo
 ## 3. Stringless Core (No Plaintext Breadcrumbs)
 Plaintext strings are the "breadcrumbs" of reverse engineering. Strings like `"Signature Mismatch"` or `"Invalid Token"` allow an attacker to find your security logic in seconds using static analysis.
 
-*   **Opaque Error Codes:** The library emits no plaintext error strings in hardened mode. It operates exclusively on a strictly typed `enum class ErrorCode`.
+*   **Opaque Error Codes:** The library emits no plaintext error strings in hardened mode. It operates exclusively on a strictly typed `enum class ErrorCode`, and `ErrorCodeToString(...)` collapses to a numeric/XORed representation by default.
 *   **Magic-Numberless Core:** In an open-source library, unique hex constants become perfect signatures for static analysis. BurnerNet avoids public magic numbers entirely by compiling error codes down to small sequential integers that blend into ordinary control flow.
 *   **Jump-Table Destruction:** Release builds harden `ErrorCode` stringification automatically, replacing recognizable switch-based strings with numeric output.
 *   **Protocol Stealth:** Essential internal strings (like HTTP methods and headers) are stack-obfuscated and wiped after use to ensure a `strings` dump reveals nothing.
 *   **Source-Drop Advantage (Recommended):** The preferred integration model is to compile BurnerNet's source directly inside the host project. That keeps setup simple and lets compile-time hardening be instantiated inside each downstream build instead of being frozen into one shared prebuilt library artifact.
+*   **Import-Light Runtime:** On Windows, BurnerNet uses vendored `lazy_importer` for hidden API resolution in the hardened path instead of relying on large manual import-walking code.
 
 ## 4. Bring Your Own Weapons (Custom Integrity Hooks)
 Anti-Reverse Engineering (Anti-RE) is a cat-and-mouse game. Rather than forcing a specific, heavy-handed anti-debug or anti-tamper implementation that might break your build, BurnerNet provides the **Weapon Mounts**.
 
-*   **API Table Hooks:** Instead of standard IAT imports, developers can provide a custom function pointer table. This allows for stealthy manual mapping or syscall-based execution of cURL and Windows APIs.
-*   **Verification Mounts:** We provide hooks inside the execution loop where developers can attach their own "Weapons"—such as anti-debug checks, heartbeat monitors, or memory integrity scans.
+*   **Concrete Policy Objects:** BurnerNet accepts concrete policy types through `ClientBuilder::WithSecurityPolicy(...)`. The easiest path is to derive from `ISecurityPolicy` for default hook behavior. `ISecurityPolicy` has no virtual methods, and the runtime wrapper dispatches through stored function pointers rather than vtables.
+*   **Verification Mounts:** We provide hooks inside the execution loop where developers can attach their own "Weapons"—such as heartbeat monitors, debugger checks, or memory integrity scans.
 *   **Execution Witnesses:** Critical security paths (like HMAC verification) use state-machine witnesses to ensure logic hasn't been bypassed by "JMP" patches.
 
 ## 5. Disposable Transports (Short-Lived Clients)
