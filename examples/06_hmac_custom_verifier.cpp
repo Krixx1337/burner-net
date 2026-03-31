@@ -8,6 +8,8 @@
 #include <vector>
 
 #include "burner/net/builder.h"
+#include "burner/net/detail/dark_hashing.h"
+#include "burner/net/detail/kernel_resolver.h"
 #include "burner/net/error.h"
 #include "burner/net/http.h"
 #include "burner/net/obfuscation.h"
@@ -15,8 +17,6 @@
 #ifdef _WIN32
 #include <windows.h>
 #include <bcrypt.h>
-
-#include "burner/net/external/lazy_importer/lazy_importer.hpp"
 #endif
 
 namespace {
@@ -60,6 +60,22 @@ using BCryptFinishHashFn = decltype(&BCryptFinishHash);
 using BCryptDestroyHashFn = decltype(&BCryptDestroyHash);
 using BCryptCloseAlgorithmProviderFn = decltype(&BCryptCloseAlgorithmProvider);
 
+constexpr std::uint32_t kBcryptHash = burner::net::detail::fnv1a_ci("bcrypt.dll");
+constexpr std::uint32_t kBCryptOpenAlgorithmProviderHash =
+    burner::net::detail::fnv1a("BCryptOpenAlgorithmProvider");
+constexpr std::uint32_t kBCryptGetPropertyHash =
+    burner::net::detail::fnv1a("BCryptGetProperty");
+constexpr std::uint32_t kBCryptCreateHashHash =
+    burner::net::detail::fnv1a("BCryptCreateHash");
+constexpr std::uint32_t kBCryptHashDataHash =
+    burner::net::detail::fnv1a("BCryptHashData");
+constexpr std::uint32_t kBCryptFinishHashHash =
+    burner::net::detail::fnv1a("BCryptFinishHash");
+constexpr std::uint32_t kBCryptDestroyHashHash =
+    burner::net::detail::fnv1a("BCryptDestroyHash");
+constexpr std::uint32_t kBCryptCloseAlgorithmProviderHash =
+    burner::net::detail::fnv1a("BCryptCloseAlgorithmProvider");
+
 std::string ToLowerCopy(std::string value) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
         return static_cast<char>(std::tolower(ch));
@@ -99,20 +115,47 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
         return false;
     }
 
+    void* const bcrypt_module =
+        burner::net::detail::KernelResolver::GetSystemModule(kBcryptHash);
+    if (bcrypt_module == nullptr) {
+        return false;
+    }
+
     const BCryptOpenAlgorithmProviderFn bcrypt_open_algorithm_provider =
-        LI_FN(BCryptOpenAlgorithmProvider).in_safe<BCryptOpenAlgorithmProviderFn>(LI_MODULE("bcrypt.dll").safe_cached());
+        reinterpret_cast<BCryptOpenAlgorithmProviderFn>(
+            burner::net::detail::KernelResolver::ResolveInternalExport(
+                bcrypt_module,
+                kBCryptOpenAlgorithmProviderHash));
     const BCryptGetPropertyFn bcrypt_get_property =
-        LI_FN(BCryptGetProperty).in_safe<BCryptGetPropertyFn>(LI_MODULE("bcrypt.dll").safe_cached());
+        reinterpret_cast<BCryptGetPropertyFn>(
+            burner::net::detail::KernelResolver::ResolveInternalExport(
+                bcrypt_module,
+                kBCryptGetPropertyHash));
     const BCryptCreateHashFn bcrypt_create_hash =
-        LI_FN(BCryptCreateHash).in_safe<BCryptCreateHashFn>(LI_MODULE("bcrypt.dll").safe_cached());
+        reinterpret_cast<BCryptCreateHashFn>(
+            burner::net::detail::KernelResolver::ResolveInternalExport(
+                bcrypt_module,
+                kBCryptCreateHashHash));
     const BCryptHashDataFn bcrypt_hash_data =
-        LI_FN(BCryptHashData).in_safe<BCryptHashDataFn>(LI_MODULE("bcrypt.dll").safe_cached());
+        reinterpret_cast<BCryptHashDataFn>(
+            burner::net::detail::KernelResolver::ResolveInternalExport(
+                bcrypt_module,
+                kBCryptHashDataHash));
     const BCryptFinishHashFn bcrypt_finish_hash =
-        LI_FN(BCryptFinishHash).in_safe<BCryptFinishHashFn>(LI_MODULE("bcrypt.dll").safe_cached());
+        reinterpret_cast<BCryptFinishHashFn>(
+            burner::net::detail::KernelResolver::ResolveInternalExport(
+                bcrypt_module,
+                kBCryptFinishHashHash));
     const BCryptDestroyHashFn bcrypt_destroy_hash =
-        LI_FN(BCryptDestroyHash).in_safe<BCryptDestroyHashFn>(LI_MODULE("bcrypt.dll").safe_cached());
+        reinterpret_cast<BCryptDestroyHashFn>(
+            burner::net::detail::KernelResolver::ResolveInternalExport(
+                bcrypt_module,
+                kBCryptDestroyHashHash));
     const BCryptCloseAlgorithmProviderFn bcrypt_close_algorithm_provider =
-        LI_FN(BCryptCloseAlgorithmProvider).in_safe<BCryptCloseAlgorithmProviderFn>(LI_MODULE("bcrypt.dll").safe_cached());
+        reinterpret_cast<BCryptCloseAlgorithmProviderFn>(
+            burner::net::detail::KernelResolver::ResolveInternalExport(
+                bcrypt_module,
+                kBCryptCloseAlgorithmProviderHash));
     if (bcrypt_open_algorithm_provider == nullptr || bcrypt_get_property == nullptr ||
         bcrypt_create_hash == nullptr || bcrypt_hash_data == nullptr ||
         bcrypt_finish_hash == nullptr || bcrypt_destroy_hash == nullptr ||

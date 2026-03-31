@@ -56,7 +56,7 @@ BurnerNet fits projects such as:
 - **Lower plaintext exposure**: Provider callbacks and secure wiping utilities reduce the lifetime of certs, keys, tokens, and other sensitive buffers.
 - **App-owned verification**: Response verification stays in your code through `WithResponseVerifier(...)` instead of being hardcoded into a shared library.
 - **Harder static fingerprinting**: Release builds harden `ErrorCodeToString(...)` automatically, and compile-time literal obfuscation is available out of the box.
-- **Import-light deployment options**: `BURNERNET_HARDEN_IMPORTS=1` can resolve runtime dependencies dynamically instead of advertising them directly in the import table, using the vendored `lazy_importer` path on Windows.
+- **Import-light deployment options**: `BURNERNET_HARDEN_IMPORTS=1` can resolve runtime dependencies dynamically instead of advertising them directly in the import table, using BurnerNet's `KernelResolver` path on Windows.
 
 ## Getting Started
 
@@ -132,7 +132,7 @@ Use this when you want to reduce obvious runtime dependency exposure and are pre
 
 Enable:
 - `BURNERNET_HARDEN_IMPORTS=1`
-- Uses the vendored `lazy_importer` path on Windows to support a more import-light runtime footprint
+- Uses BurnerNet's `KernelResolver` path on Windows to support a more import-light runtime footprint
 
 Reference:
 - [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)

@@ -27,6 +27,16 @@ struct LDR_DATA_TABLE_ENTRY_INTERNAL {
 
 class KernelResolver {
 public:
+    // BurnerNet prefers this resolver over generic lazy-import approaches because our
+    // hardened path needs a single trust root we can reason about and extend.
+    //
+    // For this codebase, walking the PEB and parsing export tables directly is better:
+    // 1. It keeps module discovery and export resolution inside BurnerNet instead of
+    //    depending on third-party importer machinery with different assumptions.
+    // 2. It gives us explicit provenance checks and section introspection on the same
+    //    path that resolves function pointers, which lazy trampolines do not provide.
+    // 3. It works as one consistent mechanism for core runtime loading, bootstrap, and
+    //    user-facing examples, so the hardened path stays auditable and predictable.
     [[nodiscard]] static void* GetSystemModule(std::uint32_t module_hash) noexcept {
 #ifdef _WIN64
         auto* peb = reinterpret_cast<std::uint8_t*>(__readgsqword(0x60));

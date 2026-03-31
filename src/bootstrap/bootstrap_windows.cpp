@@ -38,7 +38,7 @@ constexpr std::uint32_t kSetDefaultDllDirectoriesHash =
 template <typename TFn>
 TFn ResolveSystemPrimitive(std::uint32_t export_hash) noexcept {
     // Bootstrap is the DLL-search-path boundary for BurnerNet's dynamic runtime mode.
-    // We intentionally use KernelResolver here instead of lazy-importer because these
+    // We intentionally use KernelResolver here because these
     // specific loader APIs must come from the real kernel32/kernelbase images, not
     // from whatever the host process may have hooked in its IAT or loader façade.
     //
@@ -92,8 +92,8 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
 
     if (g_dependency_cookie == nullptr) {
         // Keep loader-search-path mutation on the provenance-checked resolver path.
-        // lazy-importer is fine for many runtime imports, but bootstrap needs to
-        // anchor these calls to the genuine backing module before loading redist DLLs.
+        // Bootstrap needs to anchor these calls to the genuine backing module
+        // before loading redist DLLs.
         const SetDefaultDllDirectoriesFn set_default_dll_directories =
             ResolveSystemPrimitive<SetDefaultDllDirectoriesFn>(kSetDefaultDllDirectoriesHash);
         if (set_default_dll_directories != nullptr) {

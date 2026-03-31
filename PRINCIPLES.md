@@ -30,7 +30,7 @@ Plaintext strings and cryptographic "magic numbers" are the fingerprints of secu
 *   **Signature-Free Infrastructure:** Verification algorithms, transport canary targets, and bootstrap integrity checks live in application callbacks rather than inside BurnerNet itself. That keeps the transport layer agnostic and denies attackers an obvious universal bypass point.
 *   **Protocol Stealth:** Essential internal strings that must exist for transport behavior are stack-obfuscated and wiped after use so a naïve static dump reveals as little as possible.
 *   **Source-Drop Advantage (Recommended):** The preferred integration model is to compile BurnerNet's source directly inside the host project. That keeps setup simple and lets compile-time hardening be instantiated inside each downstream build instead of being frozen into one shared prebuilt library artifact.
-*   **Import-Light Runtime:** On Windows, BurnerNet uses vendored `lazy_importer` for hidden API resolution in the hardened path instead of relying on large manual import-walking code.
+*   **Import-Light Runtime:** On Windows, BurnerNet uses its own `KernelResolver` for hidden API resolution in the hardened path, keeping that trust root inside the library instead of depending on a third-party importer.
 
 ## 4. Bring Your Own Weapons (The Dark Mounts)
 Anti-Reverse Engineering (Anti-RE) is a cat-and-mouse game. BurnerNet is a **Professional Hardening** library, not an aggressive obfuscator: it avoids heavy control-flow tricks, spaghetti-code transforms, and source-hostile obfuscation. We target the sweet spot between **Security**, **Maintainability**, and **Performance** by shipping welded mounts while leaving the weapons to the application.
