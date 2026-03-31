@@ -46,7 +46,6 @@ set(BURNERNET_SOURCES
     src/curl/transport_orchestrator.cpp
     src/http_factory.cpp
     src/internal/header_validation.cpp
-    src/internal/import_pointer_trust.cpp
     src/security/security_auditor.cpp
 )
 

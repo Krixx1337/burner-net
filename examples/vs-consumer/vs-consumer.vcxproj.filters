@@ -42,9 +42,6 @@
     <ClCompile Include="..\..\src\internal\header_validation.cpp">
       <Filter>BurnerNet Source</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\internal\import_pointer_trust.cpp">
-      <Filter>BurnerNet Source</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\security\security_auditor.cpp">
       <Filter>BurnerNet Source</Filter>
     </ClCompile>

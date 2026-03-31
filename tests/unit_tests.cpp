@@ -14,7 +14,6 @@
 #include "burner/net/security_auditor.h"
 #include "burner/net/detail/pointer_mangling.h"
 #include "curl/curl_http_client.h"
-#include "internal/import_pointer_trust.h"
 #include "internal/header_validation.h"
 
 #ifdef _WIN32
@@ -431,29 +430,6 @@ TEST_CASE("builder tamper action layers on top of wrapped policy tamper handling
     build_result.client->Raw()->SecurityPolicy()->OnTamper();
     CHECK(tamper_action_called);
     CHECK(*policy.tamper_count == 1);
-}
-
-TEST_CASE("import pointer trust accepts allowed system module and rejects wrong one") {
-#ifdef _WIN32
-    const auto* fn_ptr = reinterpret_cast<const void*>(&GetModuleHandleA);
-
-    CHECK(burner::net::internal::IsFunctionPointerInAllowedModules(
-        fn_ptr,
-        {L"kernel32.dll"}));
-    CHECK_FALSE(burner::net::internal::IsFunctionPointerInAllowedModules(
-        fn_ptr,
-        {L"malicious.dll"}));
-    CHECK(burner::net::internal::IsFunctionPointerExecutable(fn_ptr));
-    CHECK(burner::net::internal::IsFunctionPointerTrusted(
-        fn_ptr,
-        {L"kernel32.dll"}));
-    CHECK_FALSE(burner::net::internal::IsFunctionPointerTrusted(
-        fn_ptr,
-        {L"malicious.dll"}));
-#else
-    MESSAGE("Import pointer trust is Windows-only.");
-    CHECK(true);
-#endif
 }
 
 TEST_CASE("error codes map to expected output based on hardening") {

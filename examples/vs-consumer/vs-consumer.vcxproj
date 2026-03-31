@@ -144,7 +144,6 @@
     <ClCompile Include="..\..\src\error.cpp" />
     <ClCompile Include="..\..\src\http_factory.cpp" />
     <ClCompile Include="..\..\src\internal\header_validation.cpp" />
-    <ClCompile Include="..\..\src\internal\import_pointer_trust.cpp" />
     <ClCompile Include="..\..\src\security\security_auditor.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

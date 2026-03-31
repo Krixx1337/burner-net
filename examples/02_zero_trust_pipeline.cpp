@@ -46,7 +46,6 @@ int RunZeroTrustPipeline() {
     auto paranoid = ClientBuilder()
         .WithSecurityPolicy(ZeroTrustPolicy{})
         .WithUseNativeCa(true)
-        .WithApiVerification(true)
         .WithPinnedKey(kPinnedKey)
         .Build();
 

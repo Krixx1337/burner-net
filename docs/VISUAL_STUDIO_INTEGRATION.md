@@ -145,7 +145,6 @@ For a normal Windows build, add these BurnerNet `.cpp` files to your `.vcxproj`:
 - `src/curl/curl_http_client.cpp`
 - `src/http_factory.cpp`
 - `src/internal/header_validation.cpp`
-- `src/internal/import_pointer_trust.cpp`
 - `src/security/security_auditor.cpp`
 - `src/bootstrap/bootstrap_windows.cpp`
 

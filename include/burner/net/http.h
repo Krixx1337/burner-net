@@ -275,13 +275,6 @@ struct ClientConfig {
     SecurityPolicy security_policy;
     std::size_t global_max_body_bytes = 0;
     std::vector<std::string> pinned_public_keys;
-    bool verify_curl_api_pointers = false;
-    std::vector<std::wstring> trusted_curl_module_basenames = {
-        L"libcurl.dll",
-        L"libcurl-d.dll",
-        L"libcurl-x64.dll",
-        L"libcurl-x86.dll"
-    };
 };
 
 } // namespace burner::net

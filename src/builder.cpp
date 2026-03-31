@@ -151,20 +151,6 @@ ClientBuilder& ClientBuilder::WithGlobalMaxBodyLimit(std::size_t max_body_bytes)
     return *this;
 }
 
-ClientBuilder& ClientBuilder::WithApiVerification(bool enabled) {
-#if BURNER_ENABLE_CURL
-    m_config.verify_curl_api_pointers = enabled;
-#else
-    (void)enabled;
-#endif
-    return *this;
-}
-
-ClientBuilder& ClientBuilder::WithTrustedCurlModules(std::vector<std::wstring> modules) {
-    m_config.trusted_curl_module_basenames = std::move(modules);
-    return *this;
-}
-
 ClientBuilder& ClientBuilder::WithCasualDefaults() {
     m_config.use_system_proxy = true;
     m_config.use_native_ca = true;

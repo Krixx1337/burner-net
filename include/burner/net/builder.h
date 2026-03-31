@@ -157,8 +157,6 @@ public:
     ClientBuilder& WithPostVerification(PostVerificationCallback callback);
     ClientBuilder& WithTamperAction(TamperActionCallback callback);
     ClientBuilder& WithGlobalMaxBodyLimit(std::size_t max_body_bytes);
-    ClientBuilder& WithApiVerification(bool enabled);
-    ClientBuilder& WithTrustedCurlModules(std::vector<std::wstring> modules);
     ClientBuilder& WithCasualDefaults();
     ClientBuilder& WithStandardSecureDns() {
         if (!m_custom_dns_fallback) {

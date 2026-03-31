@@ -1,7 +1,6 @@
 #include "curl_session.h"
 
 #include "burner/net/obfuscation.h"
-#include "../internal/import_pointer_trust.h"
 
 #include <cstdarg>
 
@@ -24,7 +23,7 @@
 namespace burner::net {
 namespace {
 
-#ifdef _WIN32
+#if BURNERNET_HARDEN_IMPORTS && defined(_WIN32)
 void* ResolveLoadedCurlModule() noexcept {
     if (void* module = LI_MODULE("libcurl.dll").safe_cached()) {
         return module;
@@ -38,18 +37,6 @@ void* ResolveLoadedCurlModule() noexcept {
     return LI_MODULE("libcurl-x86.dll").safe_cached();
 }
 #endif
-
-bool IsCurlApiComplete(const CurlApi& api) {
-    return static_cast<bool>(api.easy_init) &&
-        static_cast<bool>(api.easy_cleanup) &&
-        static_cast<bool>(api.easy_reset) &&
-        static_cast<bool>(api.easy_setopt) &&
-        static_cast<bool>(api.easy_perform) &&
-        static_cast<bool>(api.easy_getinfo) &&
-        static_cast<bool>(api.slist_append) &&
-        static_cast<bool>(api.slist_free_all) &&
-        static_cast<bool>(api.easy_strerror);
-}
 
 CURL* DefaultCurlEasyInit() {
     return curl_easy_init();
@@ -186,6 +173,19 @@ CurlApi MakeWrappedCurlApi() {
     return api;
 }
 
+#if BURNERNET_HARDEN_IMPORTS
+bool IsCurlApiComplete(const CurlApi& api) {
+    return static_cast<bool>(api.easy_init) &&
+        static_cast<bool>(api.easy_cleanup) &&
+        static_cast<bool>(api.easy_reset) &&
+        static_cast<bool>(api.easy_setopt) &&
+        static_cast<bool>(api.easy_perform) &&
+        static_cast<bool>(api.easy_getinfo) &&
+        static_cast<bool>(api.slist_append) &&
+        static_cast<bool>(api.slist_free_all) &&
+        static_cast<bool>(api.easy_strerror);
+}
+
 CurlApi MakeResolvedCurlApi() {
     CurlApi api{};
 #ifdef _WIN32
@@ -206,18 +206,7 @@ CurlApi MakeResolvedCurlApi() {
 #endif
     return api;
 }
-
-bool IsCurlApiTrusted(const CurlApi& api, const std::vector<std::wstring>& trusted_module_basenames) {
-    return internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_init.get()), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_cleanup.get()), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_reset.get()), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_setopt.get()), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_perform.get()), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_getinfo.get()), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.slist_append.get()), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.slist_free_all.get()), trusted_module_basenames) &&
-        internal::IsFunctionPointerTrusted(reinterpret_cast<const void*>(api.easy_strerror.get()), trusted_module_basenames);
-}
+#endif
 
 } // namespace
 
@@ -261,27 +250,9 @@ std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, Error
         *init_error = ErrorCode::CurlApiIncomplete;
         return nullptr;
     }
-    if (config.verify_curl_api_pointers &&
-        !IsCurlApiTrusted(curl_api, config.trusted_curl_module_basenames)) {
-        config.security_policy.OnTamper();
-        *init_error = ErrorCode::CurlApiUntrusted;
-        return nullptr;
-    }
 #else
-    if (config.verify_curl_api_pointers) {
-        curl_api = MakeResolvedCurlApi();
-        if (!IsCurlApiComplete(curl_api)) {
-            *init_error = ErrorCode::CurlApiIncomplete;
-            return nullptr;
-        }
-        if (!IsCurlApiTrusted(curl_api, config.trusted_curl_module_basenames)) {
-            config.security_policy.OnTamper();
-            *init_error = ErrorCode::CurlApiUntrusted;
-            return nullptr;
-        }
-    } else {
-        curl_api = MakeWrappedCurlApi();
-    }
+    (void)config;
+    curl_api = MakeWrappedCurlApi();
 #endif
 
     auto session = std::unique_ptr<CurlSession>(new CurlSession(curl_api));
