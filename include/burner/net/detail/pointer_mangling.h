@@ -19,7 +19,6 @@
 namespace burner::net {
 namespace detail {
 
-inline std::atomic<std::uintptr_t> g_encoded_pointer_key{0};
 inline std::atomic<std::uintptr_t> g_encoded_pointer_nonce{
     static_cast<std::uintptr_t>(obf::build_seed()) | static_cast<std::uintptr_t>(1)};
 
@@ -39,7 +38,7 @@ inline std::atomic<std::uintptr_t> g_encoded_pointer_nonce{
         std::memory_order_relaxed);
 
     std::uintptr_t value = static_cast<std::uintptr_t>(obf::build_seed());
-    value ^= reinterpret_cast<std::uintptr_t>(&g_encoded_pointer_key);
+    value ^= reinterpret_cast<std::uintptr_t>(&g_encoded_pointer_nonce);
     value ^= reinterpret_cast<std::uintptr_t>(&stack_anchor);
     value ^= nonce;
     value ^= salt;
@@ -51,19 +50,11 @@ inline std::atomic<std::uintptr_t> g_encoded_pointer_nonce{
 }
 
 inline void InitializeEncodedPointerKey(std::uintptr_t salt = 0) noexcept {
-    std::uintptr_t expected = 0;
-    const std::uintptr_t derived = derive_runtime_pointer_key(salt);
-    (void)g_encoded_pointer_key.compare_exchange_strong(
-        expected, derived, std::memory_order_release, std::memory_order_relaxed);
+    (void)derive_runtime_pointer_key(salt);
 }
 
 [[nodiscard]] inline std::uintptr_t current_encoded_pointer_key() noexcept {
-    std::uintptr_t key = g_encoded_pointer_key.load(std::memory_order_acquire);
-    if (key == 0) {
-        InitializeEncodedPointerKey();
-        key = g_encoded_pointer_key.load(std::memory_order_acquire);
-    }
-    return key;
+    return derive_runtime_pointer_key();
 }
 
 [[nodiscard]] inline std::uintptr_t mba_xor(std::uintptr_t lhs, std::uintptr_t rhs) noexcept {
@@ -79,18 +70,48 @@ class EncodedPointer {
     static_assert(std::is_pointer_v<T>, "EncodedPointer requires a pointer type");
 
 public:
-    constexpr EncodedPointer() noexcept = default;
-    constexpr EncodedPointer(std::nullptr_t) noexcept {}
-    constexpr EncodedPointer(T pointer) noexcept {
+    EncodedPointer() noexcept {
+        refresh_key();
+    }
+
+    EncodedPointer(std::nullptr_t) noexcept
+        : EncodedPointer() {}
+
+    EncodedPointer(T pointer) noexcept
+        : EncodedPointer() {
         set(pointer);
     }
 
-    constexpr EncodedPointer& operator=(std::nullptr_t) noexcept {
+    EncodedPointer(const EncodedPointer& other) noexcept
+        : EncodedPointer() {
+        copy_from(other);
+    }
+
+    EncodedPointer(EncodedPointer&& other) noexcept
+        : EncodedPointer() {
+        move_from(std::move(other));
+    }
+
+    EncodedPointer& operator=(const EncodedPointer& other) noexcept {
+        if (this != &other) {
+            copy_from(other);
+        }
+        return *this;
+    }
+
+    EncodedPointer& operator=(EncodedPointer&& other) noexcept {
+        if (this != &other) {
+            move_from(std::move(other));
+        }
+        return *this;
+    }
+
+    EncodedPointer& operator=(std::nullptr_t) noexcept {
         m_encoded = 0;
         return *this;
     }
 
-    constexpr EncodedPointer& operator=(T pointer) noexcept {
+    EncodedPointer& operator=(T pointer) noexcept {
         set(pointer);
         return *this;
     }
@@ -100,8 +121,7 @@ public:
             return nullptr;
         }
 
-        const auto decoded = detail::mba_xor(
-            m_encoded, detail::current_encoded_pointer_key());
+        const auto decoded = detail::mba_xor(m_encoded, m_key);
         return reinterpret_cast<T>(decoded);
     }
 
@@ -115,7 +135,25 @@ public:
     }
 
 private:
-    constexpr void set(T pointer) noexcept {
+    void copy_from(const EncodedPointer& other) noexcept {
+        if (!other) {
+            m_encoded = 0;
+            return;
+        }
+
+        set(other.get());
+    }
+
+    void move_from(EncodedPointer&& other) noexcept {
+        copy_from(other);
+        other.m_encoded = 0;
+    }
+
+    void refresh_key() noexcept {
+        m_key = detail::derive_runtime_pointer_key(reinterpret_cast<std::uintptr_t>(this));
+    }
+
+    void set(T pointer) noexcept {
         if (pointer == nullptr) {
             m_encoded = 0;
             return;
@@ -123,9 +161,10 @@ private:
 
         m_encoded = detail::mba_xor(
             reinterpret_cast<std::uintptr_t>(pointer),
-            detail::current_encoded_pointer_key());
+            m_key);
     }
 
+    std::uintptr_t m_key = 0;
     std::uintptr_t m_encoded = 0;
 };
 

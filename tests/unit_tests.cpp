@@ -358,6 +358,18 @@ TEST_CASE("EncodedPointer decodes and invokes function pointers") {
     CHECK(pointer(41) == 42);
 }
 
+TEST_CASE("EncodedPointer remains valid after copy and move") {
+    burner::net::EncodedPointer<int (*)(int)> original = &IncrementValue;
+    burner::net::EncodedPointer<int (*)(int)> copy = original;
+    burner::net::EncodedPointer<int (*)(int)> moved = std::move(original);
+
+    REQUIRE(copy);
+    REQUIRE(moved);
+    CHECK(copy(41) == 42);
+    CHECK(moved(41) == 42);
+    CHECK_FALSE(original);
+}
+
 TEST_CASE("client aborts immediately when security policy rejects preflight") {
     auto build_result = burner::net::ClientBuilder()
         .WithSecurityPolicy(RejectPreFlightPolicy{})
