@@ -14,6 +14,8 @@ Looking to protect the payloads downloaded by BurnerNet? Check out [RipStop Code
 
 Most networking libraries optimize for convenience. BurnerNet optimizes for defensive posture.
 
+Think of BurnerNet as **"CPR in a Tank"**: it gives you a modern, fluent C++20 API, but wraps it in a heavier-duty shell built for hostile environments.
+
 It is built for:
 - Windows x64/x86 applications with high-value request paths
 - injected or embedded code that cannot fully trust the host environment
@@ -22,6 +24,8 @@ It is built for:
 ## Features
 
 - **Zero-trust transport:** direct HTTPS-focused behavior with strict redirect and header validation
+- **Zero-copy payloads:** `body_view` support for high-performance, non-owning request bodies without duplicating plaintext buffers
+- **Resource protection:** transfer progress callbacks can monitor download/upload totals and abort oversized or suspicious transfers mid-stream
 - **Encrypted DNS:** DNS-over-HTTPS support to reduce dependence on hostile local resolution
 - **Polymorphic builds:** hardened error strings pick up a compile-time XOR key automatically
 - **Built-in literal obfuscation:** internal security-anchor strings are masked at compile time out of the box
@@ -47,7 +51,7 @@ For the actual setup details, see:
 
 Error strings are hardened by default. `ErrorCodeToString(...)` returns a numeric/XORed string unless you explicitly opt into plaintext debugging with `BURNERNET_LEAK_STRINGS_FOR_DEBUGGING`.
 
-For custom security hooks, pass a concrete policy type into `ClientBuilder::WithSecurityPolicy(...)`. The easiest path is to derive from `ISecurityPolicy` so the unchanged hooks inherit sensible defaults, but the runtime path still avoids virtual dispatch because `ISecurityPolicy` has no virtual methods. The fluent `WithPreFlight(...)`, `WithEnvironmentCheck(...)`, `WithTransportCheck(...)`, `WithHeartbeat(...)`, `WithResponseReceived(...)`, and `WithPostVerification(...)` helpers layer on top of that policy instead of replacing it. See [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp) and [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md).
+For custom security hooks, pass a concrete policy type into `ClientBuilder::WithSecurityPolicy(...)`. The easiest path is to derive from `ISecurityPolicy` so the unchanged hooks inherit sensible defaults, but the runtime path still avoids virtual dispatch because `ISecurityPolicy` has no virtual methods. The fluent `WithPreFlight(...)`, `WithEnvironmentCheck(...)`, `WithTransportCheck(...)`, `WithHeartbeat(...)`, `WithResponseReceived(...)`, and `WithPostVerification(...)` helpers layer on top of that policy instead of replacing it. `WithHeartbeat(...)` receives transfer progress stats so policies can enforce resource limits during the active transfer. See [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp) and [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md).
 
 ## Minimal Example
 
@@ -73,7 +77,7 @@ auto utility = burner::net::ClientBuilder()
 Hook order on the request path:
 - `OnVerifyEnvironment()` during `Build()`
 - `OnPreRequest()` before each attempt
-- `OnHeartbeat()` from the active transfer callback
+- `OnHeartbeat(TransferProgress)` from the active transfer callback
 - `OnVerifyTransport()` after the connection is established
 - `OnResponseReceived()` after a successful transfer
 - `OnSignatureVerified()` after response verification when enabled
