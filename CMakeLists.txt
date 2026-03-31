@@ -11,7 +11,7 @@ option(BURNERNET_BUILD_TESTING "Build BurnerNet offline/unit tests" ${PROJECT_IS
 option(BURNERNET_BUILD_INTEGRATION_TESTS "Build BurnerNet live network integration tests" ${PROJECT_IS_TOP_LEVEL})
 option(BURNERNET_BUILD_EXAMPLES "Build BurnerNet examples" ${PROJECT_IS_TOP_LEVEL})
 option(BURNERNET_OBFUSCATE_STRINGS "Obfuscate BurnerNet security-anchor string literals" ON)
-option(BURNERNET_HARDEN_IMPORTS "Resolve libcurl dynamically instead of linking it into the import table" OFF)
+option(BURNERNET_HARDEN_IMPORTS "Resolve libcurl dynamically instead of linking it into the import table" ON)
 
 if(MSVC)
     add_definitions(-D_HAS_EXCEPTIONS=0)
@@ -99,7 +99,11 @@ endif()
 if(BURNERNET_HARDEN_IMPORTS)
     get_target_property(BURNERNET_CURL_INCLUDE_DIRS CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)
     if(BURNERNET_CURL_INCLUDE_DIRS)
-        target_include_directories(BurnerNet PUBLIC ${BURNERNET_CURL_INCLUDE_DIRS})
+        foreach(BURNERNET_CURL_INCLUDE_DIR IN LISTS BURNERNET_CURL_INCLUDE_DIRS)
+            target_include_directories(BurnerNet PUBLIC
+                $<BUILD_INTERFACE:${BURNERNET_CURL_INCLUDE_DIR}>
+            )
+        endforeach()
     endif()
     target_compile_definitions(BurnerNet PRIVATE CURL_STATICLIB)
 else()
@@ -123,17 +127,14 @@ function(burnernet_configure_runtime target_name)
     )
 
     if(WIN32 AND NOT (DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET MATCHES "static"))
+        set(BURNERNET_RUNTIME_DLL_DIR "$<IF:$<CONFIG:Debug>,${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/debug/bin,${CMAKE_BINARY_DIR}/vcpkg_installed/${VCPKG_TARGET_TRIPLET}/bin>")
         add_custom_command(TARGET ${target_name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${target_name}>/redist"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_RUNTIME_DLLS:${target_name}>
-                "$<TARGET_FILE_DIR:${target_name}>"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                $<TARGET_RUNTIME_DLLS:${target_name}>
-                "$<TARGET_FILE_DIR:${target_name}>/redist"
             COMMAND ${CMAKE_COMMAND}
+                "-DBURNER_RUNTIME_DLL_DIRS=${BURNERNET_RUNTIME_DLL_DIR}"
                 -DBURNER_SOURCE_DIR="$<TARGET_FILE_DIR:${target_name}>"
                 -DBURNER_REDIST_DIR="$<TARGET_FILE_DIR:${target_name}>/redist"
+                -DBURNER_COPY_TO_SOURCE_DIR=ON
                 -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/cmake/SyncRedist.cmake"
             COMMAND_EXPAND_LISTS
         )
