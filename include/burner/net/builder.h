@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -122,9 +123,16 @@ private:
 
 class BURNER_API ClientBuilder {
 public:
+    using ResponseVerifyFn = burner::net::ResponseVerifyFn;
+
     template <SecurityPolicyConcept TPolicy>
     ClientBuilder& WithSecurityPolicy(TPolicy policy) {
         m_security_policy = SecurityPolicy(std::move(policy));
+        return *this;
+    }
+
+    ClientBuilder& WithResponseVerifier(ResponseVerifyFn verifier) {
+        m_response_verifier = ResponseVerifier(std::move(verifier));
         return *this;
     }
 

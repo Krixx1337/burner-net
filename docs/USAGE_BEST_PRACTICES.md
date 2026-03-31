@@ -79,7 +79,7 @@ auto utility = burner::net::ClientBuilder()
 ## 4. Prefer provider callbacks for sensitive values
 - Use `ClientConfig::mtls_provider` for cert/key/password.
 - Use `ClientConfig::bearer_token_provider` for access token.
-- Use `SignatureVerifierConfig::secret_provider` for signature secret.
+- Use a `ResponseVerifyFn` lambda or callable to fetch signature material only when verification runs.
 - Use `ClientBuilder::WithPreFlight(...)`, `WithEnvironmentCheck(...)`, `WithTransportCheck(...)`, `WithHeartbeat(...)`, and `WithResponseReceived(...)` for synchronous integrity checks around the transport lifecycle when you do not need a full custom `ISecurityPolicy`.
 - If you do need a full policy, implement `ISecurityPolicy` and pass it with `WithSecurityPolicy(...)`.
 
@@ -90,8 +90,7 @@ Avoid long-lived plaintext in:
 
 ## 5. Example: secure client with short-lived providers
 ```cpp
-#include "burner/net/http.h"
-#include "burner/net/signature_verifier.h"
+#include "burner/net/builder.h"
 
 static bool ProvideMtls(burner::net::MtlsCredentials& out) {
     // App-specific source: skCrypt, DPAPI, vault, remote seed, etc.
@@ -106,61 +105,58 @@ static bool ProvideMtls(burner::net::MtlsCredentials& out) {
     return true;
 }
 
-static bool ProvideSigSecret(std::string& out) {
-    out = LoadSignatureSecretShortLived();
-    return !out.empty();
-}
-
 static bool ProvideBearer(std::string& out) {
     out = LoadBearerTokenShortLived();
     return !out.empty();
 }
 
 void BuildSecureClient() {
-    burner::net::ClientConfig cfg{};
-    cfg.verify_peer = true;
-    cfg.verify_host = true;
-    cfg.use_native_ca = true;
-    cfg.mtls_provider = &ProvideMtls;
-    cfg.bearer_token_provider = &ProvideBearer;
-    cfg.response_verifier = std::make_shared<burner::net::HmacSha256HeaderVerifier>(
-        burner::net::SignatureVerifierConfig{
-            .signature_header = "X-Auth-Verify",
-            .secret_provider = &ProvideSigSecret
-        });
+    auto created = burner::net::ClientBuilder()
+        .WithUseNativeCa(true)
+        .WithMtlsProvider(&ProvideMtls)
+        .WithBearerTokenProvider(&ProvideBearer)
+        .WithResponseVerifier(
+            [](const burner::net::HttpRequest&, const burner::net::HttpResponse& response, burner::net::ErrorCode* reason) {
+                std::string secret = LoadSignatureSecretShortLived();
+                if (secret.empty()) {
+                    if (reason != nullptr) {
+                        *reason = burner::net::ErrorCode::SigEmpty;
+                    }
+                    return false;
+                }
 
-    auto created = burner::net::CreateHttpClient(cfg);
+                // App-owned verification logic lives here.
+                const bool ok = VerifyResponseHmac(response, secret);
+                burner::net::SecureWipe(secret);
+                if (!ok && reason != nullptr) {
+                    *reason = burner::net::ErrorCode::SigMismatch;
+                }
+                return ok;
+            })
+        .Build();
+
     if (!created.Ok()) {
         // map opaque error code to app-specific UX
         return;
     }
 
-    burner::net::HttpRequest req{};
-    req.method = burner::net::HttpMethod::Post;
-    req.url = "https://api.example.com/login";
-    req.body = R"({\"hwid\":\"...\"})";
-    req.max_body_bytes = 512 * 1024; // 512 KiB cap for login API responses
-    req.retry.max_attempts = 2;
-    req.dns_fallback.enabled = true;
-    req.dns_fallback.strategies = {
-        {burner::net::DnsMode::Doh, "Cloudflare DoH (Strict)", "https://1.1.1.1/dns-query"},
-        {burner::net::DnsMode::Doh, "Cloudflare DoH (Strict Secondary)", "https://1.0.0.1/dns-query"},
-        {burner::net::DnsMode::System, "System DNS Insecure", ""}
-    };
-
-    auto response = created.client->Send(req);
+    auto response = created.client->Post("https://api.example.com/login")
+        .WithBody(R"({\"hwid\":\"...\"})")
+        .WithTimeoutSeconds(15)
+        .Send();
 }
 ```
 
 Gold-standard reference:
 - See [../examples/05_mtls_usage.cpp](../examples/05_mtls_usage.cpp) for the provider-driven mTLS pattern that keeps client certs and keys out of long-lived config state.
+- See [../examples/06_hmac_custom_weapon.cpp](../examples/06_hmac_custom_weapon.cpp) for an app-owned HMAC verifier built outside BurnerNet core.
 
 ## 6. Example: public client (no mTLS/signature)
 ```cpp
 burner::net::ClientConfig cfg{};
 cfg.verify_peer = true;
 cfg.verify_host = true;
-cfg.response_verifier = nullptr;
+cfg.response_verifier = {};
 cfg.mtls.enabled = false;
 
 auto created = burner::net::CreateHttpClient(cfg);
@@ -250,12 +246,7 @@ To secure your app without assuming stable CDN certificates, combine **DNS over 
 2. **HMAC signatures** ensure that even if an attacker intercepts traffic and presents a trusted TLS certificate, they still cannot forge a valid response payload without the shared secret.
 
 ```cpp
-#include <memory>
-
 #include "burner/net/builder.h"
-#include "burner/net/signature_verifier.h"
-
-bool ProvideSigSecret(std::string& out);
 
 auto client = burner::net::ClientBuilder()
     // 1. Bypass OS DNS spoofing via encrypted DoH
@@ -265,15 +256,20 @@ auto client = burner::net::ClientBuilder()
         "Cloudflare DoH (Strict)")
 
     // 2. Cryptographically prove the server generated the payload
-    .WithResponseVerifier(std::make_shared<burner::net::HmacSha256HeaderVerifier>(
-        burner::net::SignatureVerifierConfig{
-            .signature_header = "X-Auth-Verify",
-            .secret_provider = &ProvideSigSecret
-        }))
+    .WithResponseVerifier(
+        [](const burner::net::HttpRequest&, const burner::net::HttpResponse& response, burner::net::ErrorCode* reason) {
+            std::string secret = LoadSignatureSecretShortLived();
+            const bool ok = VerifyResponseHmac(response, secret);
+            burner::net::SecureWipe(secret);
+            if (!ok && reason != nullptr) {
+                *reason = burner::net::ErrorCode::SigMismatch;
+            }
+            return ok;
+        })
     .Build();
 ```
 
-If an attacker spoofs the API, `HmacSha256HeaderVerifier` returns a signature verification error and the untrusted payload is rejected instead of being handed to app logic.
+If an attacker spoofs the API, your app-owned verifier returns a signature verification error and the untrusted payload is rejected instead of being handed to app logic.
 
 ## 14. Managing Strict DoH (DNS-over-HTTPS)
 By default, BurnerNet is **Strict DoH-First**. It bypasses the OS DNS resolver by communicating directly with IP-based DoH endpoints such as `https://1.1.1.1/dns-query`. This defeats local `hosts` edits, PowerShell DNS hijacking, and straightforward resolver hooks.

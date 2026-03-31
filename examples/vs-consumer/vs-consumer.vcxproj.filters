@@ -48,8 +48,5 @@
     <ClCompile Include="..\..\src\security\security_auditor.cpp">
       <Filter>BurnerNet Source</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\security\signature_verifier.cpp">
-      <Filter>BurnerNet Source</Filter>
-    </ClCompile>
   </ItemGroup>
 </Project>

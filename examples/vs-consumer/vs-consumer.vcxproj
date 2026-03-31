@@ -146,7 +146,6 @@
     <ClCompile Include="..\..\src\internal\header_validation.cpp" />
     <ClCompile Include="..\..\src\internal\import_pointer_trust.cpp" />
     <ClCompile Include="..\..\src\security\security_auditor.cpp" />
-    <ClCompile Include="..\..\src\security\signature_verifier.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

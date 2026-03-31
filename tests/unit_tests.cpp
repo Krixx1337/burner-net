@@ -12,7 +12,6 @@
 #include "burner/net/obfuscation.h"
 #include "burner/net/policy.h"
 #include "burner/net/security_auditor.h"
-#include "burner/net/signature_verifier.h"
 #include "burner/net/detail/pointer_mangling.h"
 #include "curl/curl_http_client.h"
 #include "internal/import_pointer_trust.h"
@@ -110,35 +109,40 @@ TEST_CASE("obfuscation helper returns expected plaintext") {
 #endif
 }
 
-TEST_CASE("hmac verifier accepts known valid signature") {
-    burner::net::HttpResponse response{};
-    response.body = "payload";
-    response.headers["x-signature"] =
-        "b82fcb791acec57859b989b430a826488ce2e479fdf92326bd0a2e8375a42ba4";
+TEST_CASE("response verifier accepts lambda callbacks") {
+    burner::net::ResponseVerifier verifier(
+        [](const burner::net::HttpRequest&, const burner::net::HttpResponse& response, burner::net::ErrorCode* reason) {
+            if (reason != nullptr) {
+                *reason = response.body == "payload"
+                    ? burner::net::ErrorCode::None
+                    : burner::net::ErrorCode::VerifyGeneric;
+            }
+            return response.body == "payload";
+        });
 
-    burner::net::SignatureVerifierConfig config{};
-    config.signature_header = "x-signature";
-    config.secret = "secret";
-    burner::net::HmacSha256HeaderVerifier verifier(config);
-
-    burner::net::ErrorCode reason = burner::net::ErrorCode::None;
-    CHECK(verifier.Verify(burner::net::HttpRequest{}, response, &reason));
+    burner::net::HttpResponse good_response{};
+    good_response.body = "payload";
+    burner::net::ErrorCode reason = burner::net::ErrorCode::VerifyGeneric;
+    CHECK(verifier.Verify(burner::net::HttpRequest{}, good_response, &reason));
     CHECK(reason == burner::net::ErrorCode::None);
+
+    burner::net::HttpResponse bad_response{};
+    bad_response.body = "tampered";
+    CHECK_FALSE(verifier.Verify(burner::net::HttpRequest{}, bad_response, &reason));
+    CHECK(reason == burner::net::ErrorCode::VerifyGeneric);
 }
 
-TEST_CASE("hmac verifier rejects mismatched signature") {
-    burner::net::HttpResponse response{};
-    response.body = "payload";
-    response.headers["x-signature"] = "deadbeef";
+TEST_CASE("client builder accepts lambda response verifiers") {
+    burner::net::ClientBuilder builder;
+    auto& chained = builder.WithResponseVerifier(
+        [](const burner::net::HttpRequest&, const burner::net::HttpResponse&, burner::net::ErrorCode* reason) {
+            if (reason != nullptr) {
+                *reason = burner::net::ErrorCode::None;
+            }
+            return true;
+        });
 
-    burner::net::SignatureVerifierConfig config{};
-    config.signature_header = "x-signature";
-    config.secret = "secret";
-    burner::net::HmacSha256HeaderVerifier verifier(config);
-
-    burner::net::ErrorCode reason = burner::net::ErrorCode::None;
-    CHECK_FALSE(verifier.Verify(burner::net::HttpRequest{}, response, &reason));
-    CHECK(reason == burner::net::ErrorCode::SigMismatch);
+    CHECK(&chained == &builder);
 }
 
 TEST_CASE("header map preserves unique keys and treats names as case-insensitive") {

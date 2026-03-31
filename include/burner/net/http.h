@@ -125,6 +125,7 @@ using PreFlightCallback = std::function<bool(const struct HttpRequest& request)>
 using EnvironmentCheckCallback = std::function<bool()>;
 using TransportCheckCallback = std::function<bool(const char* url, const char* remote_ip)>;
 using ResponseReceivedCallback = std::function<bool(const struct HttpRequest& request, const struct HttpResponse& response)>;
+using ResponseVerifyFn = std::function<bool(const struct HttpRequest& request, const struct HttpResponse& response, ErrorCode* reason)>;
 using PostVerificationCallback = std::function<void(bool verified, ErrorCode reason)>;
 using TamperActionCallback = std::function<void()>;
 
@@ -217,6 +218,9 @@ struct BURNER_API IResponseVerifier {
 class BURNER_API ResponseVerifier {
 public:
     ResponseVerifier() = default;
+    ResponseVerifier(ResponseVerifyFn verifier) {
+        emplace_lambda(std::move(verifier));
+    }
 
     template <ResponseVerifierConcept TVerifier>
     ResponseVerifier(TVerifier verifier) {
@@ -232,6 +236,18 @@ public:
     }
 
 private:
+    struct LambdaVerifier final {
+        ResponseVerifyFn fn;
+
+        bool Verify(const HttpRequest& request, const HttpResponse& response, ErrorCode* reason) const {
+            return fn(request, response, reason);
+        }
+    };
+
+    void emplace_lambda(ResponseVerifyFn verifier) {
+        emplace(LambdaVerifier{std::move(verifier)});
+    }
+
     template <ResponseVerifierConcept TVerifier>
     void emplace(TVerifier verifier) {
         using VerifierType = std::decay_t<TVerifier>;

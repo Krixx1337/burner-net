@@ -5,6 +5,7 @@ add_executable(BurnerNetExamples
     03_custom_security_policy.cpp
     04_bootstrap_runtime.cpp
     05_mtls_usage.cpp
+    06_hmac_custom_weapon.cpp
 )
 
 target_link_libraries(BurnerNetExamples PRIVATE BurnerNet::BurnerNet)

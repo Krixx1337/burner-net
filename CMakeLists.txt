@@ -50,7 +50,6 @@ set(BURNERNET_SOURCES
     src/internal/header_validation.cpp
     src/internal/import_pointer_trust.cpp
     src/security/security_auditor.cpp
-    src/security/signature_verifier.cpp
 )
 
 if(WIN32)

@@ -1,72 +1,54 @@
-#include "burner/net/signature_verifier.h"
-#include "burner/net/obfuscation.h"
-
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <iostream>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
 
+#include "burner/net/builder.h"
+#include "burner/net/error.h"
+#include "burner/net/http.h"
+#include "burner/net/obfuscation.h"
+
 #ifdef _WIN32
-#pragma comment(lib, "bcrypt.lib")
 #include <windows.h>
 #include <bcrypt.h>
+
 #include "burner/net/external/lazy_importer/lazy_importer.hpp"
 #endif
 
-namespace burner::net {
-
 namespace {
 
-std::string ToLowerCopy(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
-    return s;
-}
-
-std::string Trim(std::string s) {
-    auto is_ws = [](unsigned char c) {
-        return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+std::string Trim(std::string value) {
+    const auto is_ws = [](unsigned char ch) {
+        return ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n';
     };
 
-    while (!s.empty() && is_ws(static_cast<unsigned char>(s.back()))) {
-        s.pop_back();
+    while (!value.empty() && is_ws(static_cast<unsigned char>(value.back()))) {
+        value.pop_back();
     }
 
-    size_t i = 0;
-    while (i < s.size() && is_ws(static_cast<unsigned char>(s[i]))) {
-        ++i;
+    std::size_t start = 0;
+    while (start < value.size() && is_ws(static_cast<unsigned char>(value[start]))) {
+        ++start;
     }
 
-    if (i > 0) {
-        s.erase(0, i);
+    if (start != 0) {
+        value.erase(0, start);
     }
 
-    return s;
+    return value;
 }
 
-std::string GetHeaderCaseInsensitive(const HeaderMap& headers, const std::string& name) {
-    const std::string key = ToLowerCopy(name);
+std::string GetHeaderCaseInsensitive(const burner::net::HeaderMap& headers, std::string_view name) {
     for (const auto& [header_name, value] : headers) {
-        if (ToLowerCopy(header_name) == key) {
+        if (burner::net::HeaderNameEquals(header_name, name)) {
             return value;
         }
     }
     return {};
-}
-
-bool ConstantTimeEqual(std::string_view a, std::string_view b) {
-    if (a.size() != b.size()) {
-        return false;
-    }
-
-    unsigned char diff = 0;
-    for (size_t i = 0; i < a.size(); ++i) {
-        diff |= static_cast<unsigned char>(a[i] ^ b[i]);
-    }
-    return diff == 0;
 }
 
 #ifdef _WIN32
@@ -78,7 +60,26 @@ using BCryptFinishHashFn = decltype(&BCryptFinishHash);
 using BCryptDestroyHashFn = decltype(&BCryptDestroyHash);
 using BCryptCloseAlgorithmProviderFn = decltype(&BCryptCloseAlgorithmProvider);
 
-std::string ToHexLower(const unsigned char* bytes, size_t len) {
+std::string ToLowerCopy(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(), [](unsigned char ch) {
+        return static_cast<char>(std::tolower(ch));
+    });
+    return value;
+}
+
+bool ConstantTimeEqual(std::string_view lhs, std::string_view rhs) {
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+
+    unsigned char diff = 0;
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+        diff |= static_cast<unsigned char>(lhs[i] ^ rhs[i]);
+    }
+    return diff == 0;
+}
+
+std::string ToHexLower(const unsigned char* bytes, std::size_t len) {
     auto nibble_to_hex = [](unsigned char nibble) -> char {
         nibble &= 0x0F;
         return static_cast<char>(nibble < 10 ? ('0' + nibble) : ('a' + (nibble - 10)));
@@ -86,20 +87,18 @@ std::string ToHexLower(const unsigned char* bytes, size_t len) {
 
     std::string out;
     out.resize(len * 2);
-    for (size_t i = 0; i < len; ++i) {
+    for (std::size_t i = 0; i < len; ++i) {
         out[i * 2] = nibble_to_hex(static_cast<unsigned char>((bytes[i] >> 4) & 0x0F));
-        out[i * 2 + 1] = nibble_to_hex(static_cast<unsigned char>(bytes[i] & 0x0F));
+        out[(i * 2) + 1] = nibble_to_hex(static_cast<unsigned char>(bytes[i] & 0x0F));
     }
     return out;
 }
-#endif
 
 bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::string* out_hex) {
     if (out_hex == nullptr) {
         return false;
     }
 
-#ifdef _WIN32
     const BCryptOpenAlgorithmProviderFn bcrypt_open_algorithm_provider =
         LI_FN(BCryptOpenAlgorithmProvider).in_safe<BCryptOpenAlgorithmProviderFn>(LI_MODULE("bcrypt.dll").safe_cached());
     const BCryptGetPropertyFn bcrypt_get_property =
@@ -160,9 +159,11 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
         return false;
     }
 
-    status = bcrypt_hash_data(hash,
+    status = bcrypt_hash_data(
+        hash,
         reinterpret_cast<PUCHAR>(const_cast<char*>(data.data())),
-        static_cast<ULONG>(data.size()), 0);
+        static_cast<ULONG>(data.size()),
+        0);
     if (status < 0) {
         cleanup();
         bcrypt_destroy_hash(hash);
@@ -180,66 +181,112 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
 
     bcrypt_destroy_hash(hash);
     bcrypt_close_algorithm_provider(alg, 0);
-
     *out_hex = ToHexLower(hash_bytes.data(), hash_bytes.size());
     cleanup();
     return true;
-#else
-    (void)data;
-    (void)secret;
-    return false;
-#endif
 }
+#endif
 
-} // namespace
-
-HmacSha256HeaderVerifier::HmacSha256HeaderVerifier(SignatureVerifierConfig config)
-    : m_config(std::move(config)) {}
-
-bool HmacSha256HeaderVerifier::Verify(const HttpRequest&, const HttpResponse& response, ErrorCode* reason) const {
-    SecureString secret;
-    if (m_config.secret_provider) {
-        std::string provided_secret;
-        if (!m_config.secret_provider(provided_secret)) {
-            SecureWipe(provided_secret);
-            if (reason) *reason = ErrorCode::SigProvider;
-            return false;
-        }
-        secret = std::move(provided_secret);
-        SecureWipe(provided_secret);
-    } else {
-        secret = m_config.secret;
-    }
+bool VerifyHmacHeader(
+    const burner::net::HttpRequest&,
+    const burner::net::HttpResponse& response,
+    burner::net::ErrorCode* reason) {
+    const std::string signature_header = "X-Auth-Verify";
+    burner::net::SecureString secret = "replace-with-a-real-secret";
 
     if (secret.empty()) {
-        if (reason) *reason = ErrorCode::SigEmpty;
+        if (reason != nullptr) {
+            *reason = burner::net::ErrorCode::SigEmpty;
+        }
         return false;
     }
 
-    std::string received = Trim(GetHeaderCaseInsensitive(response.headers, m_config.signature_header));
+    std::string received = Trim(GetHeaderCaseInsensitive(response.headers, signature_header));
     if (received.empty()) {
-        if (reason) *reason = ErrorCode::SigHeaderMissing;
+        burner::net::SecureWipe(secret);
+        if (reason != nullptr) {
+            *reason = burner::net::ErrorCode::SigHeaderMissing;
+        }
         return false;
     }
 
+#ifdef _WIN32
     std::string computed;
     if (!ComputeHmacSha256Hex(response.body, secret, &computed)) {
-        SecureWipe(received);
-        if (reason) *reason = ErrorCode::SigCompute;
+        burner::net::SecureWipe(secret);
+        burner::net::SecureWipe(received);
+        if (reason != nullptr) {
+            *reason = burner::net::ErrorCode::SigCompute;
+        }
         return false;
     }
 
     std::string lhs = ToLowerCopy(received);
     std::string rhs = ToLowerCopy(computed);
     const bool ok = ConstantTimeEqual(lhs, rhs);
-    SecureWipe(lhs);
-    SecureWipe(rhs);
-    SecureWipe(computed);
-    if (!ok && reason) {
-        *reason = ErrorCode::SigMismatch;
+    burner::net::SecureWipe(secret);
+    burner::net::SecureWipe(received);
+    burner::net::SecureWipe(computed);
+    burner::net::SecureWipe(lhs);
+    burner::net::SecureWipe(rhs);
+    if (!ok && reason != nullptr) {
+        *reason = burner::net::ErrorCode::SigMismatch;
     }
-    SecureWipe(received);
     return ok;
+#else
+    burner::net::SecureWipe(secret);
+    burner::net::SecureWipe(received);
+    if (reason != nullptr) {
+        *reason = burner::net::ErrorCode::SigCompute;
+    }
+    return false;
+#endif
 }
 
-} // namespace burner::net
+} // namespace
+
+int RunCustomHmacWeapon() {
+    using namespace burner::net;
+
+    constexpr std::string_view kEndpoint = "https://example.com/license";
+
+    auto build_result = ClientBuilder()
+        .WithUseNativeCa(true)
+        .WithResponseVerifier(&VerifyHmacHeader)
+        .Build();
+
+    if (!build_result.Ok()) {
+        std::cerr << "Failed to build HMAC example client: "
+                  << ErrorCodeToString(build_result.error) << '\n';
+        return 1;
+    }
+
+    std::cout << "This example keeps HMAC verification in application code, not BurnerNet core.\n";
+    std::cout << "Swap the placeholder secret, endpoint, and expected header contract for your app.\n";
+
+#ifndef _WIN32
+    std::cout << "This sample uses Windows BCrypt for HMAC-SHA256 and is stubbed on non-Windows builds.\n";
+    return 0;
+#endif
+
+    if (kEndpoint.find("example.com") != std::string_view::npos) {
+        std::cout << "Request skipped. Replace the placeholder endpoint to exercise the custom verifier.\n";
+        return 0;
+    }
+
+    const auto response = build_result.client->Get(std::string(kEndpoint)).Send();
+    if (!response.TransportOk()) {
+        std::cerr << "Transport failed: "
+                  << ErrorCodeToString(response.transport_error) << '\n';
+        return 2;
+    }
+
+    if (!response.verified) {
+        std::cerr << "Custom HMAC verification failed: "
+                  << ErrorCodeToString(response.verification_error) << '\n';
+        return 3;
+    }
+
+    std::cout << "Custom verifier accepted the response.\n";
+    return 0;
+}
