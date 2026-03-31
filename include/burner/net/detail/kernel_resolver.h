@@ -68,6 +68,7 @@ public:
 private:
     static constexpr std::uint32_t kKernel32Hash = fnv1a_ci("kernel32.dll");
     static constexpr std::uint32_t kKernelBaseHash = fnv1a_ci("kernelbase.dll");
+    static constexpr std::uint32_t kNtDllHash = fnv1a_ci("ntdll.dll");
 
     [[nodiscard]] static void* ResolveInternalExport(void* module_base,
                                                      std::uint32_t func_hash,
@@ -154,11 +155,14 @@ private:
             if (fnv1a_runtime_ci(module_name) == fnv1a_ci("kernelbase")) {
                 return kKernelBaseHash;
             }
+            if (fnv1a_runtime_ci(module_name) == fnv1a_ci("ntdll")) {
+                return kNtDllHash;
+            }
             return 0;
         }
 
         const std::uint32_t module_hash = fnv1a_runtime_ci(module_name);
-        if (module_hash == kKernel32Hash || module_hash == kKernelBaseHash) {
+        if (module_hash == kKernel32Hash || module_hash == kKernelBaseHash || module_hash == kNtDllHash) {
             return module_hash;
         }
 

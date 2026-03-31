@@ -24,36 +24,33 @@ std::vector<HMODULE> g_loaded_modules;
 DLL_DIRECTORY_COOKIE g_dependency_cookie = nullptr;
 
 using AddDllDirectoryFn = decltype(&AddDllDirectory);
+using LoadLibraryExWFn = decltype(&LoadLibraryExW);
 using SetDefaultDllDirectoriesFn = decltype(&SetDefaultDllDirectories);
 
 constexpr std::uint32_t kKernel32Hash = ::burner::net::detail::fnv1a_ci("kernel32.dll");
 constexpr std::uint32_t kKernelBaseHash = ::burner::net::detail::fnv1a_ci("kernelbase.dll");
+constexpr std::uint32_t kNtDllHash = ::burner::net::detail::fnv1a_ci("ntdll.dll");
 constexpr std::uint32_t kAddDllDirectoryHash = ::burner::net::detail::fnv1a("AddDllDirectory");
+constexpr std::uint32_t kLoadLibraryExWHash = ::burner::net::detail::fnv1a("LoadLibraryExW");
 constexpr std::uint32_t kSetDefaultDllDirectoriesHash =
     ::burner::net::detail::fnv1a("SetDefaultDllDirectories");
 
 template <typename TFn>
-TFn ResolveLoaderFunc(std::uint32_t export_hash) noexcept {
+TFn ResolveSystemPrimitive(std::uint32_t export_hash) noexcept {
     // Bootstrap is the DLL-search-path boundary for BurnerNet's dynamic runtime mode.
     // We intentionally use KernelResolver here instead of lazy-importer because these
     // specific loader APIs must come from the real kernel32/kernelbase images, not
     // from whatever the host process may have hooked in its IAT or loader façade.
     //
     // This also handles the modern Windows split where loader exports are frequently
-    // forwarded between kernel32.dll and kernelbase.dll during the bootstrap phase.
-    if (void* const kernelbase =
-            ::burner::net::detail::KernelResolver::GetSystemModule(kKernelBaseHash)) {
-        if (void* const resolved =
-                ::burner::net::detail::KernelResolver::ResolveInternalExport(kernelbase, export_hash)) {
-            return reinterpret_cast<TFn>(resolved);
-        }
-    }
-
-    if (void* const kernel32 =
-            ::burner::net::detail::KernelResolver::GetSystemModule(kKernel32Hash)) {
-        if (void* const resolved =
-                ::burner::net::detail::KernelResolver::ResolveInternalExport(kernel32, export_hash)) {
-            return reinterpret_cast<TFn>(resolved);
+    // forwarded between kernel32.dll, kernelbase.dll, and occasionally ntdll.dll.
+    constexpr std::uint32_t kModuleHashes[] = {kKernelBaseHash, kKernel32Hash, kNtDllHash};
+    for (const std::uint32_t module_hash : kModuleHashes) {
+        if (void* const module = ::burner::net::detail::KernelResolver::GetSystemModule(module_hash)) {
+            if (void* const resolved =
+                    ::burner::net::detail::KernelResolver::ResolveInternalExport(module, export_hash)) {
+                return reinterpret_cast<TFn>(resolved);
+            }
         }
     }
 
@@ -98,13 +95,13 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         // lazy-importer is fine for many runtime imports, but bootstrap needs to
         // anchor these calls to the genuine backing module before loading redist DLLs.
         const SetDefaultDllDirectoriesFn set_default_dll_directories =
-            ResolveLoaderFunc<SetDefaultDllDirectoriesFn>(kSetDefaultDllDirectoriesHash);
+            ResolveSystemPrimitive<SetDefaultDllDirectoriesFn>(kSetDefaultDllDirectoriesHash);
         if (set_default_dll_directories != nullptr) {
             (void)set_default_dll_directories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
         }
 
         const AddDllDirectoryFn add_dll_directory =
-            ResolveLoaderFunc<AddDllDirectoryFn>(kAddDllDirectoryHash);
+            ResolveSystemPrimitive<AddDllDirectoryFn>(kAddDllDirectoryHash);
         if (add_dll_directory == nullptr) {
             return {false, ErrorCode::BootstrapAddDir};
         }
@@ -113,6 +110,12 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         if (g_dependency_cookie == nullptr) {
             return {false, ErrorCode::BootstrapAddDir};
         }
+    }
+
+    const LoadLibraryExWFn load_library_ex_w =
+        ResolveSystemPrimitive<LoadLibraryExWFn>(kLoadLibraryExWHash);
+    if (load_library_ex_w == nullptr) {
+        return {false, ErrorCode::BootstrapLoad};
     }
 
     for (const auto& dll_name : config.dependency_dlls) {
@@ -131,10 +134,10 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
             }
         }
 
-        // Guardrail: LoadLibraryExW/GetModuleFileNameW/FreeLibrary remain direct.
-        // Bootstrap owns DLL loading and path verification, so this must stay on the
-        // OS loader path rather than hidden-import helpers.
-        HMODULE module = ::LoadLibraryExW(
+        // Resolve the actual loader entrypoint from the system images, then use it
+        // directly for dependency loading. Path verification stays on the Win32 APIs
+        // after the module is loaded because those checks are not the bootstrap trust root.
+        HMODULE module = load_library_ex_w(
             full_path.c_str(),
             nullptr,
             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);

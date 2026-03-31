@@ -1,5 +1,7 @@
 #include "curl_session.h"
 
+#include "burner/net/detail/dark_hashing.h"
+#include "burner/net/detail/kernel_resolver.h"
 #include "burner/net/obfuscation.h"
 
 #include <cstdarg>
@@ -20,9 +22,6 @@
 #endif
 #endif
 
-#if BURNERNET_HARDEN_IMPORTS
-#include "../detail/hostile_imports.h"
-#endif
 #endif
 
 namespace burner::net {
@@ -164,9 +163,43 @@ CurlApi MakeWrappedCurlApi() {
 }
 
 #if BURNERNET_HARDEN_IMPORTS && defined(_WIN32)
+using GetModuleHandleAFn = decltype(&GetModuleHandleA);
+using GetProcAddressFn = decltype(&GetProcAddress);
+
+constexpr std::uint32_t kKernel32Hash = ::burner::net::detail::fnv1a_ci("kernel32.dll");
+constexpr std::uint32_t kKernelBaseHash = ::burner::net::detail::fnv1a_ci("kernelbase.dll");
+constexpr std::uint32_t kNtDllHash = ::burner::net::detail::fnv1a_ci("ntdll.dll");
+constexpr std::uint32_t kGetModuleHandleAHash = ::burner::net::detail::fnv1a("GetModuleHandleA");
+constexpr std::uint32_t kGetProcAddressHash = ::burner::net::detail::fnv1a("GetProcAddress");
+
+template <typename TFn>
+TFn ResolveSystemPrimitive(std::uint32_t export_hash) noexcept {
+    // curl_session builds the resolver for the rest of the library, so it must not
+    // depend on lazy-importer or ambient IAT state for GetModuleHandleA/GetProcAddress.
+    // Anchor those primitives in the real system images first, then use them to reach
+    // the non-system libcurl module.
+    constexpr std::uint32_t kModuleHashes[] = {kKernelBaseHash, kKernel32Hash, kNtDllHash};
+    for (const std::uint32_t module_hash : kModuleHashes) {
+        if (void* const module = ::burner::net::detail::KernelResolver::GetSystemModule(module_hash)) {
+            if (void* const resolved =
+                    ::burner::net::detail::KernelResolver::ResolveInternalExport(module, export_hash)) {
+                return reinterpret_cast<TFn>(resolved);
+            }
+        }
+    }
+
+    return nullptr;
+}
+
 HMODULE ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
+    static const GetModuleHandleAFn get_module_handle =
+        ResolveSystemPrimitive<GetModuleHandleAFn>(kGetModuleHandleAHash);
+    if (get_module_handle == nullptr) {
+        return nullptr;
+    }
+
     if (!config.curl_module_name.empty()) {
-        return LI_FN(GetModuleHandleA).cached()(config.curl_module_name.c_str());
+        return get_module_handle(config.curl_module_name.c_str());
     }
 
     const std::string default_name =
@@ -175,7 +208,7 @@ HMODULE ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
 #else
         BURNER_OBF_LITERAL("libcurl.dll");
 #endif
-    return LI_FN(GetModuleHandleA).cached()(default_name.c_str());
+    return get_module_handle(default_name.c_str());
 }
 
 template <typename TFn>
@@ -184,8 +217,15 @@ TFn ResolveCurlExport(HMODULE module, const char* export_name) noexcept {
         return nullptr;
     }
 
-    // Resolve exports via lazy-importer to scrub GetProcAddress from the IAT.
-    return reinterpret_cast<TFn>(LI_FN(GetProcAddress).cached()(module, export_name));
+    static const GetProcAddressFn get_proc_address =
+        ResolveSystemPrimitive<GetProcAddressFn>(kGetProcAddressHash);
+    if (get_proc_address == nullptr) {
+        return nullptr;
+    }
+
+    // Resolve libcurl exports through the real GetProcAddress provider recovered from
+    // kernel32/kernelbase rather than the host process import path.
+    return reinterpret_cast<TFn>(get_proc_address(module, export_name));
 }
 
 bool IsCurlApiComplete(const CurlApi& api) {
