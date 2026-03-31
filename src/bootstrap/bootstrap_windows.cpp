@@ -1,4 +1,6 @@
 #include "burner/net/bootstrap.h"
+#include "burner/net/detail/dark_hashing.h"
+#include "burner/net/detail/kernel_resolver.h"
 #include "burner/net/obfuscation.h"
 #include "burner/net/detail/pointer_mangling.h"
 
@@ -21,23 +23,41 @@ std::mutex g_loader_mutex;
 std::vector<HMODULE> g_loaded_modules;
 DLL_DIRECTORY_COOKIE g_dependency_cookie = nullptr;
 
+using AddDllDirectoryFn = decltype(&AddDllDirectory);
 using SetDefaultDllDirectoriesFn = decltype(&SetDefaultDllDirectories);
 
-SetDefaultDllDirectoriesFn ResolveSetDefaultDllDirectories() noexcept {
-    // Guardrail: bootstrap is the loader boundary for BurnerNet's dynamic runtime mode.
-    // Keep these calls on direct Win32 APIs even when BURNERNET_HARDEN_IMPORTS is enabled.
+constexpr std::uint32_t kKernel32Hash = ::burner::net::detail::fnv1a_ci("kernel32.dll");
+constexpr std::uint32_t kKernelBaseHash = ::burner::net::detail::fnv1a_ci("kernelbase.dll");
+constexpr std::uint32_t kAddDllDirectoryHash = ::burner::net::detail::fnv1a("AddDllDirectory");
+constexpr std::uint32_t kSetDefaultDllDirectoriesHash =
+    ::burner::net::detail::fnv1a("SetDefaultDllDirectories");
+
+template <typename TFn>
+TFn ResolveLoaderFunc(std::uint32_t export_hash) noexcept {
+    // Bootstrap is the DLL-search-path boundary for BurnerNet's dynamic runtime mode.
+    // We intentionally use KernelResolver here instead of lazy-importer because these
+    // specific loader APIs must come from the real kernel32/kernelbase images, not
+    // from whatever the host process may have hooked in its IAT or loader façade.
     //
-    // We tried resolving bootstrap loader APIs through lazy_importer and hit an
-    // access-violation in AddDllDirectory on Windows. This path mutates DLL search
-    // state and loads modules, so it must not depend on PEB/export walking indirection.
-    // Hide imports later in the runtime path, not inside the bootstrap loader itself.
-    const HMODULE kernel32 = ::GetModuleHandleW(L"kernel32.dll");
-    if (kernel32 == nullptr) {
-        return nullptr;
+    // This also handles the modern Windows split where loader exports are frequently
+    // forwarded between kernel32.dll and kernelbase.dll during the bootstrap phase.
+    if (void* const kernelbase =
+            ::burner::net::detail::KernelResolver::GetSystemModule(kKernelBaseHash)) {
+        if (void* const resolved =
+                ::burner::net::detail::KernelResolver::ResolveInternalExport(kernelbase, export_hash)) {
+            return reinterpret_cast<TFn>(resolved);
+        }
     }
 
-    return reinterpret_cast<SetDefaultDllDirectoriesFn>(
-        ::GetProcAddress(kernel32, "SetDefaultDllDirectories"));
+    if (void* const kernel32 =
+            ::burner::net::detail::KernelResolver::GetSystemModule(kKernel32Hash)) {
+        if (void* const resolved =
+                ::burner::net::detail::KernelResolver::ResolveInternalExport(kernel32, export_hash)) {
+            return reinterpret_cast<TFn>(resolved);
+        }
+    }
+
+    return nullptr;
 }
 
 std::wstring ToLowerWide(const std::wstring& value) {
@@ -74,14 +94,22 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
     std::lock_guard<std::mutex> lock(g_loader_mutex);
 
     if (g_dependency_cookie == nullptr) {
-        const SetDefaultDllDirectoriesFn set_default_dll_directories = ResolveSetDefaultDllDirectories();
+        // Keep loader-search-path mutation on the provenance-checked resolver path.
+        // lazy-importer is fine for many runtime imports, but bootstrap needs to
+        // anchor these calls to the genuine backing module before loading redist DLLs.
+        const SetDefaultDllDirectoriesFn set_default_dll_directories =
+            ResolveLoaderFunc<SetDefaultDllDirectoriesFn>(kSetDefaultDllDirectoriesHash);
         if (set_default_dll_directories != nullptr) {
             (void)set_default_dll_directories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
         }
 
-        // Guardrail: AddDllDirectory stays direct for the same reason as above.
-        // This code is actively changing loader search paths; do not wrap it in lazy_importer.
-        g_dependency_cookie = ::AddDllDirectory(config.dependency_directory.c_str());
+        const AddDllDirectoryFn add_dll_directory =
+            ResolveLoaderFunc<AddDllDirectoryFn>(kAddDllDirectoryHash);
+        if (add_dll_directory == nullptr) {
+            return {false, ErrorCode::BootstrapAddDir};
+        }
+
+        g_dependency_cookie = add_dll_directory(config.dependency_directory.c_str());
         if (g_dependency_cookie == nullptr) {
             return {false, ErrorCode::BootstrapAddDir};
         }
