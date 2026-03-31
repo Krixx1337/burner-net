@@ -53,16 +53,8 @@ public:
                 continue;
             }
 
-            std::uint32_t hash = dark_fnv_offset_basis;
             const std::size_t length = entry->BaseDllName.Length / sizeof(wchar_t);
-            for (std::size_t i = 0; i < length; ++i) {
-                const wchar_t ch = entry->BaseDllName.Buffer[i];
-                const char ascii = (ch >= L'A' && ch <= L'Z') ? static_cast<char>(ch + (L'a' - L'A'))
-                                                              : static_cast<char>(ch);
-                hash ^= static_cast<std::uint8_t>(ascii);
-                hash *= dark_fnv_prime;
-            }
-
+            const std::uint32_t hash = fnv1a_ascii_wide_ci(entry->BaseDllName.Buffer, length);
             if (hash == module_hash) {
                 return entry->DllBase;
             }

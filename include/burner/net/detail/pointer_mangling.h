@@ -1,6 +1,7 @@
 #pragma once
 
 #include "burner/net/detail/dark_arithmetic.h"
+#include "burner/net/detail/dark_hash_utils.h"
 #include "burner/net/detail/constexpr_obfuscation.h"
 
 #include <atomic>
@@ -23,18 +24,14 @@ inline std::atomic<std::uintptr_t> g_encoded_pointer_nonce{
     static_cast<std::uintptr_t>(obf::build_seed()) | static_cast<std::uintptr_t>(1)};
 
 [[nodiscard]] inline std::uintptr_t mix_runtime_key(std::uintptr_t value) noexcept {
-    value ^= value >> 30;
-    value *= static_cast<std::uintptr_t>(0xBF58476D1CE4E5B9ull);
-    value ^= value >> 27;
-    value *= static_cast<std::uintptr_t>(0x94D049BB133111EBull);
-    value ^= value >> 31;
-    return value;
+    return static_cast<std::uintptr_t>(
+        mix64(static_cast<std::uint64_t>(value)));
 }
 
 [[nodiscard]] inline std::uintptr_t derive_runtime_pointer_key(std::uintptr_t salt = 0) noexcept {
     std::uintptr_t stack_anchor = 0;
     const auto nonce = g_encoded_pointer_nonce.fetch_add(
-        static_cast<std::uintptr_t>(0x9E3779B97F4A7C15ull),
+        static_cast<std::uintptr_t>(split_mix_increment),
         std::memory_order_relaxed);
 
     std::uintptr_t value = static_cast<std::uintptr_t>(obf::build_seed());

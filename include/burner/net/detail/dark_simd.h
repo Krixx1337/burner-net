@@ -1,5 +1,7 @@
 #pragma once
 
+#include "burner/net/detail/dark_hash_utils.h"
+
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -23,25 +25,12 @@
 namespace burner::net::detail {
 
 [[nodiscard]] constexpr std::uint64_t dark_string_seed_base() noexcept {
-    std::uint64_t seed = 0xCBF29CE484222325ull;
-    for (char ch : __TIME__) {
-        seed ^= static_cast<unsigned char>(ch);
-        seed *= 0x100000001B3ull;
-    }
-    return seed;
-}
-
-[[nodiscard]] constexpr std::uint64_t dark_string_mix64(std::uint64_t value) noexcept {
-    value ^= value >> 30;
-    value *= 0xBF58476D1CE4E5B9ull;
-    value ^= value >> 27;
-    value *= 0x94D049BB133111EBull;
-    value ^= value >> 31;
-    return value;
+    return fnv1a<std::uint64_t>(std::string_view{__TIME__, sizeof(__TIME__) - 1u});
 }
 
 [[nodiscard]] constexpr std::uint32_t dark_word_key(std::size_t index, std::uint64_t seed) noexcept {
-    const std::uint64_t mixed = dark_string_mix64(seed + 0x9E3779B97F4A7C15ull * (index + 1u));
+    const std::uint64_t mixed = split_mix64(
+        seed + (static_cast<std::uint64_t>(index + 1u) * split_mix_increment));
     return static_cast<std::uint32_t>(mixed ^ (mixed >> 32));
 }
 

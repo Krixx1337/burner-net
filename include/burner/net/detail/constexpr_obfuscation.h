@@ -1,5 +1,6 @@
 #pragma once
 
+#include "burner/net/detail/dark_hash_utils.h"
 #include "burner/net/detail/dark_simd.h"
 
 #include <array>
@@ -11,31 +12,12 @@
 
 namespace burner::net::obf {
 
-inline constexpr std::uint64_t split_mix_increment = 0x9e3779b97f4a7c15ull;
-inline constexpr std::uint64_t fnv_offset_basis = 0xcbf29ce484222325ull;
-inline constexpr std::uint64_t fnv_prime = 0x100000001b3ull;
-
-[[nodiscard]] constexpr std::uint64_t mix64(std::uint64_t x) noexcept {
-    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ull;
-    x = (x ^ (x >> 27)) * 0x94d049bb133111ebull;
-    return x ^ (x >> 31);
-}
-
-[[nodiscard]] constexpr std::uint64_t split_mix64(std::uint64_t state) noexcept {
-    return mix64(state + split_mix_increment);
-}
-
 [[nodiscard]] constexpr std::uint64_t hash_string(std::string_view value) noexcept {
-    std::uint64_t hash = fnv_offset_basis;
-    for (unsigned char ch : value) {
-        hash ^= ch;
-        hash *= fnv_prime;
-    }
-    return hash;
+    return ::burner::net::detail::fnv1a<std::uint64_t>(value);
 }
 
 [[nodiscard]] constexpr std::uint64_t hash_uint64(std::uint64_t value) noexcept {
-    return split_mix64(value);
+    return ::burner::net::detail::split_mix64(value);
 }
 
 [[nodiscard]] consteval std::uint64_t hash_build_fragment(std::string_view fragment) noexcept {
@@ -43,10 +25,12 @@ inline constexpr std::uint64_t fnv_prime = 0x100000001b3ull;
 }
 
 [[nodiscard]] consteval std::uint64_t build_seed() noexcept {
-    std::uint64_t seed = hash_build_fragment(__DATE__);
-    seed ^= split_mix64(hash_build_fragment(__TIME__));
-    seed ^= split_mix64(hash_build_fragment(__FILE__));
-    return mix64(seed);
+    std::uint64_t seed = hash_build_fragment(std::string_view{__DATE__, sizeof(__DATE__) - 1u});
+    seed ^= ::burner::net::detail::split_mix64(
+        hash_build_fragment(std::string_view{__TIME__, sizeof(__TIME__) - 1u}));
+    seed ^= ::burner::net::detail::split_mix64(
+        hash_build_fragment(std::string_view{__FILE__, sizeof(__FILE__) - 1u}));
+    return ::burner::net::detail::mix64(seed);
 }
 
 [[nodiscard]] consteval std::uint32_t build_error_xor_key() noexcept {
