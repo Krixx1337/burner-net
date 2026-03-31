@@ -1,12 +1,12 @@
 #include "curl_session.h"
 
 #include "burner/net/obfuscation.h"
+#include "../detail/hostile_imports.h"
 
 #include <cstdarg>
 
 #ifdef _WIN32
 #include <windows.h>
-#include "burner/net/external/lazy_importer/lazy_importer.hpp"
 
 #if defined(_MSC_VER)
 #pragma comment(lib, "ws2_32.lib")
@@ -22,6 +22,14 @@
 
 namespace burner::net {
 namespace {
+
+#ifdef _WIN32
+using GetModuleHandleAFn = decltype(&GetModuleHandleA);
+
+GetModuleHandleAFn ResolveGetModuleHandleA() {
+    return BURNER_LAZY_IMPORT_IN(GetModuleHandleAFn, "kernel32.dll", GetModuleHandleA);
+}
+#endif
 
 CURL* DefaultCurlEasyInit() {
     return curl_easy_init();
@@ -161,12 +169,17 @@ CurlApi MakeWrappedCurlApi() {
 #if BURNERNET_HARDEN_IMPORTS
 void* ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
 #ifdef _WIN32
+    const GetModuleHandleAFn get_module_handle_a = ResolveGetModuleHandleA();
+    if (get_module_handle_a == nullptr) {
+        return nullptr;
+    }
+
     if (!config.curl_module_name.empty()) {
-        return GetModuleHandleA(config.curl_module_name.c_str());
+        return get_module_handle_a(config.curl_module_name.c_str());
     }
 
     const std::string default_name = BURNER_OBF_LITERAL("libcurl.dll");
-    return GetModuleHandleA(default_name.c_str());
+    return get_module_handle_a(default_name.c_str());
 #else
     (void)config;
     return nullptr;
