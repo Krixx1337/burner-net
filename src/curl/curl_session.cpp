@@ -159,8 +159,7 @@ CurlApi MakeWrappedCurlApi() {
     return api;
 }
 
-#if BURNERNET_HARDEN_IMPORTS
-#ifdef _WIN32
+#if BURNERNET_HARDEN_IMPORTS && defined(_WIN32)
 HMODULE ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
     if (!config.curl_module_name.empty()) {
         return ::GetModuleHandleA(config.curl_module_name.c_str());
@@ -185,7 +184,6 @@ TFn ResolveCurlExport(HMODULE module, const char* export_name) noexcept {
     // so resolve exports directly instead of layering lazy-importer on top.
     return reinterpret_cast<TFn>(::GetProcAddress(module, export_name));
 }
-#endif
 
 bool IsCurlApiComplete(const CurlApi& api) {
     return static_cast<bool>(api.easy_init) &&
@@ -216,8 +214,6 @@ CurlApi MakeResolvedCurlApi(const ClientConfig& config) {
     api.slist_append = ResolveCurlExport<CurlSlistAppendFn>(curl_module, "curl_slist_append");
     api.slist_free_all = ResolveCurlExport<CurlSlistFreeAllFn>(curl_module, "curl_slist_free_all");
     api.easy_strerror = ResolveCurlExport<CurlEasyStrerrorFn>(curl_module, "curl_easy_strerror");
-#else
-    (void)config;
 #endif
     return api;
 }

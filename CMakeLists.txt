@@ -96,7 +96,7 @@ else()
     target_compile_options(BurnerNet PRIVATE -Wall -Wextra -Wpedantic -Werror -fno-rtti -fno-exceptions)
 endif()
 
-if(BURNERNET_HARDEN_IMPORTS)
+if(BURNERNET_HARDEN_IMPORTS AND WIN32)
     get_target_property(BURNERNET_CURL_INCLUDE_DIRS CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)
     if(BURNERNET_CURL_INCLUDE_DIRS)
         foreach(BURNERNET_CURL_INCLUDE_DIR IN LISTS BURNERNET_CURL_INCLUDE_DIRS)

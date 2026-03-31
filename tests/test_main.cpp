@@ -30,6 +30,8 @@ bool InitializeTestRuntime(const char* argv0) {
                   << static_cast<unsigned int>(init.code) << '\n';
         return false;
     }
+#else
+    (void)argv0;
 #endif
 
     return true;
