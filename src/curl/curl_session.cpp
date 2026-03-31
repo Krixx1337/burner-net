@@ -163,69 +163,39 @@ CurlApi MakeWrappedCurlApi() {
 }
 
 #if BURNERNET_HARDEN_IMPORTS && defined(_WIN32)
-using GetModuleHandleAFn = decltype(&GetModuleHandleA);
-using GetProcAddressFn = decltype(&GetProcAddress);
-
-constexpr std::uint32_t kKernel32Hash = ::burner::net::detail::fnv1a_ci("kernel32.dll");
-constexpr std::uint32_t kKernelBaseHash = ::burner::net::detail::fnv1a_ci("kernelbase.dll");
-constexpr std::uint32_t kNtDllHash = ::burner::net::detail::fnv1a_ci("ntdll.dll");
-constexpr std::uint32_t kGetModuleHandleAHash = ::burner::net::detail::fnv1a("GetModuleHandleA");
-constexpr std::uint32_t kGetProcAddressHash = ::burner::net::detail::fnv1a("GetProcAddress");
-
-template <typename TFn>
-TFn ResolveSystemPrimitive(std::uint32_t export_hash) noexcept {
-    // curl_session builds the resolver for the rest of the library, so it must not
-    // depend on lazy-importer or ambient IAT state for GetModuleHandleA/GetProcAddress.
-    // Anchor those primitives in the real system images first, then use them to reach
-    // the non-system libcurl module.
-    constexpr std::uint32_t kModuleHashes[] = {kKernelBaseHash, kKernel32Hash, kNtDllHash};
-    for (const std::uint32_t module_hash : kModuleHashes) {
-        if (void* const module = ::burner::net::detail::KernelResolver::GetSystemModule(module_hash)) {
-            if (void* const resolved =
-                    ::burner::net::detail::KernelResolver::ResolveInternalExport(module, export_hash)) {
-                return reinterpret_cast<TFn>(resolved);
-            }
-        }
-    }
-
-    return nullptr;
-}
+constexpr std::uint32_t kLibCurlHash = ::burner::net::detail::fnv1a_ci("libcurl.dll");
+constexpr std::uint32_t kLibCurlDHash = ::burner::net::detail::fnv1a_ci("libcurl-d.dll");
+constexpr std::uint32_t kCurlEasyInitHash = ::burner::net::detail::fnv1a("curl_easy_init");
+constexpr std::uint32_t kCurlEasyCleanupHash = ::burner::net::detail::fnv1a("curl_easy_cleanup");
+constexpr std::uint32_t kCurlEasyResetHash = ::burner::net::detail::fnv1a("curl_easy_reset");
+constexpr std::uint32_t kCurlEasySetoptHash = ::burner::net::detail::fnv1a("curl_easy_setopt");
+constexpr std::uint32_t kCurlEasyPerformHash = ::burner::net::detail::fnv1a("curl_easy_perform");
+constexpr std::uint32_t kCurlEasyGetinfoHash = ::burner::net::detail::fnv1a("curl_easy_getinfo");
+constexpr std::uint32_t kCurlSlistAppendHash = ::burner::net::detail::fnv1a("curl_slist_append");
+constexpr std::uint32_t kCurlSlistFreeAllHash = ::burner::net::detail::fnv1a("curl_slist_free_all");
+constexpr std::uint32_t kCurlEasyStrerrorHash = ::burner::net::detail::fnv1a("curl_easy_strerror");
 
 HMODULE ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
-    static const GetModuleHandleAFn get_module_handle =
-        ResolveSystemPrimitive<GetModuleHandleAFn>(kGetModuleHandleAHash);
-    if (get_module_handle == nullptr) {
-        return nullptr;
-    }
-
     if (!config.curl_module_name.empty()) {
-        return get_module_handle(config.curl_module_name.c_str());
+        return static_cast<HMODULE>(::burner::net::detail::KernelResolver::GetSystemModule(
+            ::burner::net::detail::fnv1a_runtime_ci(config.curl_module_name)));
     }
 
-    const std::string default_name =
 #if defined(_DEBUG)
-        BURNER_OBF_LITERAL("libcurl-d.dll");
+    return static_cast<HMODULE>(::burner::net::detail::KernelResolver::GetSystemModule(kLibCurlDHash));
 #else
-        BURNER_OBF_LITERAL("libcurl.dll");
+    return static_cast<HMODULE>(::burner::net::detail::KernelResolver::GetSystemModule(kLibCurlHash));
 #endif
-    return get_module_handle(default_name.c_str());
 }
 
 template <typename TFn>
-TFn ResolveCurlExport(HMODULE module, const char* export_name) noexcept {
+TFn ResolveCurlExportByHash(HMODULE module, std::uint32_t export_hash) noexcept {
     if (module == nullptr) {
         return nullptr;
     }
 
-    static const GetProcAddressFn get_proc_address =
-        ResolveSystemPrimitive<GetProcAddressFn>(kGetProcAddressHash);
-    if (get_proc_address == nullptr) {
-        return nullptr;
-    }
-
-    // Resolve libcurl exports through the real GetProcAddress provider recovered from
-    // kernel32/kernelbase rather than the host process import path.
-    return reinterpret_cast<TFn>(get_proc_address(module, export_name));
+    return reinterpret_cast<TFn>(
+        ::burner::net::detail::KernelResolver::ResolveInternalExport(module, export_hash));
 }
 
 bool IsCurlApiComplete(const CurlApi& api) {
@@ -248,15 +218,15 @@ CurlApi MakeResolvedCurlApi(const ClientConfig& config) {
         return api;
     }
 
-    api.easy_init = ResolveCurlExport<CurlEasyInitFn>(curl_module, "curl_easy_init");
-    api.easy_cleanup = ResolveCurlExport<CurlEasyCleanupFn>(curl_module, "curl_easy_cleanup");
-    api.easy_reset = ResolveCurlExport<CurlEasyResetFn>(curl_module, "curl_easy_reset");
-    api.easy_setopt = ResolveCurlExport<CurlEasySetoptFn>(curl_module, "curl_easy_setopt");
-    api.easy_perform = ResolveCurlExport<CurlEasyPerformFn>(curl_module, "curl_easy_perform");
-    api.easy_getinfo = ResolveCurlExport<CurlEasyGetinfoFn>(curl_module, "curl_easy_getinfo");
-    api.slist_append = ResolveCurlExport<CurlSlistAppendFn>(curl_module, "curl_slist_append");
-    api.slist_free_all = ResolveCurlExport<CurlSlistFreeAllFn>(curl_module, "curl_slist_free_all");
-    api.easy_strerror = ResolveCurlExport<CurlEasyStrerrorFn>(curl_module, "curl_easy_strerror");
+    api.easy_init = ResolveCurlExportByHash<CurlEasyInitFn>(curl_module, kCurlEasyInitHash);
+    api.easy_cleanup = ResolveCurlExportByHash<CurlEasyCleanupFn>(curl_module, kCurlEasyCleanupHash);
+    api.easy_reset = ResolveCurlExportByHash<CurlEasyResetFn>(curl_module, kCurlEasyResetHash);
+    api.easy_setopt = ResolveCurlExportByHash<CurlEasySetoptFn>(curl_module, kCurlEasySetoptHash);
+    api.easy_perform = ResolveCurlExportByHash<CurlEasyPerformFn>(curl_module, kCurlEasyPerformHash);
+    api.easy_getinfo = ResolveCurlExportByHash<CurlEasyGetinfoFn>(curl_module, kCurlEasyGetinfoHash);
+    api.slist_append = ResolveCurlExportByHash<CurlSlistAppendFn>(curl_module, kCurlSlistAppendHash);
+    api.slist_free_all = ResolveCurlExportByHash<CurlSlistFreeAllFn>(curl_module, kCurlSlistFreeAllHash);
+    api.easy_strerror = ResolveCurlExportByHash<CurlEasyStrerrorFn>(curl_module, kCurlEasyStrerrorHash);
 #endif
     return api;
 }
