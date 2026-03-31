@@ -82,13 +82,20 @@ size_t CurlHttpClient::WriteHeaderCallback(void* contents, size_t size, size_t n
     return total;
 }
 
-int CurlHttpClient::ProgressCallback(void* clientp, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+int CurlHttpClient::ProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
     auto* self = static_cast<CurlHttpClient*>(clientp);
     if (self == nullptr) {
         return 0;
     }
 
-    if (!self->m_config.security_policy.OnHeartbeat()) {
+    const TransferProgress progress{
+        static_cast<long long>(dltotal),
+        static_cast<long long>(dlnow),
+        static_cast<long long>(ultotal),
+        static_cast<long long>(ulnow),
+    };
+
+    if (!self->m_config.security_policy.OnHeartbeat(progress)) {
         self->m_heartbeat_aborted = true;
         return 1;
     }

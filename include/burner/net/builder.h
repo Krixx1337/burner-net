@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -32,6 +33,13 @@ public:
 
     RequestBuilder& WithBody(std::string body) {
         m_request.body = std::move(body);
+        m_request.body_view = {};
+        return *this;
+    }
+
+    RequestBuilder& WithBodyView(std::string_view view) {
+        m_request.body_view = view;
+        m_request.body.clear();
         return *this;
     }
 

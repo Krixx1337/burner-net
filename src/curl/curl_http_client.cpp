@@ -57,8 +57,8 @@ bool HasAuthorizationHeader(const HeaderMap& headers) {
     return false;
 }
 
-bool RequestBodyTooLargeForCurl(const std::string& body) {
-    return body.size() > static_cast<size_t>((std::numeric_limits<long>::max)());
+bool RequestBodyTooLargeForCurl(std::size_t body_size) {
+    return body_size > static_cast<std::size_t>((std::numeric_limits<long>::max)());
 }
 
 std::string BuildHeaderLine(std::string_view name, std::string_view value) {
@@ -149,7 +149,8 @@ HttpResponse CurlHttpClient::PerformOnce(
         response.transport_error = ErrorCode::NoCurlHandle;
         return response;
     }
-    if (RequestBodyTooLargeForCurl(request.body)) {
+    const std::size_t request_body_size = request.body_view.empty() ? request.body.size() : request.body_view.size();
+    if (RequestBodyTooLargeForCurl(request_body_size)) {
         response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
         response.transport_error = ErrorCode::RequestBodyTooLarge;
         return response;

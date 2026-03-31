@@ -37,11 +37,11 @@ struct BuilderSecurityPolicy final {
         return wrapped_policy.OnVerifyTransport(url, remote_ip);
     }
 
-    bool OnHeartbeat() const {
-        if (heartbeat && !heartbeat()) {
+    bool OnHeartbeat(const TransferProgress& progress) const {
+        if (heartbeat && !heartbeat(progress)) {
             return false;
         }
-        return wrapped_policy.OnHeartbeat();
+        return wrapped_policy.OnHeartbeat(progress);
     }
 
     bool OnResponseReceived(const HttpRequest& request, const HttpResponse& response) const {

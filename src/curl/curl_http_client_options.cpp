@@ -19,6 +19,15 @@ std::string ToCurlMethod(HttpMethod method) {
     }
 }
 
+void SetPostBody(const CurlApi& curl_api, CURL* easy, const char* body_data, std::size_t body_size) {
+    curl_api.easy_setopt(easy, CURLOPT_POSTFIELDS, body_data);
+#ifdef CURLOPT_POSTFIELDSIZE_LARGE
+    curl_api.easy_setopt(easy, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(body_size));
+#else
+    curl_api.easy_setopt(easy, CURLOPT_POSTFIELDSIZE, static_cast<long>(body_size));
+#endif
+}
+
 } // namespace
 
 void CurlHttpClient::ApplyCommonOptions(
@@ -126,6 +135,10 @@ void CurlHttpClient::ApplyMethodAndBody(const HttpRequest& request, std::string*
     }
 
     const CurlApi& curl_api = m_session->Api();
+    const bool has_body_view = !request.body_view.empty();
+    const char* body_data = has_body_view ? request.body_view.data() : request.body.c_str();
+    const auto body_size = has_body_view ? request.body_view.size() : request.body.size();
+    const bool has_body = has_body_view || !request.body.empty();
 
     switch (request.method) {
     case HttpMethod::Get:
@@ -133,8 +146,7 @@ void CurlHttpClient::ApplyMethodAndBody(const HttpRequest& request, std::string*
         break;
     case HttpMethod::Post:
         curl_api.easy_setopt(easy, CURLOPT_POST, 1L);
-        curl_api.easy_setopt(easy, CURLOPT_POSTFIELDS, request.body.c_str());
-        curl_api.easy_setopt(easy, CURLOPT_POSTFIELDSIZE, static_cast<long>(request.body.size()));
+        SetPostBody(curl_api, easy, body_data, body_size);
         break;
     case HttpMethod::Put:
     case HttpMethod::Delete:
@@ -143,9 +155,8 @@ void CurlHttpClient::ApplyMethodAndBody(const HttpRequest& request, std::string*
             *custom_method_storage = ToCurlMethod(request.method);
             curl_api.easy_setopt(easy, CURLOPT_CUSTOMREQUEST, custom_method_storage->c_str());
         }
-        if (!request.body.empty()) {
-            curl_api.easy_setopt(easy, CURLOPT_POSTFIELDS, request.body.c_str());
-            curl_api.easy_setopt(easy, CURLOPT_POSTFIELDSIZE, static_cast<long>(request.body.size()));
+        if (has_body) {
+            SetPostBody(curl_api, easy, body_data, body_size);
         }
         break;
     }

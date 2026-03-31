@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
 
 #include <cstdint>
+#include <ostream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,7 +31,7 @@ struct RejectPreFlightPolicy final : burner::net::ISecurityPolicy {
 };
 
 struct RejectHeartbeatPolicy final : burner::net::ISecurityPolicy {
-    bool OnHeartbeat() const {
+    bool OnHeartbeat(const burner::net::TransferProgress&) const {
         return false;
     }
 };
@@ -73,6 +74,16 @@ public:
 private:
     const burner::net::SecurityPolicy* m_policy = nullptr;
     int m_call_count = 0;
+};
+
+class RecordingTransport final {
+public:
+    burner::net::HttpResponse Send(const burner::net::HttpRequest& request) {
+        last_request = request;
+        return {};
+    }
+
+    burner::net::HttpRequest last_request{};
 };
 
 } // namespace
@@ -194,6 +205,30 @@ TEST_CASE("SecureString behaves like std::string for public request fields") {
 
     CHECK(request.body.str() == "payload-extra");
     CHECK(request.body.size() == 13);
+}
+
+TEST_CASE("request builder switches between owned bodies and body views") {
+    RecordingTransport transport{};
+    burner::net::FluentClient<RecordingTransport> client(std::move(transport), {});
+
+    std::string borrowed = "borrowed-payload";
+    const auto first_response = client.Post("https://example.com")
+        .WithBody("owned-payload")
+        .WithBodyView(borrowed)
+        .Send();
+    (void)first_response;
+
+    CHECK(client.Raw()->last_request.body.empty());
+    CHECK(std::string(client.Raw()->last_request.body_view) == borrowed);
+
+    const auto second_response = client.Post("https://example.com")
+        .WithBodyView(borrowed)
+        .WithBody("owned-again")
+        .Send();
+    (void)second_response;
+
+    CHECK(client.Raw()->last_request.body.str() == "owned-again");
+    CHECK(client.Raw()->last_request.body_view.empty());
 }
 
 namespace {

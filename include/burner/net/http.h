@@ -121,13 +121,21 @@ inline void HeaderMap::clear() noexcept {
 }
 using TokenProvider = std::function<bool(std::string& out)>;
 using ChunkCallback = std::function<void(const uint8_t*, size_t)>;
-using HeartbeatCallback = std::function<bool()>;
 using PreFlightCallback = std::function<bool(const struct HttpRequest& request)>;
 using EnvironmentCheckCallback = std::function<bool()>;
 using TransportCheckCallback = std::function<bool(const char* url, const char* remote_ip)>;
 using ResponseReceivedCallback = std::function<bool(const struct HttpRequest& request, const struct HttpResponse& response)>;
 using PostVerificationCallback = std::function<void(bool verified, ErrorCode reason)>;
 using TamperActionCallback = std::function<void()>;
+
+struct TransferProgress {
+    long long dl_total = 0;
+    long long dl_now = 0;
+    long long ul_total = 0;
+    long long ul_now = 0;
+};
+
+using HeartbeatCallback = std::function<bool(const TransferProgress&)>;
 
 enum class DnsMode {
     System,
@@ -166,6 +174,7 @@ struct HttpRequest {
     HttpMethod method = HttpMethod::Get;
     std::string url;
     SecureString body;
+    std::string_view body_view;
     HeaderMap headers;
     TokenProvider bearer_token_provider;
     ChunkCallback on_chunk_received;

@@ -16,6 +16,7 @@ namespace burner::net {
 enum class ErrorCode : std::uint32_t;
 struct HttpRequest;
 struct HttpResponse;
+struct TransferProgress;
 
 struct BURNER_API ISecurityPolicy {
     bool OnVerifyEnvironment() const {
@@ -32,7 +33,8 @@ struct BURNER_API ISecurityPolicy {
         return true;
     }
 
-    bool OnHeartbeat() const {
+    bool OnHeartbeat(const TransferProgress& progress) const {
+        (void)progress;
         return true;
     }
 
@@ -85,8 +87,8 @@ public:
         return m_on_verify_transport(m_state.get(), url, remote_ip);
     }
 
-    [[nodiscard]] bool OnHeartbeat() const {
-        return m_on_heartbeat(m_state.get());
+    [[nodiscard]] bool OnHeartbeat(const TransferProgress& progress) const {
+        return m_on_heartbeat(m_state.get(), progress);
     }
 
     [[nodiscard]] bool OnResponseReceived(const HttpRequest& request, const HttpResponse& response) const {
@@ -125,8 +127,8 @@ private:
         m_on_verify_transport = [](const void* raw, const char* url, const char* remote_ip) {
             return static_cast<const PolicyType*>(raw)->OnVerifyTransport(url, remote_ip);
         };
-        m_on_heartbeat = [](const void* raw) {
-            return static_cast<const PolicyType*>(raw)->OnHeartbeat();
+        m_on_heartbeat = [](const void* raw, const TransferProgress& progress) {
+            return static_cast<const PolicyType*>(raw)->OnHeartbeat(progress);
         };
         m_on_response_received = [](const void* raw, const HttpRequest& request, const HttpResponse& response) {
             return static_cast<const PolicyType*>(raw)->OnResponseReceived(request, response);
@@ -149,7 +151,7 @@ private:
     EncodedPointer<bool (*)(const void*)> m_on_verify_environment = nullptr;
     EncodedPointer<bool (*)(const void*, HttpRequest&)> m_on_pre_request = nullptr;
     EncodedPointer<bool (*)(const void*, const char*, const char*)> m_on_verify_transport = nullptr;
-    EncodedPointer<bool (*)(const void*)> m_on_heartbeat = nullptr;
+    EncodedPointer<bool (*)(const void*, const TransferProgress&)> m_on_heartbeat = nullptr;
     EncodedPointer<bool (*)(const void*, const HttpRequest&, const HttpResponse&)> m_on_response_received = nullptr;
     EncodedPointer<void (*)(const void*, bool, ErrorCode)> m_on_signature_verified = nullptr;
     EncodedPointer<void (*)(const void*)> m_on_tamper = nullptr;
