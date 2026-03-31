@@ -2,71 +2,104 @@
 
 **Hardened C++20 networking for hostile environments.**
 
-BurnerNet is a transport-layer hardening library for applications that cannot trust the local machine, process space, or network path. It is designed for desktop executables, injected DLLs, and security-critical tools where standard OS defaults such as proxies, DNS, and trust stores become attack surfaces.
+BurnerNet is a Windows-focused C++20 networking library for apps that cannot fully trust the local machine or network. It is built for security-sensitive request flows where default OS behavior like system DNS, proxies, and long-lived plaintext buffers can become attack surfaces.
 
-The library is currently Windows-centric.
+It favors short-lived clients, explicit trust controls, import-light runtime options, and app-owned verification over convenience-first defaults.
 
 Looking to protect the payloads downloaded by BurnerNet? Check out [RipStop Codec](https://github.com/Krixx1337/ripstop-codec) for in-memory asset descrambling.
 
-[Principles](PRINCIPLES.md) • [Provisioning](#provisioning) • [Features](#features) • [Security Reality](#security-reality)
+[Principles](PRINCIPLES.md) • [Getting Started](#getting-started) • [Integration Paths](#integration-paths) • [Security Reality](#security-reality)
 
-## Overview
+## At a Glance
 
-Most networking libraries optimize for convenience. BurnerNet optimizes for defensive posture.
+| Area | BurnerNet |
+| :--- | :--- |
+| **Language** | C++20 |
+| **Platform** | Windows x64/x86 |
+| **Transport** | `libcurl`-backed HTTP(S) |
+| **Memory hygiene** | Secure wiping utilities and wiping allocators |
+| **Integration** | CMake or Visual Studio source-drop |
+| **Hardening** | DoH support, provider-based secrets, obfuscated literals, hardened error strings, optional import hiding |
 
-Think of BurnerNet as **"CPR in a Tank"**: it gives you a modern, fluent C++20 API, but wraps it in a heavier-duty shell built for hostile environments.
+## Why Use It
 
-It is built for:
-- Windows x64/x86 applications with high-value request paths
-- injected or embedded code that cannot fully trust the host environment
-- short-lived, disposable transports instead of long-lived shared clients
+Use BurnerNet when a normal HTTP client is too trusting for your environment.
 
-## Features
+It helps when you want to:
+- keep request clients short-lived instead of sharing one global transport
+- reduce reliance on local DNS and other host defaults
+- fetch tokens, certs, and verification secrets only when needed
+- keep response verification logic in your own application code
+- reduce obvious plaintext strings and metadata in hardened builds
 
-- **Zero-trust transport:** direct HTTPS-focused behavior with strict redirect and header validation
-- **Zero-copy payloads:** `body_view` support for high-performance, non-owning request bodies without duplicating plaintext buffers
-- **Resource protection:** transfer progress callbacks can monitor download/upload totals and abort oversized or suspicious transfers mid-stream
-- **Encrypted DNS:** DNS-over-HTTPS support to reduce dependence on hostile local resolution
-- **Polymorphic builds:** hardened error strings pick up a compile-time XOR key automatically
-- **Built-in literal obfuscation:** internal security-anchor strings are masked at compile time out of the box
-- **Import-light Windows path:** `lazy_importer` is vendored and used for hidden Windows and cURL API resolution
-- **Ephemeral secrets:** request material can be fetched via providers and wiped after use
-- **Integrity hooks:** synchronous pre-flight, request, verification, and heartbeat hooks
-- **Transport canary:** `SecurityAuditor` can detect local TLS interception paths
-- **Dynamic hiding:** support for pre-loading renamed dependency DLLs with optional integrity verification
+## Who It's For
 
-## Provisioning
+BurnerNet fits projects such as:
+- Windows desktop apps with high-value auth, licensing, or update requests
+- embedded or injected code running in a host you do not fully trust
+- tools that want stricter transport checks without giving up a fluent C++ API
 
-BurnerNet now builds without a generator step.
+## Standard Stack vs BurnerNet
 
-Recommended integration:
-- use CMake and link `BurnerNet::BurnerNet`
+| Concern | Typical HTTP stack | BurnerNet |
+| :--- | :--- | :--- |
+| **Client lifetime** | Often shared and long-lived | Designed for disposable clients and burst-scope use |
+| **Sensitive values** | Secrets often sit in config or memory longer than needed | Provider callbacks fetch them close to use |
+| **DNS and trust** | Usually inherits local resolver and host defaults | Supports stricter trust controls including DoH fallback and pinned keys |
+| **Verification** | App-specific integrity checks are often bolted on later | Built to work with pre-flight, transport, and response verification hooks |
 
-Alternative integration:
-- use Visual Studio `.vcxproj` source-drop when your environment is MSBuild-first
+## Defensive Outcomes
 
-For the actual setup details, see:
-- [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
-- [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
+- **Short-lived request state**: BurnerNet is designed around disposable clients instead of process-wide singleton transports.
+- **Less trust in the host**: DoH support, pinned-key support, and transport auditing help reduce dependence on compromised local defaults.
+- **Lower plaintext exposure**: Provider callbacks and secure wiping utilities reduce the lifetime of certs, keys, tokens, and other sensitive buffers.
+- **App-owned verification**: Response verification stays in your code through `WithResponseVerifier(...)` instead of being hardcoded into a shared library.
+- **Harder static fingerprinting**: Release builds harden `ErrorCodeToString(...)` automatically, and compile-time literal obfuscation is available out of the box.
+- **Import-light deployment options**: `BURNERNET_HARDEN_IMPORTS=1` can resolve runtime dependencies dynamically instead of advertising them directly in the import table, using the vendored `lazy_importer` path on Windows.
 
-Error strings are hardened by default. `ErrorCodeToString(...)` returns a numeric/XORed string unless you explicitly opt into plaintext debugging with `BURNERNET_LEAK_STRINGS_FOR_DEBUGGING`.
+## Getting Started
 
-For custom security hooks, pass a concrete policy type into `ClientBuilder::WithSecurityPolicy(...)`. The easiest path is to derive from `ISecurityPolicy` so the unchanged hooks inherit sensible defaults, but the runtime path still avoids virtual dispatch because `ISecurityPolicy` has no virtual methods. The fluent `WithPreFlight(...)`, `WithEnvironmentCheck(...)`, `WithTransportCheck(...)`, `WithHeartbeat(...)`, `WithResponseReceived(...)`, and `WithPostVerification(...)` helpers layer on top of that policy instead of replacing it. `WithHeartbeat(...)` receives transfer progress stats so policies can enforce resource limits during the active transfer. See [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp) and [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md).
+Fastest path:
+- Add BurnerNet to your build with CMake or Visual Studio source-drop.
+- Build a client.
+- Send a request.
+- Destroy the client as soon as that request flow is done.
 
-## Minimal Example
+Minimal example:
 
 ```cpp
+#include <iostream>
+
 #include "burner/net/builder.h"
+#include "burner/net/error.h"
 
-using namespace burner::net;
+int main() {
+    auto build_result = burner::net::ClientBuilder()
+        .WithUseNativeCa(true)
+        .Build();
 
-auto result = ClientBuilder().Build();
-if (!result.client) {
-    auto build_error = result.error;
+    if (!build_result.Ok()) {
+        std::cerr << burner::net::ErrorCodeToString(build_result.error) << '\n';
+        return 1;
+    }
+
+    const auto response = build_result.client
+        ->Get("https://example.com")
+        .WithHeader("Accept", "text/html")
+        .WithTimeoutSeconds(10)
+        .Send();
+
+    if (!response.TransportOk()) {
+        std::cerr << burner::net::ErrorCodeToString(response.transport_error) << '\n';
+        return 1;
+    }
+
+    std::cout << "HTTP " << response.status_code << '\n';
+    return 0;
 }
 ```
 
-For lower-trust utility traffic:
+For lower-trust utility traffic, BurnerNet also exposes a convenience preset:
 
 ```cpp
 auto utility = burner::net::ClientBuilder()
@@ -74,35 +107,73 @@ auto utility = burner::net::ClientBuilder()
     .Build();
 ```
 
-Hook order on the request path:
-- `OnVerifyEnvironment()` during `Build()`
-- `OnPreRequest()` before each attempt
-- `OnHeartbeat(TransferProgress)` from the active transfer callback
-- `OnVerifyTransport()` after the connection is established
-- `OnResponseReceived()` after a successful transfer
-- `OnSignatureVerified()` after response verification when enabled
-- `OnTamper()` when an integrity check fails closed
+## Integration Paths
 
-See also:
+### 1. Standard CMake
+
+Use this when your downstream project already uses CMake and you want the cleanest dependency-managed path.
+
+Docs:
+- [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
+- [examples/cmake-consumer/README.md](examples/cmake-consumer/README.md)
+
+### 2. Visual Studio Source-Drop
+
+Use this when your environment is MSBuild-first or you want BurnerNet compiled directly inside your `.vcxproj`.
+
+Docs:
+- [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
+- [examples/vs-consumer/README.md](examples/vs-consumer/README.md)
+
+### 3. Hardened Runtime Imports
+
+Use this when you want to reduce obvious runtime dependency exposure and are prepared to manage bootstrap loading explicitly.
+
+Enable:
+- `BURNERNET_HARDEN_IMPORTS=1`
+- Uses the vendored `lazy_importer` path on Windows to support a more import-light runtime footprint
+
+Reference:
+- [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)
+- [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
+- [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
+
+## Usage Notes
+
+Recommended defaults:
+- treat clients as disposable transports
+- separate high-trust and lower-trust traffic into different clients
+- use provider callbacks for mTLS material, bearer tokens, and response verification secrets
+- keep business rules and trust anchors in your application
+
+For deeper guidance, see:
+- [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)
+- [examples/02_zero_trust_pipeline.cpp](examples/02_zero_trust_pipeline.cpp)
+- [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp)
+- [examples/05_mtls_usage.cpp](examples/05_mtls_usage.cpp)
+- [examples/06_hmac_custom_verifier.cpp](examples/06_hmac_custom_verifier.cpp)
+
+## Examples and Docs
+
+Examples:
 - [examples/01_basic_usage.cpp](examples/01_basic_usage.cpp)
 - [examples/02_zero_trust_pipeline.cpp](examples/02_zero_trust_pipeline.cpp)
 - [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp)
 - [examples/04_bootstrap_runtime.cpp](examples/04_bootstrap_runtime.cpp)
 - [examples/05_mtls_usage.cpp](examples/05_mtls_usage.cpp)
 - [examples/06_hmac_custom_verifier.cpp](examples/06_hmac_custom_verifier.cpp)
+
+Documentation:
+- [PRINCIPLES.md](PRINCIPLES.md)
+- [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)
 - [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
 - [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
-- [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)
 
-## Build & Integration
+## Requirements
 
-BurnerNet requires C++20 and libcurl.
-
-The repository includes `lazy_importer` as a vendored header under [include/burner/net/external/lazy_importer/lazy_importer.hpp](include/burner/net/external/lazy_importer/lazy_importer.hpp). Downstream users do not need to fetch it separately.
-
-Integration guides:
-- CMake consumers: [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
-- Visual Studio `.vcxproj` consumers: [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
+- C++20
+- Windows x64/x86
+- `libcurl`
 
 ## Security Reality
 
@@ -113,5 +184,6 @@ It is designed to raise the cost of attack and force attackers out of standard c
 - Keep critical decisions anchored on the server.
 - Assume hostile clients can eventually patch local logic.
 - Treat transport hardening, obfuscation, and integrity checks as delay and detection mechanisms, not absolute prevention.
+- Validate the tradeoffs against your own threat model, deployment environment, and legal obligations.
 
-BurnerNet is provided without any warranty of fitness for a particular security outcome. You are responsible for validating its tradeoffs against your threat model, deployment environment, and legal obligations.
+C++20 • Windows x64/x86 • MIT
