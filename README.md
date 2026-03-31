@@ -58,6 +58,18 @@ BurnerNet fits projects such as:
 - **Harder static fingerprinting**: Release builds harden `ErrorCodeToString(...)` automatically, and compile-time literal obfuscation is available out of the box.
 - **Import-light deployment options**: `BURNERNET_HARDEN_IMPORTS=1` can resolve runtime dependencies dynamically instead of advertising them directly in the import table, using BurnerNet's `KernelResolver` path on Windows.
 
+## Verified Stealth
+
+BurnerNet does not just claim an import-light hardened mode. The repository includes a binary audit for a Windows x64 release build using bootstrap runtime loading with `BURNERNET_HARDEN_IMPORTS=ON`.
+
+In the documented audit, the hardened binary showed:
+- no `libcurl.dll` or `ws2_32.dll` entries in the Import Address Table
+- no `bcrypt.dll` or `crypt32.dll` entries in the Import Address Table
+- no plaintext HTTP verbs, protocol strings, or core security error names in the audited strings dump
+
+Audit details and methodology:
+- [docs/BINARY_STEALTH_AUDIT.md](docs/BINARY_STEALTH_AUDIT.md)
+
 ## Getting Started
 
 Fastest path:
