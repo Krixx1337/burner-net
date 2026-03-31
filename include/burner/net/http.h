@@ -145,7 +145,7 @@ enum class DnsMode {
 
 struct DnsStrategy {
     DnsMode mode = DnsMode::System;
-    std::string name = BURNER_OBF_LITERAL("System DNS");
+    std::string name;
     std::string doh_url;
 };
 
@@ -201,6 +201,9 @@ struct HttpResponse {
     bool TransportOk() const { return transport_code == 0 && transport_error == ErrorCode::None; }
     bool HttpOk() const { return status_code >= 200 && status_code < 400; }
     bool Ok() const { return TransportOk() && HttpOk() && verified; }
+    std::string DnsStrategyDisplayName() const {
+        return dns_strategy_used.empty() ? BURNER_OBF_LITERAL("Default") : dns_strategy_used;
+    }
 };
 
 struct BURNER_API IResponseVerifier {

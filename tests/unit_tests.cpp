@@ -151,6 +151,20 @@ TEST_CASE("client builder accepts explicit curl module names") {
     CHECK(&chained == &builder);
 }
 
+TEST_CASE("dns strategy defaults to an empty display name") {
+    burner::net::DnsStrategy strategy{};
+    CHECK(strategy.name.empty());
+}
+
+TEST_CASE("http response resolves an empty dns strategy name lazily") {
+    burner::net::HttpResponse response{};
+    CHECK(response.dns_strategy_used.empty());
+    CHECK(response.DnsStrategyDisplayName() == "Default");
+
+    response.dns_strategy_used = "Cloudflare";
+    CHECK(response.DnsStrategyDisplayName() == "Cloudflare");
+}
+
 TEST_CASE("dns fallback policy defaults to an empty strategy list") {
     burner::net::DnsFallbackPolicy policy{};
     CHECK(policy.strategies.empty());

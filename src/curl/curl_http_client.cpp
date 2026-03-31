@@ -32,31 +32,6 @@ bool WouldExceedBodyLimit(std::size_t current_size, std::size_t chunk_size, std:
 
 namespace {
 
-bool IsAuthorizationHeaderName(std::string_view name) {
-    if (name.size() != 13) {
-        return false;
-    }
-    std::string auth = BURNER_OBF_LITERAL("authorization");
-    for (size_t i = 0; i < name.size(); ++i) {
-        const unsigned char ch = static_cast<unsigned char>(name[i]);
-        if (static_cast<char>(std::tolower(ch)) != auth[i]) {
-            SecureWipe(auth);
-            return false;
-        }
-    }
-    SecureWipe(auth);
-    return true;
-}
-
-bool HasAuthorizationHeader(const HeaderMap& headers) {
-    for (const auto& [name, value] : headers) {
-        if (IsAuthorizationHeaderName(name) && !value.empty()) {
-            return true;
-        }
-    }
-    return false;
-}
-
 bool RequestBodyTooLargeForCurl(std::size_t body_size) {
     return body_size > static_cast<std::size_t>((std::numeric_limits<long>::max)());
 }
@@ -235,9 +210,9 @@ HttpResponse CurlHttpClient::PerformOnce(
     }
 
     const std::string_view active_bearer = active_bearer_token;
-    const bool request_has_auth_header =
-        !active_bearer.empty() || HasAuthorizationHeader(m_config.default_headers) || HasAuthorizationHeader(request.headers);
-    if (request.follow_redirects && request_has_auth_header) {
+    const bool has_secure_token = static_cast<bool>(request.bearer_token_provider) ||
+        static_cast<bool>(m_config.bearer_token_provider);
+    if (request.follow_redirects && has_secure_token) {
         response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
         response.transport_error = ErrorCode::RedirectAuth;
         SecureWipe(active_bearer_token);
@@ -299,7 +274,7 @@ HttpResponse CurlHttpClient::PerformOnce(
         }
     }
 
-    response.dns_strategy_used = strategy.has_value() ? strategy->name : BURNER_OBF_LITERAL("System DNS");
+    response.dns_strategy_used = strategy.has_value() ? strategy->name : std::string{};
     response.streamed_body_bytes = body_ctx.streamed_body_bytes;
 
     curl_api.easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &response.status_code);
