@@ -1,7 +1,6 @@
 #include "curl_session.h"
 
 #include "burner/net/obfuscation.h"
-#include "../detail/hostile_imports.h"
 
 #include <cstdarg>
 
@@ -24,14 +23,6 @@
 
 namespace burner::net {
 namespace {
-
-#ifdef _WIN32
-using GetModuleHandleAFn = decltype(&GetModuleHandleA);
-
-GetModuleHandleAFn ResolveGetModuleHandleA() {
-    return BURNER_LAZY_IMPORT_IN(GetModuleHandleAFn, "kernel32.dll", GetModuleHandleA);
-}
-#endif
 
 CURL* DefaultCurlEasyInit() {
     return curl_easy_init();
@@ -169,24 +160,32 @@ CurlApi MakeWrappedCurlApi() {
 }
 
 #if BURNERNET_HARDEN_IMPORTS
-void* ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
 #ifdef _WIN32
-    const GetModuleHandleAFn get_module_handle_a = ResolveGetModuleHandleA();
-    if (get_module_handle_a == nullptr) {
+HMODULE ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
+    if (!config.curl_module_name.empty()) {
+        return ::GetModuleHandleA(config.curl_module_name.c_str());
+    }
+
+    const std::string default_name =
+#if defined(_DEBUG)
+        BURNER_OBF_LITERAL("libcurl-d.dll");
+#else
+        BURNER_OBF_LITERAL("libcurl.dll");
+#endif
+    return ::GetModuleHandleA(default_name.c_str());
+}
+
+template <typename TFn>
+TFn ResolveCurlExport(HMODULE module, const char* export_name) noexcept {
+    if (module == nullptr) {
         return nullptr;
     }
 
-    if (!config.curl_module_name.empty()) {
-        return get_module_handle_a(config.curl_module_name.c_str());
-    }
-
-    const std::string default_name = BURNER_OBF_LITERAL("libcurl.dll");
-    return get_module_handle_a(default_name.c_str());
-#else
-    (void)config;
-    return nullptr;
-#endif
+    // In harden-imports mode curl is already an explicitly loaded runtime module,
+    // so resolve exports directly instead of layering lazy-importer on top.
+    return reinterpret_cast<TFn>(::GetProcAddress(module, export_name));
 }
+#endif
 
 bool IsCurlApiComplete(const CurlApi& api) {
     return static_cast<bool>(api.easy_init) &&
@@ -203,20 +202,20 @@ bool IsCurlApiComplete(const CurlApi& api) {
 CurlApi MakeResolvedCurlApi(const ClientConfig& config) {
     CurlApi api{};
 #ifdef _WIN32
-    const void* curl_module = ResolveConfiguredCurlModule(config);
+    const HMODULE curl_module = ResolveConfiguredCurlModule(config);
     if (curl_module == nullptr) {
         return api;
     }
 
-    api.easy_init = LI_FN(curl_easy_init).in_safe<CurlEasyInitFn>(curl_module);
-    api.easy_cleanup = LI_FN(curl_easy_cleanup).in_safe<CurlEasyCleanupFn>(curl_module);
-    api.easy_reset = LI_FN(curl_easy_reset).in_safe<CurlEasyResetFn>(curl_module);
-    api.easy_setopt = LI_FN(curl_easy_setopt).in_safe<CurlEasySetoptFn>(curl_module);
-    api.easy_perform = LI_FN(curl_easy_perform).in_safe<CurlEasyPerformFn>(curl_module);
-    api.easy_getinfo = LI_FN(curl_easy_getinfo).in_safe<CurlEasyGetinfoFn>(curl_module);
-    api.slist_append = LI_FN(curl_slist_append).in_safe<CurlSlistAppendFn>(curl_module);
-    api.slist_free_all = LI_FN(curl_slist_free_all).in_safe<CurlSlistFreeAllFn>(curl_module);
-    api.easy_strerror = LI_FN(curl_easy_strerror).in_safe<CurlEasyStrerrorFn>(curl_module);
+    api.easy_init = ResolveCurlExport<CurlEasyInitFn>(curl_module, "curl_easy_init");
+    api.easy_cleanup = ResolveCurlExport<CurlEasyCleanupFn>(curl_module, "curl_easy_cleanup");
+    api.easy_reset = ResolveCurlExport<CurlEasyResetFn>(curl_module, "curl_easy_reset");
+    api.easy_setopt = ResolveCurlExport<CurlEasySetoptFn>(curl_module, "curl_easy_setopt");
+    api.easy_perform = ResolveCurlExport<CurlEasyPerformFn>(curl_module, "curl_easy_perform");
+    api.easy_getinfo = ResolveCurlExport<CurlEasyGetinfoFn>(curl_module, "curl_easy_getinfo");
+    api.slist_append = ResolveCurlExport<CurlSlistAppendFn>(curl_module, "curl_slist_append");
+    api.slist_free_all = ResolveCurlExport<CurlSlistFreeAllFn>(curl_module, "curl_slist_free_all");
+    api.easy_strerror = ResolveCurlExport<CurlEasyStrerrorFn>(curl_module, "curl_easy_strerror");
 #else
     (void)config;
 #endif
@@ -261,11 +260,16 @@ std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, Error
 
     CurlApi curl_api{};
 #if BURNERNET_HARDEN_IMPORTS
+#ifdef _WIN32
     curl_api = MakeResolvedCurlApi(config);
     if (!IsCurlApiComplete(curl_api)) {
         *init_error = ErrorCode::CurlApiIncomplete;
         return nullptr;
     }
+#else
+    (void)config;
+    curl_api = MakeWrappedCurlApi();
+#endif
 #else
     (void)config;
     curl_api = MakeWrappedCurlApi();
