@@ -18,8 +18,9 @@ Looking to protect the payloads downloaded by BurnerNet? Check out [RipStop Code
 | **Platform** | Windows x64/x86 |
 | **Transport** | `libcurl`-backed HTTP(S) |
 | **Memory hygiene** | Secure wiping utilities and wiping allocators |
+| **Build hardening** | Hardened error strings, obfuscated literals, reduced C++ runtime metadata in hardened builds |
+| **Runtime hardening** | DoH support, provider-based secrets, and stricter trust controls |
 | **Integration** | CMake or Visual Studio source-drop |
-| **Hardening** | DoH support, provider-based secrets, obfuscated literals, hardened error strings, optional import hiding |
 
 ## Why Use It
 
