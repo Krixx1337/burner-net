@@ -144,6 +144,13 @@ TEST_CASE("client builder accepts lambda response verifiers") {
     CHECK(&chained == &builder);
 }
 
+TEST_CASE("client builder accepts explicit curl module names") {
+    burner::net::ClientBuilder builder;
+    auto& chained = builder.WithCurlModuleName("utility_32.dll");
+
+    CHECK(&chained == &builder);
+}
+
 TEST_CASE("dns fallback policy defaults to an empty strategy list") {
     burner::net::DnsFallbackPolicy policy{};
     CHECK(policy.strategies.empty());

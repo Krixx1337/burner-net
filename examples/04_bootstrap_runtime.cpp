@@ -14,6 +14,13 @@ int RunBootstrapRuntime() {
     BootstrapConfig boot{};
     boot.link_mode = LinkMode::Dynamic;
     boot.dependency_directory = std::filesystem::current_path() / "redist";
+    boot.dependency_dlls.push_back(
+#if defined(_DEBUG)
+        L"libcurl-d.dll"
+#else
+        L"libcurl.dll"
+#endif
+    );
     boot.integrity_policy.enabled = true;
     boot.integrity_policy.fail_closed = false;
     boot.integrity_policy.integrity_provider =

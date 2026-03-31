@@ -275,6 +275,7 @@ struct ClientConfig {
     SecurityPolicy security_policy;
     std::size_t global_max_body_bytes = 0;
     std::vector<std::string> pinned_public_keys;
+    std::string curl_module_name;
 };
 
 } // namespace burner::net

@@ -267,6 +267,7 @@ const auto exe_dir = std::filesystem::path(argv[0]).parent_path();
 burner::net::BootstrapConfig boot{};
 boot.link_mode = burner::net::LinkMode::Dynamic;
 boot.dependency_directory = exe_dir / "burner-redist";
+// Explicitly list the DLLs you package; BurnerNet no longer assumes any default names.
 boot.dependency_dlls = {
     L"libcurl-d.dll",
     L"libssl-3-x64.dll",

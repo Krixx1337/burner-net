@@ -30,13 +30,7 @@ struct BootstrapConfig {
     SecurityPolicy security_policy;
     std::filesystem::path dependency_directory;
     DependencyIntegrityPolicy integrity_policy;
-    std::vector<std::wstring> dependency_dlls = {
-#if defined(_WIN32) && defined(_DEBUG)
-        L"libcurl-d.dll",
-#elif defined(_WIN32)
-        L"libcurl.dll",
-#endif
-    };
+    std::vector<std::wstring> dependency_dlls{};
 };
 
 struct BootstrapResult {
