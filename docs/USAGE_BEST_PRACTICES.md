@@ -52,7 +52,7 @@ Avoid:
 ```cpp
 class ApiService {
 public:
-    std::unique_ptr<burner::net::FluentClient> client;
+    std::unique_ptr<burner::net::FluentClient<burner::net::CurlHttpClient>> client;
 };
 ```
 
@@ -301,7 +301,7 @@ public:
 };
 
 auto client = burner::net::ClientBuilder()
-    .WithSecurityPolicy(std::make_shared<SecurityPolicy>())
+    .WithSecurityPolicy(SecurityPolicy{})
     .Build();
 ```
 
