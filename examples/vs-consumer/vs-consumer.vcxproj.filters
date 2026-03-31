@@ -36,13 +36,7 @@
     <ClCompile Include="..\..\src\error.cpp">
       <Filter>BurnerNet Source</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\src\http_factory.cpp">
-      <Filter>BurnerNet Source</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\src\internal\header_validation.cpp">
-      <Filter>BurnerNet Source</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\src\security\security_auditor.cpp">
       <Filter>BurnerNet Source</Filter>
     </ClCompile>
   </ItemGroup>

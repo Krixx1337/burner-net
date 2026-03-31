@@ -44,9 +44,7 @@ set(BURNERNET_SOURCES
     src/curl/curl_http_client_callbacks.cpp
     src/curl/curl_http_client_options.cpp
     src/curl/transport_orchestrator.cpp
-    src/http_factory.cpp
     src/internal/header_validation.cpp
-    src/security/security_auditor.cpp
 )
 
 if(WIN32)

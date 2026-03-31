@@ -142,9 +142,7 @@
     <ClCompile Include="..\..\src\curl\curl_http_client.cpp" />
     <ClCompile Include="..\..\src\detail\memory_hygiene.cpp" />
     <ClCompile Include="..\..\src\error.cpp" />
-    <ClCompile Include="..\..\src\http_factory.cpp" />
     <ClCompile Include="..\..\src\internal\header_validation.cpp" />
-    <ClCompile Include="..\..\src\security\security_auditor.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
