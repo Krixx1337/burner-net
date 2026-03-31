@@ -98,6 +98,13 @@ template <DarkIntegral T>
     return result;
 }
 
+template <DarkIntegral T>
+[[nodiscard]] inline T mba_xor(T lhs, T rhs) noexcept {
+    const auto sum = add_deep<T>(lhs, rhs);
+    const auto carry_twice = static_cast<T>((lhs & rhs) << 1);
+    return sub_deep<T>(sum, carry_twice);
+}
+
 [[nodiscard]] consteval std::uint64_t dark_mix64(std::uint64_t value) noexcept {
     value ^= value >> 30;
     value *= 0xBF58476D1CE4E5B9ull;

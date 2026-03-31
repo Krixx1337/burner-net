@@ -2,6 +2,9 @@
 
 #include "concepts.h"
 #include "http.h"
+#include "detail/kernel_resolver.h"
+
+#include <cstdint>
 
 namespace burner::net {
 
@@ -18,6 +21,12 @@ public:
         const burner::net::SecurityPolicy* policy,
         const std::vector<std::string>& canary_urls) {
         if (client == nullptr) {
+            return false;
+        }
+        if (!HasExpectedSystemModuleShape()) {
+            if (policy != nullptr) {
+                policy->OnTamper();
+            }
             return false;
         }
         if (canary_urls.empty()) {
@@ -48,6 +57,23 @@ public:
             policy->OnTamper();
         }
         return ok;
+    }
+
+private:
+    [[nodiscard]] static bool HasExpectedSystemModuleShape() {
+#ifdef _WIN32
+        void* const ntdll = ::burner::net::detail::KernelResolver::GetSystemModule(
+            ::burner::net::detail::fnv1a_ci("ntdll.dll"));
+        if (ntdll == nullptr) {
+            return false;
+        }
+
+        return ::burner::net::detail::KernelResolver::FindModuleSignature(
+                   ntdll,
+                   static_cast<std::uint8_t>(0xC3u)) != nullptr;
+#else
+        return true;
+#endif
     }
 };
 

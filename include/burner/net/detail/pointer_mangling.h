@@ -57,12 +57,6 @@ inline void InitializeEncodedPointerKey(std::uintptr_t salt = 0) noexcept {
     return derive_runtime_pointer_key();
 }
 
-[[nodiscard]] inline std::uintptr_t mba_xor(std::uintptr_t lhs, std::uintptr_t rhs) noexcept {
-    const auto sum = add_deep<std::uintptr_t>(lhs, rhs);
-    const auto carry_twice = static_cast<std::uintptr_t>((lhs & rhs) << 1);
-    return sub_deep<std::uintptr_t>(sum, carry_twice);
-}
-
 } // namespace detail
 
 template <typename T>

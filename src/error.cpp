@@ -1,4 +1,5 @@
 #include "burner/net/error.h"
+#include "burner/net/detail/dark_arithmetic.h"
 #include "burner/net/detail/constexpr_obfuscation.h"
 
 namespace burner::net {
@@ -61,7 +62,10 @@ const char* ErrorCodeDebugString(ErrorCode code) noexcept {
 
 std::string ErrorCodeToString(ErrorCode code) {
 #if defined(BURNERNET_HARDEN_ERRORS) && BURNERNET_HARDEN_ERRORS
-    return ::burner::net::obf::harden_error_code(code, detail::ErrorXorKey());
+    const auto encoded = ::burner::net::detail::mba_xor(
+        static_cast<std::uint32_t>(code),
+        detail::ErrorXorKey());
+    return std::to_string(encoded);
 #else
     return ErrorCodeDebugString(code);
 #endif

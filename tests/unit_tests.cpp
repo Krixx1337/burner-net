@@ -173,6 +173,8 @@ TEST_CASE("dark arithmetic restores masked constants through MBA identities") {
     CHECK(burner::net::detail::add_deep(17u, 25u) == 42u);
     CHECK(burner::net::detail::add_deep_alt(17u, 25u) == 42u);
     CHECK(burner::net::detail::sub_deep(100u, 58u) == 42u);
+    CHECK(burner::net::detail::mba_xor<std::uint32_t>(0x12345678u, 0x00FF00FFu) ==
+          (0x12345678u ^ 0x00FF00FFu));
 }
 
 TEST_CASE("kernel resolver can locate signatures inside executable system modules") {
@@ -637,6 +639,15 @@ TEST_CASE("security auditor triggers tamper callback on transport audit failure"
 TEST_CASE("security auditor treats an empty canary set as a no-op") {
     SecurityAuditorStubClient client(nullptr);
     CHECK(burner::net::SecurityAuditor::CheckTransportIntegrity(&client, {}));
+}
+
+TEST_CASE("security auditor accepts empty canary set when policy is present and module health is intact") {
+    RecordingPolicy policy{};
+    burner::net::SecurityPolicy erased_policy = policy;
+    SecurityAuditorStubClient client(&erased_policy);
+
+    CHECK(burner::net::SecurityAuditor::CheckTransportIntegrity(&client, &erased_policy, {}));
+    CHECK(*policy.tamper_count == 0);
 }
 
 TEST_CASE("builder tamper action layers on top of wrapped policy tamper handling") {
