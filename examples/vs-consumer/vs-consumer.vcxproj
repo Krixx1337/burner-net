@@ -76,7 +76,7 @@
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\include;$(ProjectDir)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;BURNER_ENABLE_CURL=1;BURNERNET_HARDEN_IMPORTS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_HAS_EXCEPTIONS=0;BURNER_ENABLE_CURL=1;BURNERNET_HARDEN_IMPORTS=0;BURNER_BUILDING_LIBRARY;HOSTILE_CORE_EXPORT=BURNER_API;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
@@ -93,7 +93,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\include;$(ProjectDir)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;BURNER_ENABLE_CURL=1;BURNERNET_HARDEN_IMPORTS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;_HAS_EXCEPTIONS=0;BURNER_ENABLE_CURL=1;BURNERNET_HARDEN_IMPORTS=0;BURNER_BUILDING_LIBRARY;HOSTILE_CORE_EXPORT=BURNER_API;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
@@ -108,7 +108,7 @@
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\include;$(ProjectDir)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;BURNER_ENABLE_CURL=1;BURNERNET_HARDEN_IMPORTS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;_HAS_EXCEPTIONS=0;BURNER_ENABLE_CURL=1;BURNERNET_HARDEN_IMPORTS=0;BURNER_BUILDING_LIBRARY;HOSTILE_CORE_EXPORT=BURNER_API;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
@@ -125,7 +125,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\include;$(ProjectDir)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;BURNER_ENABLE_CURL=1;BURNERNET_HARDEN_IMPORTS=0;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;_HAS_EXCEPTIONS=0;BURNER_ENABLE_CURL=1;BURNERNET_HARDEN_IMPORTS=0;BURNER_BUILDING_LIBRARY;HOSTILE_CORE_EXPORT=BURNER_API;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
@@ -140,6 +140,10 @@
     <ClCompile Include="..\..\src\bootstrap\bootstrap_windows.cpp" />
     <ClCompile Include="..\..\src\builder.cpp" />
     <ClCompile Include="..\..\src\curl\curl_http_client.cpp" />
+    <ClCompile Include="..\..\src\curl\curl_http_client_callbacks.cpp" />
+    <ClCompile Include="..\..\src\curl\curl_http_client_options.cpp" />
+    <ClCompile Include="..\..\src\curl\curl_session.cpp" />
+    <ClCompile Include="..\..\src\curl\transport_orchestrator.cpp" />
     <ClCompile Include="..\..\src\detail\memory_hygiene.cpp" />
     <ClCompile Include="..\..\src\error.cpp" />
     <ClCompile Include="..\..\src\internal\header_validation.cpp" />

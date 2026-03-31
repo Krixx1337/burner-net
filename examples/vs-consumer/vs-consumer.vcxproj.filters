@@ -30,6 +30,18 @@
     <ClCompile Include="..\..\src\curl\curl_http_client.cpp">
       <Filter>BurnerNet Source</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\curl\curl_http_client_callbacks.cpp">
+      <Filter>BurnerNet Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\curl\curl_http_client_options.cpp">
+      <Filter>BurnerNet Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\curl\curl_session.cpp">
+      <Filter>BurnerNet Source</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\src\curl\transport_orchestrator.cpp">
+      <Filter>BurnerNet Source</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\src\detail\memory_hygiene.cpp">
       <Filter>BurnerNet Source</Filter>
     </ClCompile>
