@@ -12,6 +12,11 @@
 #include "burner/net/obfuscation.h"
 #include "burner/net/policy.h"
 #include "burner/net/security_auditor.h"
+#include "burner/net/detail/dark_allocator.h"
+#include "burner/net/detail/dark_arithmetic.h"
+#include "burner/net/detail/dark_callables.h"
+#include "burner/net/detail/dark_hashing.h"
+#include "burner/net/detail/dark_simd.h"
 #include "burner/net/detail/pointer_mangling.h"
 #include "curl/curl_http_client.h"
 #include "internal/header_validation.h"
@@ -84,6 +89,19 @@ public:
     burner::net::HttpRequest last_request{};
 };
 
+struct HandleProbe {
+    explicit HandleProbe(int* count)
+        : destroy_count(count) {}
+
+    ~HandleProbe() {
+        if (destroy_count != nullptr) {
+            ++(*destroy_count);
+        }
+    }
+
+    int* destroy_count = nullptr;
+};
+
 } // namespace
 
 TEST_CASE("header validation rejects CRLF injection") {
@@ -106,6 +124,70 @@ TEST_CASE("obfuscation helper returns expected plaintext") {
     burner::net::SecureWipe(wiped);
     CHECK(wiped.empty());
 #endif
+}
+
+TEST_CASE("dark hashing supports case-sensitive and case-insensitive FNV-1a") {
+    constexpr std::uint32_t content_type_a = burner::net::detail::fnv1a_ci("Content-Type");
+    constexpr std::uint32_t content_type_b = burner::net::detail::fnv1a_ci("content-type");
+    constexpr std::uint32_t content_type_cs = burner::net::detail::fnv1a("Content-Type");
+
+    static_assert(content_type_a == content_type_b);
+    static_assert(content_type_a != content_type_cs);
+
+    CHECK(content_type_a == burner::net::detail::fnv1a_runtime_ci("CONTENT-TYPE"));
+    CHECK(content_type_cs == burner::net::detail::fnv1a_runtime("Content-Type"));
+}
+
+TEST_CASE("dark arithmetic restores masked constants through MBA identities") {
+    const auto curlopt_url = BURNER_MASK_INT(10002L);
+    const auto http_ok = BURNER_MASK_INT(200);
+
+    CHECK(curlopt_url == 10002L);
+    CHECK(http_ok == 200);
+    CHECK(burner::net::detail::add_deep(17u, 25u) == 42u);
+    CHECK(burner::net::detail::add_deep_alt(17u, 25u) == 42u);
+    CHECK(burner::net::detail::sub_deep(100u, 58u) == 42u);
+}
+
+TEST_CASE("dark simd literal restores plaintext") {
+    const std::string value =
+        ::burner::net::detail::DarkLiteral<sizeof("https://api.internal/v1"),
+            0x12345678ABCDEF01ull>{"https://api.internal/v1"}.resolve();
+
+    CHECK(value == "https://api.internal/v1");
+}
+
+TEST_CASE("secure handle destroys its payload without shared ownership") {
+    int destroy_count = 0;
+
+    {
+        auto handle = burner::net::detail::SecureHandle<HandleProbe>::make<HandleProbe>(&destroy_count);
+        REQUIRE(static_cast<bool>(handle));
+        CHECK(handle->destroy_count == &destroy_count);
+    }
+
+    CHECK(destroy_count == 1);
+}
+
+TEST_CASE("compact callable stores and clones lambdas without std function") {
+    burner::net::detail::CompactCallable<int(int)> callable = [](int value) {
+        return value + 7;
+    };
+
+    burner::net::detail::CompactCallable<int(int)> copy = callable;
+    REQUIRE(static_cast<bool>(copy));
+
+    CHECK(callable(35) == 42);
+    CHECK(copy(35) == 42);
+}
+
+TEST_CASE("wiping allocator satisfies allocator usage for containers") {
+    std::basic_string<char, std::char_traits<char>, burner::net::detail::WipingAllocator<char>> secret(
+        "classified");
+    std::vector<std::uint8_t, burner::net::detail::WipingAllocator<std::uint8_t>> bytes = {1, 2, 3, 4};
+
+    CHECK(secret == "classified");
+    CHECK(bytes.size() == 4);
 }
 
 TEST_CASE("response verifier accepts lambda callbacks") {

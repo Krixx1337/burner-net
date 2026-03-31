@@ -1,5 +1,7 @@
 #pragma once
 
+#include "burner/net/detail/dark_simd.h"
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -110,7 +112,8 @@ struct ObfuscatedString {
 
 // Note: __LINE__ is intentionally omitted so MSVC Edit and Continue (/ZI)
 // keeps this as a valid compile-time expression in default Debug builds.
-#define BURNER_OBF_LITERAL(str)                                                               \
-    ::burner::net::obf::ObfuscatedString<sizeof(str), static_cast<std::uint8_t>((__COUNTER__ \
-                                                                                  ^ __TIME__[7]) \
-                                                                                 & 0xFFu)>{str}.resolve()
+#define BURNER_OBF_LITERAL(str)                                                                \
+    ::burner::net::detail::DarkLiteral<sizeof(str),                                            \
+        ((static_cast<std::uint64_t>(__COUNTER__) << 32u) ^                                    \
+            static_cast<std::uint64_t>(__TIME__[6]) ^                                          \
+            (static_cast<std::uint64_t>(__TIME__[7]) << 8u))>{str}.resolve()
