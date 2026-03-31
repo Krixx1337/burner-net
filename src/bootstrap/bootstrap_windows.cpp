@@ -1,5 +1,6 @@
 #include "burner/net/bootstrap.h"
 #include "burner/net/obfuscation.h"
+#include "burner/net/detail/pointer_mangling.h"
 #include "detail/hostile_imports.h"
 
 #ifdef _WIN32
@@ -68,6 +69,9 @@ bool PathsEqualCaseInsensitive(const std::filesystem::path& a, const std::filesy
 } // namespace
 
 BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
+    ::burner::net::detail::InitializeEncodedPointerKey(
+        reinterpret_cast<std::uintptr_t>(&config));
+
     const SecurityPolicy& security_policy = config.security_policy;
     if (config.link_mode == LinkMode::Static || !config.preload_dependencies) {
         return {true, ErrorCode::BootstrapSkip};
@@ -147,6 +151,7 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
 namespace burner::net {
 
 BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig&) {
+    ::burner::net::detail::InitializeEncodedPointerKey();
     return {true, ErrorCode::BootstrapWinOnly};
 }
 
