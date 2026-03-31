@@ -4,8 +4,6 @@
 #include "burner/net/detail/kernel_resolver.h"
 #include "burner/net/obfuscation.h"
 
-#include <cstdarg>
-
 #ifdef _WIN32
 #include <windows.h>
 
@@ -39,101 +37,8 @@ void DefaultCurlEasyReset(CURL* easy) {
     curl_easy_reset(easy);
 }
 
-CURLcode DefaultCurlEasySetopt(CURL* easy, CURLoption option, ...) {
-    va_list args;
-    va_start(args, option);
-    CURLcode code = CURLE_BAD_FUNCTION_ARGUMENT;
-
-    switch (option) {
-    case CURLOPT_WRITEDATA:
-    case CURLOPT_HEADERDATA:
-    case CURLOPT_XFERINFODATA:
-        code = curl_easy_setopt(easy, option, va_arg(args, void*));
-        break;
-    case CURLOPT_HTTPHEADER:
-        code = curl_easy_setopt(easy, option, va_arg(args, curl_slist*));
-        break;
-    case CURLOPT_SSLCERT_BLOB:
-    case CURLOPT_SSLKEY_BLOB:
-        code = curl_easy_setopt(easy, option, va_arg(args, curl_blob*));
-        break;
-    case CURLOPT_WRITEFUNCTION:
-    case CURLOPT_HEADERFUNCTION:
-        code = curl_easy_setopt(easy, option, va_arg(args, curl_write_callback));
-        break;
-#ifdef CURLOPT_XFERINFOFUNCTION
-    case CURLOPT_XFERINFOFUNCTION:
-        code = curl_easy_setopt(easy, option, va_arg(args, curl_xferinfo_callback));
-        break;
-#endif
-    case CURLOPT_URL:
-    case CURLOPT_ERRORBUFFER:
-    case CURLOPT_PROXY:
-    case CURLOPT_PINNEDPUBLICKEY:
-    case CURLOPT_PROTOCOLS_STR:
-    case CURLOPT_REDIR_PROTOCOLS_STR:
-    case CURLOPT_USERAGENT:
-    case CURLOPT_POSTFIELDS:
-    case CURLOPT_CUSTOMREQUEST:
-    case CURLOPT_KEYPASSWD:
-    case CURLOPT_SSLCERTTYPE:
-    case CURLOPT_SSLKEYTYPE:
-    case CURLOPT_DOH_URL:
-        code = curl_easy_setopt(easy, option, va_arg(args, char*));
-        break;
-    case CURLOPT_FOLLOWLOCATION:
-    case CURLOPT_DISALLOW_USERNAME_IN_URL:
-    case CURLOPT_MAXREDIRS:
-    case CURLOPT_TIMEOUT:
-    case CURLOPT_CONNECTTIMEOUT:
-    case CURLOPT_SSL_VERIFYPEER:
-    case CURLOPT_SSL_VERIFYHOST:
-    case CURLOPT_SSLVERSION:
-    case CURLOPT_SSL_OPTIONS:
-    case CURLOPT_HTTPGET:
-    case CURLOPT_POST:
-    case CURLOPT_POSTFIELDSIZE:
-    case CURLOPT_DOH_SSL_VERIFYPEER:
-    case CURLOPT_DOH_SSL_VERIFYHOST:
-    case CURLOPT_NOPROGRESS:
-#ifdef CURLOPT_PROTOCOLS
-    case CURLOPT_PROTOCOLS:
-#endif
-#ifdef CURLOPT_REDIR_PROTOCOLS
-    case CURLOPT_REDIR_PROTOCOLS:
-#endif
-        code = curl_easy_setopt(easy, option, va_arg(args, long));
-        break;
-    default:
-        break;
-    }
-
-    va_end(args);
-    return code;
-}
-
 CURLcode DefaultCurlEasyPerform(CURL* easy) {
     return curl_easy_perform(easy);
-}
-
-CURLcode DefaultCurlEasyGetinfo(CURL* easy, CURLINFO info, ...) {
-    va_list args;
-    va_start(args, info);
-    CURLcode code = CURLE_BAD_FUNCTION_ARGUMENT;
-
-    switch (info) {
-    case CURLINFO_RESPONSE_CODE:
-        code = curl_easy_getinfo(easy, info, va_arg(args, long*));
-        break;
-    case CURLINFO_PRIMARY_IP:
-        code = curl_easy_getinfo(easy, info, va_arg(args, char**));
-        break;
-    default:
-        break;
-    }
-
-    va_end(args);
-    return code;
 }
 
 curl_slist* DefaultCurlSlistAppend(curl_slist* list, const char* value) {
@@ -153,9 +58,9 @@ CurlApi MakeWrappedCurlApi() {
     api.easy_init = &DefaultCurlEasyInit;
     api.easy_cleanup = &DefaultCurlEasyCleanup;
     api.easy_reset = &DefaultCurlEasyReset;
-    api.easy_setopt = &DefaultCurlEasySetopt;
+    api.easy_setopt = reinterpret_cast<CurlEasySetoptFn>(&curl_easy_setopt);
     api.easy_perform = &DefaultCurlEasyPerform;
-    api.easy_getinfo = &DefaultCurlEasyGetinfo;
+    api.easy_getinfo = reinterpret_cast<CurlEasyGetinfoFn>(&curl_easy_getinfo);
     api.slist_append = &DefaultCurlSlistAppend;
     api.slist_free_all = &DefaultCurlSlistFreeAll;
     api.easy_strerror = &DefaultCurlEasyStrerror;
