@@ -11,7 +11,7 @@ option(BURNERNET_BUILD_TESTING "Build BurnerNet offline/unit tests" ${PROJECT_IS
 option(BURNERNET_BUILD_INTEGRATION_TESTS "Build BurnerNet live network integration tests" ${PROJECT_IS_TOP_LEVEL})
 option(BURNERNET_BUILD_EXAMPLES "Build BurnerNet examples" ${PROJECT_IS_TOP_LEVEL})
 option(BURNERNET_OBFUSCATE_STRINGS "Obfuscate BurnerNet security-anchor string literals" ON)
-option(BURNERNET_HARDEN_IMPORTS "Resolve libcurl dynamically instead of linking it into the import table" ON)
+option(BURNERNET_HARDEN_IMPORTS "Resolve libcurl dynamically instead of linking it into the import table" OFF)
 
 if(MSVC)
     add_definitions(-D_HAS_EXCEPTIONS=0)
