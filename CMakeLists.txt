@@ -25,13 +25,11 @@ if(BURNERNET_BUILD_TESTING OR BURNERNET_BUILD_INTEGRATION_TESTS)
 endif()
 
 if(WIN32)
-    find_library(BURNERNET_BCRYPT_LIBRARY NAMES bcrypt)
     find_library(BURNERNET_CRYPT32_LIBRARY NAMES crypt32)
     find_library(BURNERNET_WS2_32_LIBRARY NAMES ws2_32)
-    if(NOT BURNERNET_BCRYPT_LIBRARY OR NOT BURNERNET_CRYPT32_LIBRARY OR NOT BURNERNET_WS2_32_LIBRARY)
+    if(NOT BURNERNET_CRYPT32_LIBRARY OR NOT BURNERNET_WS2_32_LIBRARY)
         message(FATAL_ERROR
-            "BurnerNet requires the Windows SDK libraries bcrypt, crypt32, and ws2_32, "
-            "but one or more were not found during configuration.")
+            "BurnerNet requires the Windows SDK libraries crypt32 and ws2_32, but one or more were not found during configuration.")
     endif()
 endif()
 
@@ -113,7 +111,6 @@ endif()
 if(WIN32)
     target_link_libraries(BurnerNet
         PUBLIC
-            ${BURNERNET_BCRYPT_LIBRARY}
             ${BURNERNET_CRYPT32_LIBRARY}
             ${BURNERNET_WS2_32_LIBRARY}
     )

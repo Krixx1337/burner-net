@@ -22,6 +22,7 @@ int RunBasicUsage() {
     auto build_result = burner::net::ClientBuilder()
         .WithSecurityPolicy(ExamplePolicy{})
         .WithUseNativeCa(true)
+        .WithStandardSecureDns()
         .Build();
 
     if (build_result.client == nullptr) {

@@ -1,6 +1,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
@@ -37,6 +38,10 @@ int RunZeroTrustPipeline() {
 
     constexpr const char* kPinnedKey = "sha256//replace-with-a-real-pin";
     constexpr const char* kEndpoint = "https://example.com/license";
+    const std::vector<std::string> kTransportCanaries = {
+        "https://replace-with-your-expired-canary.example",
+        "https://replace-with-your-hostname-canary.example"
+    };
 
     auto paranoid = ClientBuilder()
         .WithSecurityPolicy(ZeroTrustPolicy{})
@@ -66,21 +71,34 @@ int RunZeroTrustPipeline() {
     std::cout << "The paranoid client uses a concrete policy object plus pinning,\n";
     std::cout << "and transport integrity auditing. Add an app-layer verifier when needed.\n";
 
-    if (!SecurityAuditor::CheckTransportIntegrity(paranoid.client->Raw())) {
+    bool canaries_configured = true;
+    for (const auto& url : kTransportCanaries) {
+        if (url.find("replace-with-your-") != std::string::npos) {
+            canaries_configured = false;
+            break;
+        }
+    }
+
+    if (!canaries_configured) {
+        std::cout << "Transport canary audit skipped.\n";
+        std::cout << "Replace the sample canary URLs with your own TLS-failure endpoints to exercise the audit path.\n";
+    } else if (!SecurityAuditor::CheckTransportIntegrity(paranoid.client->Raw(), kTransportCanaries)) {
         std::cerr << "Transport integrity check failed before the hardened request.\n";
         return 3;
     }
 
-    std::cout << "Transport integrity check passed.\n";
+    if (canaries_configured) {
+        std::cout << "Transport integrity check passed.\n";
+    }
     if (std::string_view(kPinnedKey).find("replace-with-a-real-pin") != std::string_view::npos ||
         std::string_view(kEndpoint).find("example.com") != std::string_view::npos) {
         std::cout << "Hardened request skipped.\n";
-        std::cout << "Replace the sample pin and endpoint with your own hardened service\n";
+        std::cout << "Replace the sample pin, endpoint, and canary URLs with your own hardened service\n";
         std::cout << "to exercise the pinned-key and transport-audited path.\n";
         return 0;
     }
 
-    std::cout << "Transport integrity check passed. Sending hardened request...\n";
+    std::cout << "Sending hardened request...\n";
     const auto response = paranoid.client->Get(kEndpoint).Send();
 
     if (!response.TransportOk()) {

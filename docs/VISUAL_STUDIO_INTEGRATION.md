@@ -274,6 +274,11 @@ boot.dependency_dlls = {
     L"libcrypto-3-x64.dll",
     L"zlibd1.dll",
 };
+boot.integrity_policy.enabled = true;
+boot.integrity_policy.integrity_provider =
+    [](const std::filesystem::path& dll_path, const std::wstring& dll_name) {
+        return VerifyPackagedRuntimeDll(dll_path, dll_name);
+    };
 
 const auto init = burner::net::InitializeNetworkingRuntime(boot);
 if (!init.success) {

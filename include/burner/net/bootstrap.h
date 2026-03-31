@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -15,15 +16,12 @@ enum class LinkMode {
     Dynamic
 };
 
-struct DependencyHashEntry {
-    std::wstring dll_name;
-    std::string sha256_hex;
-};
+using IntegrityProvider = std::function<bool(const std::filesystem::path& dll_path, const std::wstring& dll_name)>;
 
 struct DependencyIntegrityPolicy {
     bool enabled = false;
     bool fail_closed = true;
-    std::vector<DependencyHashEntry> sha256_allowlist;
+    IntegrityProvider integrity_provider;
 };
 
 struct BootstrapConfig {

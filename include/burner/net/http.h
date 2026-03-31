@@ -151,10 +151,7 @@ struct DnsStrategy {
 
 struct DnsFallbackPolicy {
     bool enabled = true;
-    std::vector<DnsStrategy> strategies = {
-        {DnsMode::Doh, BURNER_OBF_LITERAL("Cloudflare DoH (Strict)"), BURNER_OBF_LITERAL("https://1.1.1.1/dns-query")},
-        {DnsMode::Doh, BURNER_OBF_LITERAL("Cloudflare DoH (Strict Secondary)"), BURNER_OBF_LITERAL("https://1.0.0.1/dns-query")}
-    };
+    std::vector<DnsStrategy> strategies;
 };
 
 struct RetryPolicy {

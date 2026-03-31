@@ -145,6 +145,11 @@ TEST_CASE("client builder accepts lambda response verifiers") {
     CHECK(&chained == &builder);
 }
 
+TEST_CASE("dns fallback policy defaults to an empty strategy list") {
+    burner::net::DnsFallbackPolicy policy{};
+    CHECK(policy.strategies.empty());
+}
+
 TEST_CASE("header map preserves unique keys and treats names as case-insensitive") {
     burner::net::HeaderMap headers;
     headers["Authorization"] = "Bearer one";
@@ -398,8 +403,15 @@ TEST_CASE("security auditor triggers tamper callback on transport audit failure"
     burner::net::SecurityPolicy erased_policy = policy;
     SecurityAuditorStubClient client(&erased_policy);
 
-    CHECK_FALSE(burner::net::SecurityAuditor::CheckTransportIntegrity(&client));
+    CHECK_FALSE(burner::net::SecurityAuditor::CheckTransportIntegrity(
+        &client,
+        {"https://canary-one.invalid", "https://canary-two.invalid"}));
     CHECK(*policy.tamper_count == 1);
+}
+
+TEST_CASE("security auditor treats an empty canary set as a no-op") {
+    SecurityAuditorStubClient client(nullptr);
+    CHECK(burner::net::SecurityAuditor::CheckTransportIntegrity(&client, {}));
 }
 
 TEST_CASE("builder tamper action layers on top of wrapped policy tamper handling") {

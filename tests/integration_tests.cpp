@@ -64,7 +64,9 @@ TEST_CASE("security auditor rejects compromised or inconclusive transport") {
         .Build();
 
     REQUIRE(static_cast<bool>(client.client));
-    CHECK(burner::net::SecurityAuditor::CheckTransportIntegrity(client.client->Raw()));
+    CHECK(burner::net::SecurityAuditor::CheckTransportIntegrity(
+        client.client->Raw(),
+        {"https://expired.badssl.com", "https://wrong.host.badssl.com"}));
 }
 
 TEST_CASE("max_body_bytes aborts oversized responses mid-stream") {

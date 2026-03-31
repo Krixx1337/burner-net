@@ -245,7 +245,7 @@ bool VerifyHmacHeader(
 
 } // namespace
 
-int RunCustomHmacWeapon() {
+int RunCustomHmacVerifier() {
     using namespace burner::net;
 
     constexpr std::string_view kEndpoint = "https://example.com/license";

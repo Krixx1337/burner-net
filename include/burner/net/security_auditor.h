@@ -8,17 +8,23 @@ namespace burner::net {
 class BURNER_API SecurityAuditor {
 public:
     template <HttpClientConcept TClient>
-    static bool CheckTransportIntegrity(TClient* client) {
-        return CheckTransportIntegrity(client, client != nullptr ? client->SecurityPolicy() : nullptr);
+    static bool CheckTransportIntegrity(TClient* client, const std::vector<std::string>& canary_urls) {
+        return CheckTransportIntegrity(client, client != nullptr ? client->SecurityPolicy() : nullptr, canary_urls);
     }
 
     template <HttpClientConcept TClient>
-    static bool CheckTransportIntegrity(TClient* client, const burner::net::SecurityPolicy* policy) {
+    static bool CheckTransportIntegrity(
+        TClient* client,
+        const burner::net::SecurityPolicy* policy,
+        const std::vector<std::string>& canary_urls) {
         if (client == nullptr) {
             return false;
         }
+        if (canary_urls.empty()) {
+            return true;
+        }
 
-        auto check_domain = [&](const char* url) -> bool {
+        auto check_domain = [&](const std::string& url) -> bool {
             HttpRequest request{};
             request.method = HttpMethod::Get;
             request.url = url;
@@ -31,9 +37,13 @@ public:
             return response.transport_error == ErrorCode::TlsVerificationFailed;
         };
 
-        const bool expired_rejected = check_domain("https://expired.badssl.com");
-        const bool wrong_host_rejected = check_domain("https://wrong.host.badssl.com");
-        const bool ok = expired_rejected && wrong_host_rejected;
+        bool ok = true;
+        for (const auto& url : canary_urls) {
+            if (!check_domain(url)) {
+                ok = false;
+                break;
+            }
+        }
         if (!ok && policy != nullptr) {
             policy->OnTamper();
         }

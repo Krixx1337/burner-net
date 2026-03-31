@@ -149,7 +149,7 @@ void BuildSecureClient() {
 
 Gold-standard reference:
 - See [../examples/05_mtls_usage.cpp](../examples/05_mtls_usage.cpp) for the provider-driven mTLS pattern that keeps client certs and keys out of long-lived config state.
-- See [../examples/06_hmac_custom_weapon.cpp](../examples/06_hmac_custom_weapon.cpp) for an app-owned HMAC verifier built outside BurnerNet core.
+- See [../examples/06_hmac_custom_verifier.cpp](../examples/06_hmac_custom_verifier.cpp) for an app-owned HMAC verifier built outside BurnerNet core.
 
 ## 6. Example: public client (no mTLS/signature)
 ```cpp
@@ -171,14 +171,10 @@ boot.link_mode = burner::net::LinkMode::Dynamic;
 boot.dependency_directory = LR"(C:\MyApp\bin)";
 boot.integrity_policy.enabled = true;
 boot.integrity_policy.fail_closed = true;
-// `dependency_dlls` defaults follow the current process architecture and debug/release mode.
-// Match the allowlist entries to the actual DLL names in your packaged redist folder.
-boot.integrity_policy.sha256_allowlist = {
-    {boot.dependency_dlls[0], "PUT_SHA256_HEX_HERE"},
-    {boot.dependency_dlls[1], "PUT_SHA256_HEX_HERE"},
-    {boot.dependency_dlls[2], "PUT_SHA256_HEX_HERE"},
-    {boot.dependency_dlls[3], "PUT_SHA256_HEX_HERE"}
-};
+boot.integrity_policy.integrity_provider =
+    [](const std::filesystem::path& dll_path, const std::wstring& dll_name) {
+        return VerifyPackagedRuntimeDll(dll_path, dll_name);
+    };
 auto init = burner::net::InitializeNetworkingRuntime(boot);
 ```
 
@@ -194,9 +190,9 @@ auto init = burner::net::InitializeNetworkingRuntime(boot);
 
 ## 8. Dependency integrity policy (dynamic mode)
 - Integrity checks happen once per dependency, immediately before `LoadLibraryExW`.
-- If allowlist hash mismatches and `fail_closed=true`, bootstrap fails.
-- Keep hashes in app code (policy), not in shared library code.
-- Recompute hashes when you upgrade runtime DLLs.
+- If your callback returns `false` and `fail_closed=true`, bootstrap fails.
+- Keep hashes or signature verification in app code, not in shared library code.
+- Recompute any expected hashes or signatures when you upgrade runtime DLLs.
 - Ensure `dependency_directory` is not writable by standard users; prefer app-owned folder with strict ACLs.
 
 ## 9. Response body limits
@@ -226,8 +222,8 @@ auto init = burner::net::InitializeNetworkingRuntime(boot);
 - Run that check separately for each dynamic triplet you ship (`x64-windows`, `x86-windows`).
 
 ## 13. Startup canary
-- For high-risk paths, run `burner::net::SecurityAuditor::CheckTransportIntegrity(client->Raw())` during startup or before auth. If the audit fails, BurnerNet now forwards that result into `ISecurityPolicy::OnTamper()`.
-- A `true` result means the transport rejected the `expired.badssl.com` canary exactly as expected.
+- For high-risk paths, run `burner::net::SecurityAuditor::CheckTransportIntegrity(client->Raw(), canary_urls)` during startup or before auth. If the audit fails, BurnerNet now forwards that result into `ISecurityPolicy::OnTamper()`.
+- A `true` result means the transport rejected each app-owned TLS-failure canary exactly as expected.
 - A `false` result means the environment is compromised or inconclusive; fail closed for sensitive flows.
 
 ## 14. Defeating Local DNS Hijacking & API Spoofing
@@ -250,10 +246,7 @@ To secure your app without assuming stable CDN certificates, combine **DNS over 
 
 auto client = burner::net::ClientBuilder()
     // 1. Bypass OS DNS spoofing via encrypted DoH
-    .WithDnsFallback(
-        burner::net::DnsMode::Doh,
-        "https://1.1.1.1/dns-query",
-        "Cloudflare DoH (Strict)")
+    .WithStandardSecureDns()
 
     // 2. Cryptographically prove the server generated the payload
     .WithResponseVerifier(
@@ -272,12 +265,13 @@ auto client = burner::net::ClientBuilder()
 If an attacker spoofs the API, your app-owned verifier returns a signature verification error and the untrusted payload is rejected instead of being handed to app logic.
 
 ## 14. Managing Strict DoH (DNS-over-HTTPS)
-By default, BurnerNet is **Strict DoH-First**. It bypasses the OS DNS resolver by communicating directly with IP-based DoH endpoints such as `https://1.1.1.1/dns-query`. This defeats local `hosts` edits, PowerShell DNS hijacking, and straightforward resolver hooks.
+BurnerNet no longer bakes any public DoH endpoints into the default client state. If you want a stock strict DoH set, opt in explicitly with `WithStandardSecureDns()`. This defeats local `hosts` edits, PowerShell DNS hijacking, and straightforward resolver hooks without forcing the same resolver targets into every binary.
 
 If the network blocks those DoH endpoints, BurnerNet fails closed by default. If you want to trade security for availability, you must explicitly opt into the OS resolver:
 
 ```cpp
 auto client = burner::net::ClientBuilder()
+    .WithStandardSecureDns()
     .AllowSystemDns(true) // Explicitly permits fallback to the easily hijacked OS DNS
     .Build();
 ```

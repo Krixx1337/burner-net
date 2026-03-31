@@ -16,6 +16,11 @@ int RunBootstrapRuntime() {
     boot.dependency_directory = std::filesystem::current_path() / "redist";
     boot.integrity_policy.enabled = true;
     boot.integrity_policy.fail_closed = false;
+    boot.integrity_policy.integrity_provider =
+        [](const std::filesystem::path& dll_path, const std::wstring&) {
+            // Implement your own hash/signature verification here.
+            return std::filesystem::exists(dll_path);
+        };
 
     std::cout << "Initializing BurnerNet runtime from: "
               << boot.dependency_directory.string() << '\n';
@@ -29,7 +34,7 @@ int RunBootstrapRuntime() {
 
     std::cout << "Bootstrap initialization result: "
               << ErrorCodeToString(init.code) << '\n';
-    std::cout << "Replace the example path and hash allowlist with your packaged runtime set.\n";
+    std::cout << "Replace the example path and integrity callback with your packaged runtime policy.\n";
     return 0;
 #endif
 }

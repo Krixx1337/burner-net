@@ -6,14 +6,14 @@ int RunZeroTrustPipeline();
 int RunCustomPolicy();
 int RunBootstrapRuntime();
 int RunMtlsUsage();
-int RunCustomHmacWeapon();
+int RunCustomHmacVerifier();
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
         std::cout << "BurnerNet Example Suite\n"
                   << "Usage: BurnerNetExamples <example_name>\n\n"
                   << "Available examples:\n"
-                  << "  basic      - Simple request with secure DoH defaults\n"
+                  << "  basic      - Simple request with explicit secure DoH defaults\n"
                   << "  hardened   - Audit check, pinning, and custom policy flow\n"
                   << "  policy     - Custom ISecurityPolicy implementation\n"
                   << "  bootstrap  - Load curl/OpenSSL runtime DLLs from a custom folder\n"
@@ -39,7 +39,7 @@ int main(int argc, char* argv[]) {
         return RunMtlsUsage();
     }
     if (example == "hmac") {
-        return RunCustomHmacWeapon();
+        return RunCustomHmacVerifier();
     }
 
     std::cerr << "Unknown example: " << example << '\n';

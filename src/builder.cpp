@@ -170,11 +170,6 @@ ClientBuilder& ClientBuilder::WithCasualDefaults() {
     m_config.use_native_ca = true;
     m_config.verify_peer = true;
     m_config.verify_host = true;
-
-    m_default_dns_fallback.enabled = true;
-    m_default_dns_fallback.strategies.clear();
-    m_default_dns_fallback.strategies.push_back({DnsMode::System, BURNER_OBF_LITERAL("System DNS"), {}});
-    m_custom_dns_fallback = true;
     return *this;
 }
 
