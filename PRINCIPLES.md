@@ -13,7 +13,7 @@ Standard clients trust the Windows Certificate Store and the System Proxy. An at
 
 *   **Proxy Blackholing:** BurnerNet ignores system proxies by default. Traffic is forced directly to the edge, bypassing local interception tools.
 *   **Certificate Pinning:** We do not trust the OS to validate certificates. We support Public Key Pinning to ensure you are talking to *your* server, and no one else.
-*   **Strict DoH-First DNS:** The OS DNS resolver is treated as compromised. BurnerNet defaults to IP-based DNS-over-HTTPS endpoints, bypassing local DNS poisoning, `hosts` overrides, and `getaddrinfo` hooks unless you explicitly opt back into System DNS.
+*   **Explicit Secure DNS:** The OS DNS resolver is treated as compromised. BurnerNet does not bake public DoH endpoints into the default client state; you opt into strict DNS-over-HTTPS targets explicitly so those resolver choices live in your application, not in every BurnerNet binary.
 *   **TLS Hardening:** We enforce modern TLS 1.2+ protocols and secure cipher suites, preventing downgrade attacks.
 
 ## 2. Ephemeral Memory (Short-Lived Secrets)
@@ -22,23 +22,25 @@ If a secret exists in memory for more than a few milliseconds, it is a target fo
 *   **Provider Pattern:** Secrets (Tokens, Keys, Certs) are never stored in long-lived configuration structs. They are fetched via callbacks nanoseconds before they are needed.
 *   **Aggressive Wiping:** Every temporary buffer used for sensitive data is scrubbed using `SecureZeroMemory` immediately after use.
 
-## 3. Stringless Core (No Plaintext Breadcrumbs)
-Plaintext strings are the "breadcrumbs" of reverse engineering. Strings like `"Signature Mismatch"` or `"Invalid Token"` allow an attacker to find your security logic in seconds using static analysis.
+## 3. Stringless Core (No Plaintext Breadcrumbs or Magic Numbers)
+Plaintext strings and cryptographic "magic numbers" are the fingerprints of security logic. A reverse engineer does not need to understand your whole binary if a `strings` dump, a domain search, or a `FindCrypt` pass already reveals where the trust decisions live.
 
+*   **Dark Core Architecture:** BurnerNet aims to be a ghost library. The core binary avoids shipping hardcoded cryptographic implementations, public DoH endpoint lists, and universal canary domains that would otherwise act as signatures across every downstream build.
 *   **Opaque Error Codes:** The library emits no plaintext error strings in hardened mode. It operates exclusively on a strictly typed `enum class ErrorCode`, and `ErrorCodeToString(...)` collapses to a numeric/XORed representation by default.
-*   **Magic-Numberless Core:** In an open-source library, unique hex constants become perfect signatures for static analysis. BurnerNet avoids public magic numbers entirely by compiling error codes down to small sequential integers that blend into ordinary control flow.
-*   **Jump-Table Destruction:** Release builds harden `ErrorCode` stringification automatically, replacing recognizable switch-based strings with numeric output.
-*   **Protocol Stealth:** Essential internal strings (like HTTP methods and headers) are stack-obfuscated and wiped after use to ensure a `strings` dump reveals nothing.
+*   **Signature-Free Infrastructure:** Verification algorithms, transport canary targets, and bootstrap integrity checks live in application callbacks rather than inside BurnerNet itself. That keeps the transport layer agnostic and denies attackers an obvious universal bypass point.
+*   **Protocol Stealth:** Essential internal strings that must exist for transport behavior are stack-obfuscated and wiped after use so a naïve static dump reveals as little as possible.
 *   **Source-Drop Advantage (Recommended):** The preferred integration model is to compile BurnerNet's source directly inside the host project. That keeps setup simple and lets compile-time hardening be instantiated inside each downstream build instead of being frozen into one shared prebuilt library artifact.
 *   **Import-Light Runtime:** On Windows, BurnerNet uses vendored `lazy_importer` for hidden API resolution in the hardened path instead of relying on large manual import-walking code.
 
-## 4. Bring Your Own Weapons (Professional Hardening vs. Active Warfare)
-Anti-Reverse Engineering (Anti-RE) is a cat-and-mouse game. BurnerNet is a **Professional Hardening** library, not an aggressive obfuscator. We target the sweet spot between **Security**, **Maintainability**, and **Performance**.
+## 4. Bring Your Own Weapons (The Dark Mounts)
+Anti-Reverse Engineering (Anti-RE) is a cat-and-mouse game. BurnerNet is a **Professional Hardening** library, not an aggressive obfuscator: it avoids heavy control-flow tricks, spaghetti-code transforms, and source-hostile obfuscation. We target the sweet spot between **Security**, **Maintainability**, and **Performance** by shipping welded mounts while leaving the weapons to the application.
 
 *   **No Spaghetti-Code Obfuscation:** We reject techniques like control-flow flattening or MBA that turn source code into an unmaintainable mess. BurnerNet's stealth is structural: clean C++20 design choices that still produce a dark binary.
-*   **Weapon Mounts, Not Weapons:** Rather than forcing specific anti-debug, anti-VM, or anti-tamper logic that may break builds or create false positives, BurnerNet provides the welded mounts where those checks can run safely.
+*   **Algorithm Agnostic:** We do not hardcode one signature scheme or verification routine. Response verification is mounted through lambda-based hooks so you can inject HMAC, Ed25519, custom checksums, or any application-specific proof you want.
+*   **Parametric Auditing:** We do not ship a default transport canary. You provide your own TLS-failure targets and audit behavior, which keeps each binary's trust checks specific to the application instead of to BurnerNet.
+*   **Zero-Dependency Bootstrap:** Runtime integrity decisions are delegated to user-provided callbacks. BurnerNet loads and validates dependency paths, but the application decides what "trusted" means.
 *   **Woven Logic:** Policy hooks are compiled into the transport path through concrete types, concepts, and hardened dispatch rather than standard virtual inheritance. That keeps the source auditable while making those checks harder to unplug at runtime.
-*   **Respect for the Developer:** We provide the armor: hidden imports, mangled pointers, vtable-free dispatch, and secure transport defaults. You provide the weapons: debugger detection, VM heuristics, integrity scans, and application-specific enforcement.
+*   **Respect for the Developer:** We provide the armor: hidden imports, mangled pointers, vtable-free dispatch, and safe mount points. You provide the weapons: debugger detection, VM heuristics, integrity scans, trust anchors, and application-specific enforcement.
 
 ## 5. Disposable Transports (Short-Lived Clients)
 Standard networking libraries optimize for long-lived clients, shared connection pools, and process-wide singletons. In a hostile environment, that pattern creates a stationary target.
@@ -58,13 +60,13 @@ We acknowledge a hard truth: **A dedicated reverse engineer with enough time wil
 
 ---
 
-### The Vision: The Hardening Sweet Spot
-The goal of BurnerNet is to provide a **Fortified Transport Layer** that lives in the sweet spot of three competing requirements:
+### The Vision: The Ghost Library (Dark Core)
+The goal of BurnerNet is to provide a **Fortified Transport Layer** that behaves like a ghost within your application:
 
-1. **Security:** Total binary stealth for static analysis and hardened resilience against dynamic hooking.
-2. **Maintainability:** Clean, idiomatic C++20 source code that remains easy to audit, debug, and extend.
-3. **Performance:** Low-overhead security primitives that avoid the traditional performance tax of aggressive obfuscation.
+1. **Security (The Dark Core):** No universal crypto signatures, no baked-in third-party endpoints, and no default canary domains. Every compiled instance can carry different trust logic and is harder to classify with static analysis.
+2. **Maintainability (The Clean Source):** Clean, idiomatic C++20 source code that remains easy to audit, debug, and extend even though the resulting machine code stays intentionally sparse and unhelpful to attackers.
+3. **Independence (The Final Boss):** A transport layer that does not trust the OS, the local network, or even its own defaults. Trust decisions are explicit and application-owned.
 
-**We provide the armor; you provide the weapons.**
+**We provide the armor; you provide the soul.**
 
-By staying in the category of **Professional Hardening**, BurnerNet remains a reliable high-performance tool for legitimate developers while still presenting a dark, expensive target for attackers. We move the ingredients through a secure pipe, keep the binary opaque where it matters, and avoid sacrificing the quality of the codebase to get there.
+By staying in the category of **Professional Hardening**, BurnerNet remains a reliable high-performance tool for legitimate developers while still presenting a dark, expensive target for attackers. The library secures the transport path, strips out universal signatures where practical, and leaves the final trust anchors in the host application where they belong.
