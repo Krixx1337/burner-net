@@ -24,8 +24,13 @@ DLL_DIRECTORY_COOKIE g_dependency_cookie = nullptr;
 using SetDefaultDllDirectoriesFn = decltype(&SetDefaultDllDirectories);
 
 SetDefaultDllDirectoriesFn ResolveSetDefaultDllDirectories() noexcept {
-    // Bootstrap stays on direct Win32 loader APIs; this path is reliability-critical
-    // and should not depend on lazy-import indirection.
+    // Guardrail: bootstrap is the loader boundary for BurnerNet's dynamic runtime mode.
+    // Keep these calls on direct Win32 APIs even when BURNERNET_HARDEN_IMPORTS is enabled.
+    //
+    // We tried resolving bootstrap loader APIs through lazy_importer and hit an
+    // access-violation in AddDllDirectory on Windows. This path mutates DLL search
+    // state and loads modules, so it must not depend on PEB/export walking indirection.
+    // Hide imports later in the runtime path, not inside the bootstrap loader itself.
     const HMODULE kernel32 = ::GetModuleHandleW(L"kernel32.dll");
     if (kernel32 == nullptr) {
         return nullptr;
@@ -74,7 +79,8 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
             (void)set_default_dll_directories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
         }
 
-        // Use the loader directly once we know the dependency directory.
+        // Guardrail: AddDllDirectory stays direct for the same reason as above.
+        // This code is actively changing loader search paths; do not wrap it in lazy_importer.
         g_dependency_cookie = ::AddDllDirectory(config.dependency_directory.c_str());
         if (g_dependency_cookie == nullptr) {
             return {false, ErrorCode::BootstrapAddDir};
@@ -97,6 +103,9 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
             }
         }
 
+        // Guardrail: LoadLibraryExW/GetModuleFileNameW/FreeLibrary remain direct.
+        // Bootstrap owns DLL loading and path verification, so this must stay on the
+        // OS loader path rather than hidden-import helpers.
         HMODULE module = ::LoadLibraryExW(
             full_path.c_str(),
             nullptr,

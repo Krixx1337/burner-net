@@ -1,11 +1,13 @@
 #include <doctest/doctest.h>
 
+#include <filesystem>
 #include <cstdint>
 #include <ostream>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "burner/net/bootstrap.h"
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
 #include "burner/net/http.h"
@@ -101,6 +103,26 @@ struct HandleProbe {
 
     int* destroy_count = nullptr;
 };
+
+#ifdef _WIN32
+std::filesystem::path CurrentExecutablePath() {
+    wchar_t buffer[MAX_PATH] = {};
+    const DWORD length = ::GetModuleFileNameW(nullptr, buffer, MAX_PATH);
+    if (length == 0 || length == MAX_PATH) {
+        return {};
+    }
+
+    return std::filesystem::path(buffer);
+}
+
+std::wstring TestCurlRuntimeName() {
+#if defined(_DEBUG)
+    return L"libcurl-d.dll";
+#else
+    return L"libcurl.dll";
+#endif
+}
+#endif
 
 } // namespace
 
@@ -231,6 +253,77 @@ TEST_CASE("client builder accepts explicit curl module names") {
     auto& chained = builder.WithCurlModuleName("utility_32.dll");
 
     CHECK(&chained == &builder);
+}
+
+TEST_CASE("bootstrap runtime rejects missing integrity provider in fail-closed mode") {
+#ifdef _WIN32
+    burner::net::BootstrapConfig boot{};
+    boot.link_mode = burner::net::LinkMode::Dynamic;
+    boot.dependency_directory = std::filesystem::current_path();
+    boot.dependency_dlls.push_back(TestCurlRuntimeName());
+    boot.integrity_policy.enabled = true;
+    boot.integrity_policy.fail_closed = true;
+
+    const burner::net::BootstrapResult init = burner::net::InitializeNetworkingRuntime(boot);
+
+    INFO("BURNERNET_HARDEN_IMPORTS=" << BURNERNET_HARDEN_IMPORTS);
+    CHECK_FALSE(init.success);
+    CHECK(init.code == burner::net::ErrorCode::BootstrapIntegrityCfg);
+#else
+    const burner::net::BootstrapResult init =
+        burner::net::InitializeNetworkingRuntime(burner::net::BootstrapConfig{});
+    CHECK(init.success);
+    CHECK(init.code == burner::net::ErrorCode::BootstrapWinOnly);
+#endif
+}
+
+TEST_CASE("bootstrap runtime loads packaged redist like the bootstrap example") {
+#ifdef _WIN32
+    const std::filesystem::path executable_path = CurrentExecutablePath();
+    REQUIRE(!executable_path.empty());
+
+    const std::filesystem::path redist_dir = executable_path.parent_path() / "redist";
+    const std::wstring curl_name = TestCurlRuntimeName();
+    const std::filesystem::path curl_path = redist_dir / std::filesystem::path(curl_name);
+
+    if (!std::filesystem::exists(curl_path)) {
+        MESSAGE("Skipping packaged bootstrap test because runtime dependency is missing: "
+                << curl_path.string());
+        return;
+    }
+
+    bool integrity_called = false;
+    std::filesystem::path seen_path;
+    std::wstring seen_name;
+
+    burner::net::BootstrapConfig boot{};
+    boot.link_mode = burner::net::LinkMode::Dynamic;
+    boot.dependency_directory = redist_dir;
+    boot.dependency_dlls.push_back(curl_name);
+    boot.integrity_policy.enabled = true;
+    boot.integrity_policy.fail_closed = true;
+    boot.integrity_policy.integrity_provider =
+        [&](const std::filesystem::path& dll_path, const std::wstring& dll_name) {
+            integrity_called = true;
+            seen_path = dll_path;
+            seen_name = dll_name;
+            return std::filesystem::exists(dll_path);
+        };
+
+    const burner::net::BootstrapResult init = burner::net::InitializeNetworkingRuntime(boot);
+
+    INFO("BURNERNET_HARDEN_IMPORTS=" << BURNERNET_HARDEN_IMPORTS);
+    CHECK(init.success);
+    CHECK(init.code == burner::net::ErrorCode::BootstrapLoaded);
+    CHECK(integrity_called);
+    CHECK(seen_path == curl_path);
+    CHECK(seen_name == curl_name);
+#else
+    const burner::net::BootstrapResult init =
+        burner::net::InitializeNetworkingRuntime(burner::net::BootstrapConfig{});
+    CHECK(init.success);
+    CHECK(init.code == burner::net::ErrorCode::BootstrapWinOnly);
+#endif
 }
 
 TEST_CASE("dns strategy defaults to an empty display name") {

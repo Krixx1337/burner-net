@@ -19,6 +19,10 @@
 #pragma comment(lib, "normaliz.lib")
 #endif
 #endif
+
+#if BURNERNET_HARDEN_IMPORTS
+#include "../detail/hostile_imports.h"
+#endif
 #endif
 
 namespace burner::net {
@@ -162,7 +166,7 @@ CurlApi MakeWrappedCurlApi() {
 #if BURNERNET_HARDEN_IMPORTS && defined(_WIN32)
 HMODULE ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
     if (!config.curl_module_name.empty()) {
-        return ::GetModuleHandleA(config.curl_module_name.c_str());
+        return LI_FN(GetModuleHandleA).cached()(config.curl_module_name.c_str());
     }
 
     const std::string default_name =
@@ -171,7 +175,7 @@ HMODULE ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
 #else
         BURNER_OBF_LITERAL("libcurl.dll");
 #endif
-    return ::GetModuleHandleA(default_name.c_str());
+    return LI_FN(GetModuleHandleA).cached()(default_name.c_str());
 }
 
 template <typename TFn>
@@ -180,9 +184,8 @@ TFn ResolveCurlExport(HMODULE module, const char* export_name) noexcept {
         return nullptr;
     }
 
-    // In harden-imports mode curl is already an explicitly loaded runtime module,
-    // so resolve exports directly instead of layering lazy-importer on top.
-    return reinterpret_cast<TFn>(::GetProcAddress(module, export_name));
+    // Resolve exports via lazy-importer to scrub GetProcAddress from the IAT.
+    return reinterpret_cast<TFn>(LI_FN(GetProcAddress).cached()(module, export_name));
 }
 
 bool IsCurlApiComplete(const CurlApi& api) {
