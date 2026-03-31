@@ -61,6 +61,56 @@ public:
         return nullptr;
     }
 
+    [[nodiscard]] static void* FindModuleSignature(void* module_base, std::uint8_t signature) noexcept {
+        if (module_base == nullptr) {
+            return nullptr;
+        }
+
+        auto* base = static_cast<std::uint8_t*>(module_base);
+        auto* dos = reinterpret_cast<IMAGE_DOS_HEADER*>(base);
+        if (dos->e_magic != IMAGE_DOS_SIGNATURE || dos->e_lfanew <= 0) {
+            return nullptr;
+        }
+
+        auto* nt = reinterpret_cast<IMAGE_NT_HEADERS*>(base + dos->e_lfanew);
+        if (nt->Signature != IMAGE_NT_SIGNATURE) {
+            return nullptr;
+        }
+
+        const std::size_t image_size = nt->OptionalHeader.SizeOfImage;
+        if (image_size == 0 || nt->FileHeader.NumberOfSections == 0) {
+            return nullptr;
+        }
+
+        auto* section = IMAGE_FIRST_SECTION(nt);
+        for (std::uint16_t i = 0; i < nt->FileHeader.NumberOfSections; ++i, ++section) {
+            if ((section->Characteristics & IMAGE_SCN_MEM_EXECUTE) == 0) {
+                continue;
+            }
+
+            const std::size_t section_offset = static_cast<std::size_t>(section->VirtualAddress);
+            const std::size_t declared_size = static_cast<std::size_t>(
+                section->Misc.VirtualSize != 0 ? section->Misc.VirtualSize : section->SizeOfRawData);
+            if (declared_size == 0 || section_offset >= image_size) {
+                continue;
+            }
+
+            const std::size_t bounded_size = (declared_size > (image_size - section_offset))
+                ? (image_size - section_offset)
+                : declared_size;
+            const auto* start = base + section_offset;
+            const auto* end = start + bounded_size;
+
+            for (const auto* p = start; p < end; ++p) {
+                if (*p == signature) {
+                    return const_cast<std::uint8_t*>(p);
+                }
+            }
+        }
+
+        return nullptr;
+    }
+
     [[nodiscard]] static void* ResolveInternalExport(void* module_base, std::uint32_t func_hash) noexcept {
         return ResolveInternalExport(module_base, func_hash, 0);
     }

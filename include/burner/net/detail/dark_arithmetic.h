@@ -8,7 +8,9 @@
 namespace burner::net::detail {
 
 template <typename T>
-concept DarkIntegral = std::integral<T> && (!std::same_as<std::remove_cv_t<T>, bool>);
+concept DarkIntegral = std::integral<T> &&
+    (!std::same_as<std::remove_cv_t<T>, bool>) &&
+    (sizeof(std::remove_cv_t<T>) <= sizeof(std::uint64_t));
 
 inline void dark_compiler_barrier() noexcept {
     std::atomic_signal_fence(std::memory_order_seq_cst);

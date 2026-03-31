@@ -18,6 +18,7 @@
 #include "burner/net/detail/dark_arithmetic.h"
 #include "burner/net/detail/dark_callables.h"
 #include "burner/net/detail/dark_hashing.h"
+#include "burner/net/detail/kernel_resolver.h"
 #include "burner/net/detail/dark_simd.h"
 #include "burner/net/detail/pointer_mangling.h"
 #include "curl/curl_http_client.h"
@@ -161,6 +162,9 @@ TEST_CASE("dark hashing supports case-sensitive and case-insensitive FNV-1a") {
 }
 
 TEST_CASE("dark arithmetic restores masked constants through MBA identities") {
+    static_assert(burner::net::detail::DarkIntegral<std::uint64_t>);
+    static_assert(!burner::net::detail::DarkIntegral<bool>);
+
     const auto curlopt_url = BURNER_MASK_INT(10002L);
     const auto http_ok = BURNER_MASK_INT(200);
 
@@ -169,6 +173,20 @@ TEST_CASE("dark arithmetic restores masked constants through MBA identities") {
     CHECK(burner::net::detail::add_deep(17u, 25u) == 42u);
     CHECK(burner::net::detail::add_deep_alt(17u, 25u) == 42u);
     CHECK(burner::net::detail::sub_deep(100u, 58u) == 42u);
+}
+
+TEST_CASE("kernel resolver can locate signatures inside executable system modules") {
+#ifdef _WIN32
+    void* const kernel32 = burner::net::detail::KernelResolver::GetSystemModule(
+        burner::net::detail::fnv1a_ci("kernel32.dll"));
+    REQUIRE(kernel32 != nullptr);
+
+    void* const ret_opcode = burner::net::detail::KernelResolver::FindModuleSignature(kernel32, 0xC3u);
+    CHECK(ret_opcode != nullptr);
+    CHECK(burner::net::detail::KernelResolver::FindModuleSignature(nullptr, 0xC3u) == nullptr);
+#else
+    SUCCEED();
+#endif
 }
 
 TEST_CASE("dark simd literal restores plaintext") {
