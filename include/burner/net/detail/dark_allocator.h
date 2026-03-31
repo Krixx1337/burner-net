@@ -1,10 +1,14 @@
 #pragma once
 
-#include "burner/net/detail/memory_hygiene.h"
-
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <type_traits>
+#include <vector>
+
+namespace burner::net::obf {
+void secure_wipe(void* ptr, std::size_t size) noexcept;
+}
 
 namespace burner::net::detail {
 
@@ -50,3 +54,11 @@ template <typename T, typename U>
 
 } // namespace burner::net::detail
 
+namespace burner::net {
+
+using DarkString = std::basic_string<char, std::char_traits<char>, detail::WipingAllocator<char>>;
+
+template <typename T>
+using DarkVector = std::vector<T, detail::WipingAllocator<T>>;
+
+} // namespace burner::net

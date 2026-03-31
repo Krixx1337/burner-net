@@ -3,8 +3,6 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
-#include <functional>
-#include <memory>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -12,6 +10,8 @@
 #include <vector>
 
 #include "concepts.h"
+#include "detail/dark_callables.h"
+#include "detail/dark_hashing.h"
 #include "detail/memory_hygiene.h"
 #include "export.h"
 #include "error.h"
@@ -24,15 +24,14 @@ inline bool HeaderNameEquals(std::string_view lhs, std::string_view rhs) noexcep
     if (lhs.size() != rhs.size()) {
         return false;
     }
-
+    if (detail::fnv1a_runtime_ci(lhs) != detail::fnv1a_runtime_ci(rhs)) {
+        return false;
+    }
     for (std::size_t i = 0; i < lhs.size(); ++i) {
-        const auto lhs_ch = static_cast<unsigned char>(lhs[i]);
-        const auto rhs_ch = static_cast<unsigned char>(rhs[i]);
-        if (std::tolower(lhs_ch) != std::tolower(rhs_ch)) {
+        if (detail::ascii_lower(lhs[i]) != detail::ascii_lower(rhs[i])) {
             return false;
         }
     }
-
     return true;
 }
 
@@ -46,8 +45,10 @@ enum class HttpMethod {
 
 class HeaderMap {
 public:
-    using value_type = std::pair<std::string, std::string>;
-    using storage_type = std::vector<value_type>;
+    using key_type = DarkString;
+    using mapped_type = DarkString;
+    using value_type = std::pair<key_type, mapped_type>;
+    using storage_type = DarkVector<value_type>;
     using iterator = storage_type::iterator;
     using const_iterator = storage_type::const_iterator;
 
@@ -69,16 +70,20 @@ public:
         clear();
     }
 
-    std::string& operator[](std::string key) {
+    mapped_type& operator[](key_type key) {
         if (auto* existing = find_value(key)) {
             return *existing;
         }
 
-        m_items.emplace_back(std::move(key), std::string{});
+        m_items.emplace_back(std::move(key), DarkString{});
         return m_items.back().second;
     }
 
-    void insert_or_assign(std::string key, std::string value) {
+    mapped_type& operator[](const std::string& key) { return (*this)[std::string_view(key)]; }
+    mapped_type& operator[](const char* key) { return (*this)[std::string_view(key == nullptr ? "" : key)]; }
+    mapped_type& operator[](std::string_view key) { return (*this)[key_type(key)]; }
+
+    void insert_or_assign(key_type key, mapped_type value) {
         if (auto* existing = find_value(key)) {
             *existing = std::move(value);
             return;
@@ -100,7 +105,7 @@ public:
     void clear() noexcept;
 
 private:
-    std::string* find_value(const std::string& key) noexcept {
+    mapped_type* find_value(const key_type& key) noexcept {
         for (auto& [existing_key, existing_value] : m_items) {
             if (HeaderNameEquals(existing_key, key)) {
                 return &existing_value;
@@ -119,15 +124,15 @@ inline void HeaderMap::clear() noexcept {
     }
     m_items.clear();
 }
-using TokenProvider = std::function<bool(std::string& out)>;
-using ChunkCallback = std::function<void(const uint8_t*, size_t)>;
-using PreFlightCallback = std::function<bool(const struct HttpRequest& request)>;
-using EnvironmentCheckCallback = std::function<bool()>;
-using TransportCheckCallback = std::function<bool(const char* url, const char* remote_ip)>;
-using ResponseReceivedCallback = std::function<bool(const struct HttpRequest& request, const struct HttpResponse& response)>;
-using ResponseVerifyFn = std::function<bool(const struct HttpRequest& request, const struct HttpResponse& response, ErrorCode* reason)>;
-using PostVerificationCallback = std::function<void(bool verified, ErrorCode reason)>;
-using TamperActionCallback = std::function<void()>;
+using TokenProvider = detail::CompactCallable<bool(DarkString& out)>;
+using ChunkCallback = detail::CompactCallable<void(const uint8_t*, size_t)>;
+using PreFlightCallback = detail::CompactCallable<bool(const struct HttpRequest& request)>;
+using EnvironmentCheckCallback = detail::CompactCallable<bool()>;
+using TransportCheckCallback = detail::CompactCallable<bool(const char* url, const char* remote_ip)>;
+using ResponseReceivedCallback = detail::CompactCallable<bool(const struct HttpRequest& request, const struct HttpResponse& response)>;
+using ResponseVerifyFn = detail::CompactCallable<bool(const struct HttpRequest& request, const struct HttpResponse& response, ErrorCode* reason)>;
+using PostVerificationCallback = detail::CompactCallable<void(bool verified, ErrorCode reason)>;
+using TamperActionCallback = detail::CompactCallable<void()>;
 
 struct TransferProgress {
     long long dl_total = 0;
@@ -136,7 +141,7 @@ struct TransferProgress {
     long long ul_now = 0;
 };
 
-using HeartbeatCallback = std::function<bool(const TransferProgress&)>;
+using HeartbeatCallback = detail::CompactCallable<bool(const TransferProgress&)>;
 
 enum class DnsMode {
     System,
@@ -145,13 +150,13 @@ enum class DnsMode {
 
 struct DnsStrategy {
     DnsMode mode = DnsMode::System;
-    std::string name;
-    std::string doh_url;
+    DarkString name;
+    DarkString doh_url;
 };
 
 struct DnsFallbackPolicy {
     bool enabled = true;
-    std::vector<DnsStrategy> strategies;
+    DarkVector<DnsStrategy> strategies;
 };
 
 struct RetryPolicy {
@@ -170,7 +175,7 @@ struct MtlsCredentials {
 
 struct HttpRequest {
     HttpMethod method = HttpMethod::Get;
-    std::string url;
+    DarkString url;
     SecureString body;
     std::string_view body_view;
     HeaderMap headers;
@@ -187,7 +192,7 @@ struct HttpRequest {
 
 struct HttpResponse {
     long status_code = 0;
-    std::string body;
+    DarkString body;
     HeaderMap headers;
 
     int transport_code = 0;
@@ -195,14 +200,14 @@ struct HttpResponse {
 
     bool verified = true;
     ErrorCode verification_error = ErrorCode::None;
-    std::string dns_strategy_used;
+    DarkString dns_strategy_used;
     std::size_t streamed_body_bytes = 0;
 
     bool TransportOk() const { return transport_code == 0 && transport_error == ErrorCode::None; }
     bool HttpOk() const { return status_code >= 200 && status_code < 400; }
     bool Ok() const { return TransportOk() && HttpOk() && verified; }
-    std::string DnsStrategyDisplayName() const {
-        return dns_strategy_used.empty() ? BURNER_OBF_LITERAL("Default") : dns_strategy_used;
+    DarkString DnsStrategyDisplayName() const {
+        return dns_strategy_used.empty() ? DarkString(BURNER_OBF_LITERAL("Default")) : dns_strategy_used;
     }
 };
 
@@ -228,7 +233,7 @@ public:
     }
 
     [[nodiscard]] bool Enabled() const noexcept {
-        return m_state != nullptr;
+        return static_cast<bool>(m_state);
     }
 
     [[nodiscard]] bool Verify(const HttpRequest& request, const HttpResponse& response, ErrorCode* reason) const {
@@ -252,19 +257,18 @@ private:
     void emplace(TVerifier verifier) {
         using VerifierType = std::decay_t<TVerifier>;
 
-        auto state = std::make_shared<VerifierType>(std::move(verifier));
-        m_state = state;
+        m_state = detail::SecureHandle<const void>::template make<VerifierType>(std::move(verifier));
         m_verify = [](const void* raw, const HttpRequest& request, const HttpResponse& response, ErrorCode* reason) {
             return static_cast<const VerifierType*>(raw)->Verify(request, response, reason);
         };
     }
 
-    std::shared_ptr<const void> m_state;
+    detail::SecureHandle<const void> m_state;
     bool (*m_verify)(const void*, const HttpRequest&, const HttpResponse&, ErrorCode*) = nullptr;
 };
 
 struct ClientConfig {
-    std::string user_agent;
+    DarkString user_agent;
     bool verify_peer = true;
     bool verify_host = true;
     bool use_native_ca = true;
@@ -272,13 +276,13 @@ struct ClientConfig {
 
     HeaderMap default_headers;
     MtlsCredentials mtls{};
-    std::function<bool(MtlsCredentials& out)> mtls_provider;
+    detail::CompactCallable<bool(MtlsCredentials& out)> mtls_provider;
     TokenProvider bearer_token_provider;
     ResponseVerifier response_verifier;
     SecurityPolicy security_policy;
     std::size_t global_max_body_bytes = 0;
-    std::vector<std::string> pinned_public_keys;
-    std::string curl_module_name;
+    DarkVector<DarkString> pinned_public_keys;
+    DarkString curl_module_name;
 };
 
 } // namespace burner::net

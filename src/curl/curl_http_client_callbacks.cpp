@@ -50,14 +50,14 @@ size_t CurlHttpClient::WriteHeaderCallback(void* contents, size_t size, size_t n
     }
 
     auto* headers = static_cast<HeaderMap*>(user_data);
-    std::string line(static_cast<const char*>(contents), total);
+    std::string_view line(static_cast<const char*>(contents), total);
 
     auto it = line.find(':');
-    if (it != std::string::npos) {
-        std::string name = line.substr(0, it);
-        std::string value = line.substr(it + 1);
+    if (it != std::string_view::npos) {
+        DarkString name(line.substr(0, it));
+        DarkString value(line.substr(it + 1));
 
-        auto trim = [](std::string& x) {
+        auto trim = [](DarkString& x) {
             while (!x.empty() && (x.back() == '\r' || x.back() == '\n' || x.back() == ' ' || x.back() == '\t')) {
                 x.pop_back();
             }
@@ -77,8 +77,6 @@ size_t CurlHttpClient::WriteHeaderCallback(void* contents, size_t size, size_t n
             headers->insert_or_assign(std::move(name), std::move(value));
         }
     }
-
-    SecureWipe(line);
     return total;
 }
 

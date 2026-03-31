@@ -1,5 +1,6 @@
 #pragma once
 
+#include <concepts>
 #include <memory>
 #include <type_traits>
 #include <utility>
@@ -12,30 +13,48 @@ public:
     SecureHandle() noexcept = default;
 
     explicit SecureHandle(T* pointer) noexcept
-        : pointer_(pointer),
-          destroy_([](void* raw) { delete static_cast<T*>(raw); }) {}
+        : pointer_(pointer) {
+        if constexpr (!std::is_void_v<T>) {
+            destroy_ = [](const void* raw) { delete static_cast<const T*>(raw); };
+            clone_ = [](const void* raw) -> void* { return new std::remove_const_t<T>(*static_cast<const T*>(raw)); };
+        }
+    }
 
     template <typename U, typename... Args>
-    requires std::derived_from<U, T> || std::same_as<U, T>
     [[nodiscard]] static SecureHandle make(Args&&... args) {
-        return SecureHandle(new U(std::forward<Args>(args)...));
+        auto* value = new U(std::forward<Args>(args)...);
+        return SecureHandle(
+            static_cast<T*>(value),
+            [](const void* raw) { delete static_cast<const U*>(raw); },
+            [](const void* raw) -> void* { return new U(*static_cast<const U*>(raw)); });
+    }
+
+    SecureHandle(const SecureHandle& other) {
+        copy_from(other);
     }
 
     SecureHandle(SecureHandle&& other) noexcept
         : pointer_(std::exchange(other.pointer_, nullptr)),
-          destroy_(std::exchange(other.destroy_, nullptr)) {}
+          destroy_(std::exchange(other.destroy_, nullptr)),
+          clone_(std::exchange(other.clone_, nullptr)) {}
+
+    SecureHandle& operator=(const SecureHandle& other) {
+        if (this != &other) {
+            reset();
+            copy_from(other);
+        }
+        return *this;
+    }
 
     SecureHandle& operator=(SecureHandle&& other) noexcept {
         if (this != &other) {
             reset();
             pointer_ = std::exchange(other.pointer_, nullptr);
             destroy_ = std::exchange(other.destroy_, nullptr);
+            clone_ = std::exchange(other.clone_, nullptr);
         }
         return *this;
     }
-
-    SecureHandle(const SecureHandle&) = delete;
-    SecureHandle& operator=(const SecureHandle&) = delete;
 
     ~SecureHandle() {
         reset();
@@ -47,24 +66,33 @@ public:
         }
         pointer_ = nullptr;
         destroy_ = nullptr;
+        clone_ = nullptr;
     }
 
     [[nodiscard]] T* get() noexcept { return pointer_; }
     [[nodiscard]] const T* get() const noexcept { return pointer_; }
-    [[nodiscard]] T& operator*() noexcept { return *pointer_; }
-    [[nodiscard]] const T& operator*() const noexcept { return *pointer_; }
     [[nodiscard]] T* operator->() noexcept { return pointer_; }
     [[nodiscard]] const T* operator->() const noexcept { return pointer_; }
     [[nodiscard]] explicit operator bool() const noexcept { return pointer_ != nullptr; }
 
 private:
-    using destroy_fn = void (*)(void*);
+    using destroy_fn = void (*)(const void*);
+    using clone_fn = void* (*)(const void*);
 
-    SecureHandle(T* pointer, destroy_fn destroy) noexcept
-        : pointer_(pointer), destroy_(destroy) {}
+    SecureHandle(T* pointer, destroy_fn destroy, clone_fn clone) noexcept
+        : pointer_(pointer), destroy_(destroy), clone_(clone) {}
+
+    void copy_from(const SecureHandle& other) {
+        destroy_ = other.destroy_;
+        clone_ = other.clone_;
+        pointer_ = (other.pointer_ != nullptr && clone_ != nullptr)
+            ? static_cast<T*>(clone_(other.pointer_))
+            : nullptr;
+    }
 
     T* pointer_ = nullptr;
     destroy_fn destroy_ = nullptr;
+    clone_fn clone_ = nullptr;
 };
 
 template <typename Signature>
@@ -181,4 +209,3 @@ private:
 };
 
 } // namespace burner::net::detail
-

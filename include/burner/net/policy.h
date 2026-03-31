@@ -1,12 +1,13 @@
 #pragma once
 
 #include "burner/net/concepts.h"
+#include "burner/net/detail/dark_allocator.h"
+#include "burner/net/detail/dark_callables.h"
 #include "burner/net/detail/pointer_mangling.h"
 #include "burner/net/export.h"
 
 #include <cstdint>
 #include <cstdlib>
-#include <memory>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -58,7 +59,7 @@ struct BURNER_API ISecurityPolicy {
         (void)url;
     }
 
-    std::string GetUserAgent() const {
+    DarkString GetUserAgent() const {
         return "";
     }
 };
@@ -107,7 +108,7 @@ public:
         m_on_error(m_state.get(), code, url);
     }
 
-    [[nodiscard]] std::string GetUserAgent() const {
+    [[nodiscard]] DarkString GetUserAgent() const {
         return m_get_user_agent(m_state.get());
     }
 
@@ -116,8 +117,7 @@ private:
     void emplace(TPolicy policy) {
         using PolicyType = std::decay_t<TPolicy>;
 
-        auto state = std::make_shared<PolicyType>(std::move(policy));
-        m_state = state;
+        m_state = detail::SecureHandle<const void>::template make<PolicyType>(std::move(policy));
         m_on_verify_environment = [](const void* raw) {
             return static_cast<const PolicyType*>(raw)->OnVerifyEnvironment();
         };
@@ -142,12 +142,12 @@ private:
         m_on_error = [](const void* raw, ErrorCode code, const char* url) {
             static_cast<const PolicyType*>(raw)->OnError(code, url);
         };
-        m_get_user_agent = [](const void* raw) {
-            return static_cast<const PolicyType*>(raw)->GetUserAgent();
+        m_get_user_agent = [](const void* raw) -> DarkString {
+            return DarkString(static_cast<const PolicyType*>(raw)->GetUserAgent());
         };
     }
 
-    std::shared_ptr<const void> m_state;
+    detail::SecureHandle<const void> m_state;
     EncodedPointer<bool (*)(const void*)> m_on_verify_environment = nullptr;
     EncodedPointer<bool (*)(const void*, HttpRequest&)> m_on_pre_request = nullptr;
     EncodedPointer<bool (*)(const void*, const char*, const char*)> m_on_verify_transport = nullptr;
@@ -156,7 +156,7 @@ private:
     EncodedPointer<void (*)(const void*, bool, ErrorCode)> m_on_signature_verified = nullptr;
     EncodedPointer<void (*)(const void*)> m_on_tamper = nullptr;
     EncodedPointer<void (*)(const void*, ErrorCode, const char*)> m_on_error = nullptr;
-    EncodedPointer<std::string (*)(const void*)> m_get_user_agent = nullptr;
+    EncodedPointer<DarkString (*)(const void*)> m_get_user_agent = nullptr;
 };
 
 } // namespace burner::net

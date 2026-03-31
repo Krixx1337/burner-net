@@ -5,7 +5,7 @@
 namespace burner::net {
 
 struct BodyWriteContext {
-    std::string* body = nullptr;
+    DarkString* body = nullptr;
     std::size_t max_body_bytes = 0;
     bool limit_exceeded = false;
     std::size_t streamed_body_bytes = 0;

@@ -31,6 +31,12 @@ inline void SecureWipe(std::string& value) {
     value.clear();
 }
 
+template <typename Traits, typename Alloc>
+inline void SecureWipe(std::basic_string<char, Traits, Alloc>& value) {
+    ::burner::net::obf::secure_wipe(value.data(), value.size());
+    value.clear();
+}
+
 inline void SecureWipe(SecureString& value) {
     ::burner::net::obf::secure_wipe(value.data(), value.capacity());
     value.clear();
@@ -38,6 +44,12 @@ inline void SecureWipe(SecureString& value) {
 
 template <typename T>
 inline void SecureWipe(std::vector<T>& value) {
+    ::burner::net::obf::secure_wipe(value.data(), value.size() * sizeof(T));
+    value.clear();
+}
+
+template <typename T, typename Alloc>
+inline void SecureWipe(std::vector<T, Alloc>& value) {
     ::burner::net::obf::secure_wipe(value.data(), value.size() * sizeof(T));
     value.clear();
 }

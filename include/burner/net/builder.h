@@ -1,6 +1,5 @@
 #pragma once
 
-#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -147,7 +146,7 @@ public:
     ClientBuilder& WithVerifyHost(bool enabled);
     ClientBuilder& WithUseNativeCa(bool enabled);
     ClientBuilder& WithMtls(MtlsCredentials creds);
-    ClientBuilder& WithMtlsProvider(std::function<bool(MtlsCredentials&)> provider);
+    ClientBuilder& WithMtlsProvider(detail::CompactCallable<bool(MtlsCredentials&)> provider);
     ClientBuilder& WithBearerTokenProvider(TokenProvider provider);
     ClientBuilder& WithPreFlight(PreFlightCallback callback);
     ClientBuilder& WithEnvironmentCheck(EnvironmentCheckCallback callback);
@@ -159,37 +158,12 @@ public:
     ClientBuilder& WithGlobalMaxBodyLimit(std::size_t max_body_bytes);
     ClientBuilder& WithCurlModuleName(std::string name);
     ClientBuilder& WithCasualDefaults();
-    ClientBuilder& WithStandardSecureDns() {
-        if (!m_custom_dns_fallback) {
-            m_default_dns_fallback.strategies.clear();
-            m_custom_dns_fallback = true;
-        }
-
-        m_default_dns_fallback.enabled = true;
-        m_default_dns_fallback.strategies.push_back({
-            DnsMode::Doh,
-            BURNER_OBF_LITERAL("Cloudflare DoH (Strict)"),
-            BURNER_OBF_LITERAL("https://1.1.1.1/dns-query")});
-        m_default_dns_fallback.strategies.push_back({
-            DnsMode::Doh,
-            BURNER_OBF_LITERAL("Cloudflare DoH (Strict Secondary)"),
-            BURNER_OBF_LITERAL("https://1.0.0.1/dns-query")});
-        m_default_dns_fallback.strategies.push_back({
-            DnsMode::Doh,
-            BURNER_OBF_LITERAL("Google DoH (Strict)"),
-            BURNER_OBF_LITERAL("https://8.8.8.8/dns-query")});
-        m_default_dns_fallback.strategies.push_back({
-            DnsMode::Doh,
-            BURNER_OBF_LITERAL("Google DoH (Strict Secondary)"),
-            BURNER_OBF_LITERAL("https://8.8.4.4/dns-query")});
-        return *this;
-    }
     ClientBuilder& AllowSystemDns(bool fallback_allowed = true);
     ClientBuilder& WithDnsFallback(DnsMode mode, std::string value, std::string name = {});
     ClientBuilder& WithPinnedKey(std::string pin);
 
     struct ClientBuildResult {
-        std::shared_ptr<FluentClient<CurlHttpClient>> client;
+        std::unique_ptr<FluentClient<CurlHttpClient>> client;
         ErrorCode error = ErrorCode::None;
 
         [[nodiscard]] bool Ok() const { return client != nullptr; }

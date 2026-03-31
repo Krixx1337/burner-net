@@ -1,10 +1,10 @@
 #pragma once
 
 #include <filesystem>
-#include <functional>
 #include <string>
 #include <vector>
 
+#include "detail/dark_callables.h"
 #include "export.h"
 #include "error.h"
 #include "policy.h"
@@ -16,7 +16,7 @@ enum class LinkMode {
     Dynamic
 };
 
-using IntegrityProvider = std::function<bool(const std::filesystem::path& dll_path, const std::wstring& dll_name)>;
+using IntegrityProvider = detail::CompactCallable<bool(const std::filesystem::path& dll_path, const std::wstring& dll_name)>;
 
 struct DependencyIntegrityPolicy {
     bool enabled = false;

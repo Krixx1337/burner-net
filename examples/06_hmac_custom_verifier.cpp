@@ -45,7 +45,7 @@ std::string Trim(std::string value) {
 std::string GetHeaderCaseInsensitive(const burner::net::HeaderMap& headers, std::string_view name) {
     for (const auto& [header_name, value] : headers) {
         if (burner::net::HeaderNameEquals(header_name, name)) {
-            return value;
+            return std::string(value);
         }
     }
     return {};

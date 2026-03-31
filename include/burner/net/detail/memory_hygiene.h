@@ -1,5 +1,6 @@
 #pragma once
 
+#include "burner/net/detail/dark_allocator.h"
 #include "burner/net/export.h"
 
 #include <algorithm>
@@ -7,8 +8,8 @@
 #include <cstdint>
 #include <memory>
 #include <span>
-#include <string_view>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -21,13 +22,14 @@ namespace burner::net::obf {
 
 HOSTILE_CORE_EXPORT void secure_wipe(void* ptr, std::size_t size) noexcept;
 
-inline void secure_wipe(std::string& value) noexcept {
+template <typename Traits, typename Alloc>
+inline void secure_wipe(std::basic_string<char, Traits, Alloc>& value) noexcept {
     secure_wipe(value.data(), value.capacity());
     value.clear();
 }
 
-template <typename T>
-inline void secure_wipe(std::vector<T>& value) noexcept {
+template <typename T, typename Alloc>
+inline void secure_wipe(std::vector<T, Alloc>& value) noexcept {
     secure_wipe(value.data(), value.capacity() * sizeof(T));
     value.clear();
 }
@@ -43,36 +45,36 @@ namespace burner::net {
 
 class SecureString {
 public:
-    using value_type = std::string::value_type;
-    using size_type = std::string::size_type;
+    using value_type = DarkString::value_type;
+    using size_type = DarkString::size_type;
 
     SecureString() {
-        new (&m_storage) std::string();
+        new (&m_storage) DarkString();
         m_engaged = true;
     }
 
     SecureString(const char* value) {
-        new (&m_storage) std::string(value == nullptr ? "" : value);
+        new (&m_storage) DarkString(value == nullptr ? "" : value);
         m_engaged = true;
     }
 
-    SecureString(std::string value) {
-        new (&m_storage) std::string(std::move(value));
+    SecureString(DarkString value) {
+        new (&m_storage) DarkString(std::move(value));
         m_engaged = true;
     }
 
     SecureString(std::string_view value) {
-        new (&m_storage) std::string(value);
+        new (&m_storage) DarkString(value);
         m_engaged = true;
     }
 
     SecureString(const SecureString& other) {
-        new (&m_storage) std::string(other.str());
+        new (&m_storage) DarkString(other.str());
         m_engaged = true;
     }
 
     SecureString(SecureString&& other) noexcept {
-        new (&m_storage) std::string(std::move(other.str()));
+        new (&m_storage) DarkString(std::move(other.str()));
         m_engaged = true;
         other.wipe_and_reset();
     }
@@ -97,7 +99,7 @@ public:
         return *this;
     }
 
-    SecureString& operator=(std::string value) {
+    SecureString& operator=(DarkString value) {
         str() = std::move(value);
         return *this;
     }
@@ -111,8 +113,8 @@ public:
         wipe_and_reset();
     }
 
-    [[nodiscard]] std::string& str() noexcept { return *ptr(); }
-    [[nodiscard]] const std::string& str() const noexcept { return *ptr(); }
+    [[nodiscard]] DarkString& str() noexcept { return *ptr(); }
+    [[nodiscard]] const DarkString& str() const noexcept { return *ptr(); }
 
     [[nodiscard]] char* data() noexcept { return str().data(); }
     [[nodiscard]] const char* data() const noexcept { return str().data(); }
@@ -129,19 +131,19 @@ public:
     void append(const char* value, size_type count) { str().append(value, count); }
     void push_back(char value) { str().push_back(value); }
 
-    [[nodiscard]] operator std::string&() noexcept { return str(); }
-    [[nodiscard]] operator const std::string&() const noexcept { return str(); }
+    [[nodiscard]] operator DarkString&() noexcept { return str(); }
+    [[nodiscard]] operator const DarkString&() const noexcept { return str(); }
     [[nodiscard]] operator std::string_view() const noexcept { return str(); }
 
 private:
-    using storage_type = std::aligned_storage_t<sizeof(std::string), alignof(std::string)>;
+    using storage_type = std::aligned_storage_t<sizeof(DarkString), alignof(DarkString)>;
 
-    [[nodiscard]] std::string* ptr() noexcept {
-        return std::launder(reinterpret_cast<std::string*>(&m_storage));
+    [[nodiscard]] DarkString* ptr() noexcept {
+        return std::launder(reinterpret_cast<DarkString*>(&m_storage));
     }
 
-    [[nodiscard]] const std::string* ptr() const noexcept {
-        return std::launder(reinterpret_cast<const std::string*>(&m_storage));
+    [[nodiscard]] const DarkString* ptr() const noexcept {
+        return std::launder(reinterpret_cast<const DarkString*>(&m_storage));
     }
 
     void wipe_and_reset() noexcept {
@@ -149,7 +151,7 @@ private:
             return;
         }
 
-        std::string* value = ptr();
+        DarkString* value = ptr();
         obf::secure_wipe(value->data(), value->capacity());
         value->clear();
         std::destroy_at(value);
@@ -164,7 +166,7 @@ private:
 class SecureBuffer {
 public:
     using value_type = std::uint8_t;
-    using storage_type = std::vector<value_type>;
+    using storage_type = DarkVector<value_type>;
     using size_type = storage_type::size_type;
 
     SecureBuffer() {

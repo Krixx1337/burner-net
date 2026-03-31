@@ -186,7 +186,7 @@ Optional:
 
 ### Windows system libraries
 
-Under MSVC, BurnerNet auto-links the Windows subsystem libraries it needs with `#pragma comment(lib, ...)`.
+Under MSVC, BurnerNet auto-links the Windows subsystem libraries it needs with `#pragma comment(lib, ...)` when `BURNERNET_HARDEN_IMPORTS=0`.
 
 That means you do **not** need to manually add:
 

@@ -3,8 +3,10 @@
 #include "detail/hostile_imports.h"
 
 #ifdef _WIN32
+#if !BURNERNET_HARDEN_IMPORTS
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "ws2_32.lib")
+#endif
 #include <windows.h>
 #include <algorithm>
 #include <cwctype>

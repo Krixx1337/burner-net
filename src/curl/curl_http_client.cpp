@@ -5,6 +5,7 @@
 #include "curl_http_client_internal.h"
 #include "curl_session.h"
 #include "transport_orchestrator.h"
+#include "burner/net/detail/dark_arithmetic.h"
 #include "burner/net/obfuscation.h"
 #include "../internal/header_validation.h"
 
@@ -36,8 +37,8 @@ bool RequestBodyTooLargeForCurl(std::size_t body_size) {
     return body_size > static_cast<std::size_t>((std::numeric_limits<long>::max)());
 }
 
-std::string BuildHeaderLine(std::string_view name, std::string_view value) {
-    std::string header;
+DarkString BuildHeaderLine(std::string_view name, std::string_view value) {
+    DarkString header;
     header.reserve(name.size() + 2 + value.size());
     header.append(name);
     header.append(": ");
@@ -154,12 +155,12 @@ HttpResponse CurlHttpClient::PerformOnce(
     }
     body_ctx.on_chunk_received = request.on_chunk_received;
 
-    std::string protocol_scheme;
-    std::string redirect_protocol_scheme;
-    std::string custom_user_agent;
-    std::string custom_method;
-    std::string cert_type;
-    std::string key_type;
+    DarkString protocol_scheme;
+    DarkString redirect_protocol_scheme;
+    DarkString custom_user_agent;
+    DarkString custom_method;
+    DarkString cert_type;
+    DarkString key_type;
 
     m_heartbeat_aborted = false;
     m_session->Reset();
@@ -185,7 +186,7 @@ HttpResponse CurlHttpClient::PerformOnce(
             wipe_error_buffer();
             return response;
         }
-        std::string header = BuildHeaderLine(name, value);
+        DarkString header = BuildHeaderLine(name, value);
         headers = curl_api.slist_append(headers, header.c_str());
         SecureWipe(header);
     }
@@ -197,16 +198,16 @@ HttpResponse CurlHttpClient::PerformOnce(
             wipe_error_buffer();
             return response;
         }
-        std::string header = BuildHeaderLine(name, value);
+        DarkString header = BuildHeaderLine(name, value);
         headers = curl_api.slist_append(headers, header.c_str());
         SecureWipe(header);
     }
 
-    std::string active_bearer_token;
+    DarkString active_bearer_token;
     if (request.bearer_token_provider) {
-        request.bearer_token_provider(active_bearer_token);
+        (void)request.bearer_token_provider(active_bearer_token);
     } else if (m_config.bearer_token_provider) {
-        m_config.bearer_token_provider(active_bearer_token);
+        (void)m_config.bearer_token_provider(active_bearer_token);
     }
 
     const std::string_view active_bearer = active_bearer_token;
@@ -222,8 +223,8 @@ HttpResponse CurlHttpClient::PerformOnce(
     }
 
     if (!active_bearer.empty()) {
-        std::string auth_prefix = BURNER_OBF_LITERAL("Authorization: Bearer ");
-        std::string auth;
+        DarkString auth_prefix(BURNER_OBF_LITERAL("Authorization: Bearer "));
+    DarkString auth;
         auth.reserve(auth_prefix.size() + active_bearer.size());
         auth.append(auth_prefix);
         auth.append(active_bearer.data(), active_bearer.size());
@@ -234,7 +235,7 @@ HttpResponse CurlHttpClient::PerformOnce(
     SecureWipe(active_bearer_token);
 
     if (headers != nullptr) {
-        curl_api.easy_setopt(easy, CURLOPT_HTTPHEADER, headers);
+        curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPHEADER))), headers);
     }
 
     const CURLcode code = curl_api.easy_perform(easy);
@@ -265,7 +266,7 @@ HttpResponse CurlHttpClient::PerformOnce(
 
     if (response.TransportOk()) {
         char* primary_ip = nullptr;
-        if (curl_api.easy_getinfo(easy, CURLINFO_PRIMARY_IP, &primary_ip) == CURLE_OK &&
+        if (curl_api.easy_getinfo(easy, static_cast<CURLINFO>(BURNER_MASK_INT(static_cast<long>(CURLINFO_PRIMARY_IP))), &primary_ip) == CURLE_OK &&
             primary_ip != nullptr &&
             !m_config.security_policy.OnVerifyTransport(request.url.c_str(), primary_ip)) {
             response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
@@ -274,10 +275,10 @@ HttpResponse CurlHttpClient::PerformOnce(
         }
     }
 
-    response.dns_strategy_used = strategy.has_value() ? strategy->name : std::string{};
+    response.dns_strategy_used = strategy.has_value() ? strategy->name : DarkString{};
     response.streamed_body_bytes = body_ctx.streamed_body_bytes;
 
-    curl_api.easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &response.status_code);
+    curl_api.easy_getinfo(easy, static_cast<CURLINFO>(BURNER_MASK_INT(static_cast<long>(CURLINFO_RESPONSE_CODE))), &response.status_code);
 
     if (headers != nullptr) {
         WipeHeaderList(headers);

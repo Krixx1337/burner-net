@@ -69,7 +69,7 @@ struct BuilderSecurityPolicy final {
         wrapped_policy.OnError(code, url);
     }
 
-    std::string GetUserAgent() const {
+    DarkString GetUserAgent() const {
         return wrapped_policy.GetUserAgent();
     }
 };
@@ -101,7 +101,7 @@ ClientBuilder& ClientBuilder::WithMtls(MtlsCredentials creds) {
     return *this;
 }
 
-ClientBuilder& ClientBuilder::WithMtlsProvider(std::function<bool(MtlsCredentials&)> provider) {
+ClientBuilder& ClientBuilder::WithMtlsProvider(detail::CompactCallable<bool(MtlsCredentials&)> provider) {
     m_config.mtls_provider = std::move(provider);
     return *this;
 }
@@ -178,8 +178,10 @@ ClientBuilder& ClientBuilder::AllowSystemDns(bool fallback_allowed) {
     }
 
     if (!has_system) {
-        m_default_dns_fallback.strategies.push_back(
-            {DnsMode::System, BURNER_OBF_LITERAL("System DNS Insecure"), {}});
+        DnsStrategy system_strategy{};
+        system_strategy.mode = DnsMode::System;
+        system_strategy.name = DarkString(BURNER_OBF_LITERAL("System DNS Insecure"));
+        m_default_dns_fallback.strategies.push_back(std::move(system_strategy));
     }
     m_default_dns_fallback.enabled = true;
     return *this;
@@ -193,13 +195,13 @@ ClientBuilder& ClientBuilder::WithDnsFallback(DnsMode mode, std::string value, s
 
     DnsStrategy strategy{};
     strategy.mode = mode;
-    strategy.doh_url = std::move(value);
+    strategy.doh_url = DarkString(std::move(value));
     if (!name.empty()) {
-        strategy.name = std::move(name);
+        strategy.name = DarkString(std::move(name));
     } else if (mode == DnsMode::Doh) {
-        strategy.name = BURNER_OBF_LITERAL("DoH Custom");
+        strategy.name = DarkString(BURNER_OBF_LITERAL("DoH Custom"));
     } else {
-        strategy.name = BURNER_OBF_LITERAL("System DNS Insecure");
+        strategy.name = DarkString(BURNER_OBF_LITERAL("System DNS Insecure"));
     }
     m_default_dns_fallback.enabled = true;
     m_default_dns_fallback.strategies.push_back(std::move(strategy));
@@ -207,7 +209,7 @@ ClientBuilder& ClientBuilder::WithDnsFallback(DnsMode mode, std::string value, s
 }
 
 ClientBuilder& ClientBuilder::WithPinnedKey(std::string pin) {
-    m_config.pinned_public_keys.push_back(std::move(pin));
+    m_config.pinned_public_keys.emplace_back(std::move(pin));
     return *this;
 }
 
@@ -234,7 +236,7 @@ ClientBuilder::ClientBuildResult ClientBuilder::Build() {
         return {nullptr, transport.InitError()};
     }
 
-    return {std::make_shared<FluentClient<CurlHttpClient>>(std::move(transport), m_default_dns_fallback), ErrorCode::None};
+    return {std::make_unique<FluentClient<CurlHttpClient>>(std::move(transport), m_default_dns_fallback), ErrorCode::None};
 }
 
 } // namespace burner::net

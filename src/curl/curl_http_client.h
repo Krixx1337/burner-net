@@ -46,12 +46,12 @@ private:
         HttpResponse& response,
         char* error_buffer,
         void* body_ctx,
-        std::string* protocol_scheme,
-        std::string* redirect_protocol_scheme,
-        std::string* user_agent_storage,
+        DarkString* protocol_scheme,
+        DarkString* redirect_protocol_scheme,
+        DarkString* user_agent_storage,
         const std::optional<DnsStrategy>& strategy);
-    void ApplyMethodAndBody(const HttpRequest& request, std::string* custom_method_storage);
-    void ApplyTlsOptions(std::string* cert_type_storage, std::string* key_type_storage);
+    void ApplyMethodAndBody(const HttpRequest& request, DarkString* custom_method_storage);
+    void ApplyTlsOptions(DarkString* cert_type_storage, DarkString* key_type_storage);
     void ApplyDnsStrategy(const DnsStrategy& strategy);
     void ClearDnsStrategy();
     void ResetMethodState();

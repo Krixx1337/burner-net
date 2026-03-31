@@ -22,7 +22,10 @@ int RunBasicUsage() {
     auto build_result = burner::net::ClientBuilder()
         .WithSecurityPolicy(ExamplePolicy{})
         .WithUseNativeCa(true)
-        .WithStandardSecureDns()
+        .WithDnsFallback(
+            burner::net::DnsMode::Doh,
+            "https://resolver.example/dns-query",
+            "DoH Custom")
         .Build();
 
     if (build_result.client == nullptr) {

@@ -246,7 +246,10 @@ To secure your app without assuming stable CDN certificates, combine **DNS over 
 
 auto client = burner::net::ClientBuilder()
     // 1. Bypass OS DNS spoofing via encrypted DoH
-    .WithStandardSecureDns()
+    .WithDnsFallback(
+        burner::net::DnsMode::Doh,
+        "https://resolver.example/dns-query",
+        "DoH Custom")
 
     // 2. Cryptographically prove the server generated the payload
     .WithResponseVerifier(
@@ -265,13 +268,16 @@ auto client = burner::net::ClientBuilder()
 If an attacker spoofs the API, your app-owned verifier returns a signature verification error and the untrusted payload is rejected instead of being handed to app logic.
 
 ## 14. Managing Strict DoH (DNS-over-HTTPS)
-BurnerNet no longer bakes any public DoH endpoints into the default client state. If you want a stock strict DoH set, opt in explicitly with `WithStandardSecureDns()`. This defeats local `hosts` edits, PowerShell DNS hijacking, and straightforward resolver hooks without forcing the same resolver targets into every binary.
+BurnerNet does not bake any public DoH endpoints into the default client state. Configure your own endpoint with `WithDnsFallback(DnsMode::Doh, "...", "...")` so resolver indicators remain app-owned.
 
 If the network blocks those DoH endpoints, BurnerNet fails closed by default. If you want to trade security for availability, you must explicitly opt into the OS resolver:
 
 ```cpp
 auto client = burner::net::ClientBuilder()
-    .WithStandardSecureDns()
+    .WithDnsFallback(
+        burner::net::DnsMode::Doh,
+        "https://resolver.example/dns-query",
+        "DoH Custom")
     .AllowSystemDns(true) // Explicitly permits fallback to the easily hijacked OS DNS
     .Build();
 ```

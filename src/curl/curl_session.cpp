@@ -9,6 +9,7 @@
 #include <windows.h>
 
 #if defined(_MSC_VER)
+#if !BURNERNET_HARDEN_IMPORTS
 #pragma comment(lib, "ws2_32.lib")
 #pragma comment(lib, "crypt32.lib")
 #pragma comment(lib, "bcrypt.lib")
@@ -17,6 +18,7 @@
 #pragma comment(lib, "iphlpapi.lib")
 #pragma comment(lib, "wldap32.lib")
 #pragma comment(lib, "normaliz.lib")
+#endif
 #endif
 #endif
 
