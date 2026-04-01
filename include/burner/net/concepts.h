@@ -22,6 +22,8 @@ concept SecurityPolicyConcept = requires(const T policy, HttpRequest& request, c
     { policy.OnSignatureVerified(verified, reason) } -> std::same_as<void>;
     { policy.OnTamper() } -> std::same_as<void>;
     { policy.OnError(reason, url) } -> std::same_as<void>;
+    { policy.OnIsolatedWorkerStart() } -> std::convertible_to<bool>;
+    { policy.OnIsolatedWorkerEnd() } -> std::same_as<void>;
     { policy.GetUserAgent() };
 };
 

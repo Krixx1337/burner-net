@@ -59,6 +59,13 @@ struct BURNER_API ISecurityPolicy {
         (void)url;
     }
 
+    // Called inside the isolated worker thread immediately after it starts.
+    // Return false to abort the request before any networking occurs.
+    bool OnIsolatedWorkerStart() const { return true; }
+
+    // Called inside the isolated worker thread immediately before it terminates.
+    void OnIsolatedWorkerEnd() const {}
+
     DarkString GetUserAgent() const {
         return "";
     }
@@ -112,6 +119,14 @@ public:
         return m_get_user_agent(m_state.get());
     }
 
+    [[nodiscard]] bool OnIsolatedWorkerStart() const {
+        return m_on_isolated_worker_start(m_state.get());
+    }
+
+    void OnIsolatedWorkerEnd() const {
+        m_on_isolated_worker_end(m_state.get());
+    }
+
 private:
     template <SecurityPolicyConcept TPolicy>
     void emplace(TPolicy policy) {
@@ -145,6 +160,12 @@ private:
         m_get_user_agent = [](const void* raw) -> DarkString {
             return DarkString(static_cast<const PolicyType*>(raw)->GetUserAgent());
         };
+        m_on_isolated_worker_start = [](const void* raw) {
+            return static_cast<const PolicyType*>(raw)->OnIsolatedWorkerStart();
+        };
+        m_on_isolated_worker_end = [](const void* raw) {
+            static_cast<const PolicyType*>(raw)->OnIsolatedWorkerEnd();
+        };
     }
 
     detail::SecureHandle<const void> m_state;
@@ -157,6 +178,8 @@ private:
     EncodedPointer<void (*)(const void*)> m_on_tamper = nullptr;
     EncodedPointer<void (*)(const void*, ErrorCode, const char*)> m_on_error = nullptr;
     EncodedPointer<DarkString (*)(const void*)> m_get_user_agent = nullptr;
+    EncodedPointer<bool (*)(const void*)> m_on_isolated_worker_start = nullptr;
+    EncodedPointer<void (*)(const void*)> m_on_isolated_worker_end = nullptr;
 };
 
 } // namespace burner::net

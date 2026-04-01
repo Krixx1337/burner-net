@@ -69,6 +69,14 @@ struct BuilderSecurityPolicy final {
         wrapped_policy.OnError(code, url);
     }
 
+    bool OnIsolatedWorkerStart() const {
+        return wrapped_policy.OnIsolatedWorkerStart();
+    }
+
+    void OnIsolatedWorkerEnd() const {
+        wrapped_policy.OnIsolatedWorkerEnd();
+    }
+
     DarkString GetUserAgent() const {
         return wrapped_policy.GetUserAgent();
     }

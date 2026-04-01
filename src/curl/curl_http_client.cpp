@@ -315,10 +315,20 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request, const std::
 
     // Spawn an anonymous, short-lived worker thread to sever the call stack.
     std::thread worker([&]() {
-        // The internal logic creates its own stack frame. Phase 4's scrub_stack
-        // inside PerformOnceInternal will automatically wipe this worker's stack
-        // right after curl_easy_perform completes!
-        response = PerformOnceInternal(request, strategy);
+        // TRIGGER: Worker Start Hook
+        if (!m_config.security_policy.OnIsolatedWorkerStart()) {
+            // If the user's anti-debug check fails, we abort immediately.
+            response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
+            response.transport_error = ErrorCode::PreFlightAbort;
+        } else {
+            // Normal execution path: The internal logic creates its own stack frame.
+            // Phase 4's scrub_stack inside PerformOnceInternal will automatically
+            // wipe this worker's stack right after curl_easy_perform completes!
+            response = PerformOnceInternal(request, strategy);
+        }
+
+        // TRIGGER: Worker End Hook (After stack scrubbing is done in PerformOnceInternal)
+        m_config.security_policy.OnIsolatedWorkerEnd();
 
         {
             std::lock_guard<std::mutex> lock(mtx);
