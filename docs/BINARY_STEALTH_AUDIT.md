@@ -4,7 +4,7 @@
 **Audit Target:** BurnerNet Core (Windows x64 Release)
 
 ## Executive Summary
-This document records the results of a static analysis audit performed to verify BurnerNet’s compliance with the **"Ghost Library"** principles. The audit focused on the effectiveness of import-hiding and string obfuscation when the library is compiled with maximum hardening.
+This document records the results of static and dynamic analysis performed to verify BurnerNet's compliance with the **"Ghost Library"** principles. The audit focused on the effectiveness of import-hiding, string obfuscation, and runtime memory hygiene when the library is compiled with maximum hardening.
 
 ## Audit Configuration
 *   **Platform:** Windows 10/11 x64
@@ -47,7 +47,7 @@ A full strings dump of the `.text` and `.rdata` sections was performed via IDA P
 ### Visible Strings (Accounted):
 The only visible strings were those explicitly defined in the application's `main()` entry point or mandatory C++ runtime metadata:
 *   Diagnostic version string (`0.1.0`).
-*   User-provided endpoint (`https://example.com`).
+*   User-provided endpoint (`https://example123.com`).
 *   Standard STL exception names (`bad allocation`, `string too long`).
 
 ### Result:
@@ -55,29 +55,45 @@ The "Dark Core" architecture is successful. Internal transport logic, protocol s
 
 ---
 
-## 3. Methodology Reference
-The audit was performed using a standard test implementation that exercises the full bootstrap and request pipeline.
+## 3. Runtime Memory Analysis
+Runtime audit performed using a memory-resident string scanner during active request cycles and idle periods.
+
+### Test A: Referenced Strings (Pointer Scan)
+The process memory was scanned for active code references to internal BurnerNet strings.
+*   **Result:** **0 matches.** No internal library strings were discoverable via pointer-reference analysis.
+
+### Test B: Resident Memory Search (Heap/Stack Scan)
+A differential scan was performed to find sensitive request data remaining in memory after a request completed.
+*   **Target:** `https://example123.com` (consumer runtime test endpoint).
+*   **Result:** **0 matches.** During the idle phase between requests, the endpoint did not remain resident in discoverable heap or stack string scans.
+
+---
+
+## 4. Methodology Reference
+The audit was performed using a bootstrap-loaded runtime test that keeps the client alive across repeated requests to check for state accumulation between cycles.
 
 ```cpp
-// Sample Audit Payload
+// Runtime Audit Loop
 int main() {
     BootstrapConfig boot{};
     boot.link_mode = LinkMode::Dynamic;
-    boot.dependency_directory = "./redist";
+    boot.dependency_directory = std::filesystem::current_path() / "redist";
     boot.dependency_dlls = { L"libcurl.dll" };
-    
-    // Hardened resolve
+
     auto init = InitializeNetworkingRuntime(boot);
     if (!init.success) return 1;
 
-    // Hardened request
     auto build = ClientBuilder().Build();
-    const auto resp = build.client->Get("https://example.com").Send();
-    return resp.TransportOk() ? 0 : 1;
+    while (true) {
+        const auto resp = build.client->Get("https://example123.com").Send();
+        if (!resp.TransportOk()) return 1;
+
+        std::this_thread::sleep_for(std::chrono::seconds(10));
+    }
 }
 ```
 
 ## Conclusion
-The BurnerNet binary footprint is **Significantly Hardened**. The library effectively hides its networking dependencies and internal security anchors from both automated heuristic scanners and manual static analysis.
+The BurnerNet binary footprint is **Significantly Hardened**. The library effectively hides its networking dependencies and internal security anchors from both automated heuristic scanners and manual static analysis, and the runtime probe did not leave the tested endpoint resident across idle periods.
 
 **BurnerNet meets the architectural requirements for deployment in Hostile Environments.**
