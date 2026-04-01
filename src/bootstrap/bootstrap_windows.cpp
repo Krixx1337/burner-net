@@ -3,6 +3,7 @@
 #include "burner/net/detail/kernel_resolver.h"
 #include "burner/net/obfuscation.h"
 #include "burner/net/detail/pointer_mangling.h"
+#include "curl/curl_session.h"
 #include "internal/openssl_sync.h"
 
 #ifdef _WIN32
@@ -35,6 +36,11 @@ constexpr std::uint32_t kAddDllDirectoryHash = ::burner::net::detail::fnv1a("Add
 constexpr std::uint32_t kLoadLibraryExWHash = ::burner::net::detail::fnv1a("LoadLibraryExW");
 constexpr std::uint32_t kSetDefaultDllDirectoriesHash =
     ::burner::net::detail::fnv1a("SetDefaultDllDirectories");
+
+#if BURNERNET_HARDEN_IMPORTS
+constexpr std::uint32_t kLibCurlBootstrapHash  = ::burner::net::detail::fnv1a_ci("libcurl.dll");
+constexpr std::uint32_t kLibCurlDBootstrapHash = ::burner::net::detail::fnv1a_ci("libcurl-d.dll");
+#endif
 
 template <typename TFn>
 TFn ResolveSystemPrimitive(std::uint32_t export_hash) noexcept {
@@ -159,6 +165,24 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         // Hook OpenSSL immediately after each DLL is loaded so we are
         // "first-to-alloc" if this was the libcrypto DLL.
         TryApplyOpenSSLHooks(security_policy);
+
+#if BURNERNET_HARDEN_IMPORTS
+        // If this was the libcurl DLL, inject wiping allocators before any
+        // curl handle is created.  We resolve global_init_mem directly from
+        // the freshly-loaded module so the hook runs even before any
+        // CurlSession is constructed.
+        {
+            const std::uint32_t basename_hash = ::burner::net::detail::fnv1a_ascii_wide_ci(
+                dll_name.c_str(), dll_name.size());
+            if (basename_hash == kLibCurlBootstrapHash || basename_hash == kLibCurlDBootstrapHash) {
+                CurlApi curl_api{};
+                curl_api.global_init_mem = reinterpret_cast<CurlGlobalInitMemFn>(
+                    ::burner::net::detail::KernelResolver::ResolveInternalExport(
+                        module, ::burner::net::detail::kCurlGlobalInitMemHash));
+                EnsureCurlGlobalZapped(curl_api, security_policy);
+            }
+        }
+#endif
     }
 
     return {true, ErrorCode::BootstrapLoaded};

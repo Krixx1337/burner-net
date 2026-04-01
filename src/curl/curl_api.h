@@ -16,6 +16,20 @@ using CurlSlistAppendFn = curl_slist* (*)(curl_slist*, const char*);
 using CurlSlistFreeAllFn = void (*)(curl_slist*);
 using CurlEasyStrerrorFn = const char* (*)(CURLcode);
 
+// Callback types required by curl_global_init_mem.
+using CurlMallocCallback  = void* (*)(size_t size);
+using CurlFreeCallback    = void  (*)(void* ptr);
+using CurlReallocCallback = void* (*)(void* ptr, size_t size);
+using CurlStrdupCallback  = char* (*)(const char* str);
+using CurlCallocCallback  = void* (*)(size_t nmemb, size_t size);
+
+using CurlGlobalInitMemFn = CURLcode (*)(long flags,
+    CurlMallocCallback m,
+    CurlFreeCallback   f,
+    CurlReallocCallback r,
+    CurlStrdupCallback  s,
+    CurlCallocCallback  c);
+
 struct CurlApi {
     EncodedPointer<CurlEasyInitFn> easy_init = nullptr;
     EncodedPointer<CurlEasyCleanupFn> easy_cleanup = nullptr;
@@ -26,6 +40,7 @@ struct CurlApi {
     EncodedPointer<CurlSlistAppendFn> slist_append = nullptr;
     EncodedPointer<CurlSlistFreeAllFn> slist_free_all = nullptr;
     EncodedPointer<CurlEasyStrerrorFn> easy_strerror = nullptr;
+    EncodedPointer<CurlGlobalInitMemFn> global_init_mem = nullptr;
 };
 
 } // namespace burner::net
