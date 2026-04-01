@@ -50,6 +50,7 @@ set(BURNERNET_SOURCES
     src/curl/curl_http_client_options.cpp
     src/curl/transport_orchestrator.cpp
     src/internal/header_validation.cpp
+    src/internal/openssl_sync.cpp
 )
 
 if(WIN32)

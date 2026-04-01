@@ -54,5 +54,8 @@
     <ClCompile Include="..\..\src\internal\header_validation.cpp">
       <Filter>BurnerNet Source</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\internal\openssl_sync.cpp">
+      <Filter>BurnerNet Source</Filter>
+    </ClCompile>
   </ItemGroup>
 </Project>

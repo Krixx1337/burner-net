@@ -35,4 +35,18 @@ template <std::size_t N>
     return ::burner::net::detail::fnv1a<std::uint32_t>(value, true);
 }
 
+// ---------------------------------------------------------------------------
+// OpenSSL libcrypto module hashes
+// OpenSSL 3.x and 1.1.x each ship separate DLL names on Windows, and x64
+// builds add a "-x64" suffix.  We pre-compute all four variants so the syncer
+// can iterate them without embedding plain-text strings.
+// ---------------------------------------------------------------------------
+inline constexpr std::uint32_t kLibCrypto3x64DllHash   = fnv1a_ci("libcrypto-3-x64.dll");
+inline constexpr std::uint32_t kLibCrypto3DllHash      = fnv1a_ci("libcrypto-3.dll");
+inline constexpr std::uint32_t kLibCrypto1_1x64DllHash = fnv1a_ci("libcrypto-1_1-x64.dll");
+inline constexpr std::uint32_t kLibCrypto1_1DllHash    = fnv1a_ci("libcrypto-1_1.dll");
+
+// Hash of the function used to inject our wiping allocators into OpenSSL.
+inline constexpr std::uint32_t kCryptoSetMemFunctionsHash = fnv1a("CRYPTO_set_mem_functions");
+
 } // namespace burner::net::detail

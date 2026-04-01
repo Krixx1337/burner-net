@@ -3,6 +3,7 @@
 #include "burner/net/detail/kernel_resolver.h"
 #include "burner/net/obfuscation.h"
 #include "burner/net/detail/pointer_mangling.h"
+#include "internal/openssl_sync.h"
 
 #ifdef _WIN32
 #if !BURNERNET_HARDEN_IMPORTS
@@ -154,6 +155,10 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         }
 
         g_loaded_modules.push_back(module);
+
+        // Hook OpenSSL immediately after each DLL is loaded so we are
+        // "first-to-alloc" if this was the libcrypto DLL.
+        TryApplyOpenSSLHooks(security_policy);
     }
 
     return {true, ErrorCode::BootstrapLoaded};

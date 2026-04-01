@@ -3,6 +3,7 @@
 #include "burner/net/detail/dark_hashing.h"
 #include "burner/net/detail/kernel_resolver.h"
 #include "burner/net/obfuscation.h"
+#include "internal/openssl_sync.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -168,6 +169,11 @@ void CurlSession::Reset() const {
 }
 
 std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, ErrorCode* init_error) {
+    // Attempt to hook OpenSSL's allocator before any TLS session begins.
+    // This handles the case where BURNERNET_HARDEN_IMPORTS=0 and libcrypto
+    // was loaded by the OS loader at process startup.
+    TryApplyOpenSSLHooks(config.security_policy);
+
     if (init_error == nullptr) {
         return nullptr;
     }
