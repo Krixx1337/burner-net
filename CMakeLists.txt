@@ -119,6 +119,12 @@ if(WIN32)
             ${BURNERNET_CRYPT32_LIBRARY}
             ${BURNERNET_WS2_32_LIBRARY}
     )
+else()
+    # CMAKE_DL_LIBS provides -ldl (or equivalent) for dlsym used in
+    # TryApplyOpenSSLHooks on non-Windows platforms.
+    if(CMAKE_DL_LIBS)
+        target_link_libraries(BurnerNet PRIVATE ${CMAKE_DL_LIBS})
+    endif()
 endif()
 
 function(burnernet_configure_runtime target_name)

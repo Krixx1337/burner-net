@@ -7,6 +7,39 @@
   },
   "configurePresets": [
     {
+      "name": "linux-release",
+      "displayName": "Linux Release",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_STANDARD": "20",
+        "BURNERNET_BUILD_INTEGRATION_TESTS": "ON"
+      }
+    },
+    {
+      "name": "linux-debug",
+      "displayName": "Linux Debug",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Linux"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_STANDARD": "20",
+        "BURNERNET_BUILD_TESTING": "ON",
+        "BURNERNET_BUILD_INTEGRATION_TESTS": "ON"
+      }
+    },
+    {
       "name": "windows-base",
       "hidden": true,
       "generator": "Ninja",
@@ -170,6 +203,14 @@
     {
       "name": "x86-release-static",
       "configurePreset": "x86-release-static"
+    },
+    {
+      "name": "linux-release",
+      "configurePreset": "linux-release"
+    },
+    {
+      "name": "linux-debug",
+      "configurePreset": "linux-debug"
     }
   ]
 }

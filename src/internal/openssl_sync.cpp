@@ -9,16 +9,17 @@
 
 #ifdef _WIN32
 #include "burner/net/detail/kernel_resolver.h"
+#else
+#include <dlfcn.h>
 #endif
 
 namespace burner::net {
 
 namespace {
 
-#ifdef _WIN32
-
 // ---------------------------------------------------------------------------
 // Thin shims: discard OpenSSL's file/line metadata, forward to Phase 1 hooks.
+// Valid on all platforms — OpenSSL's callback signature is the same everywhere.
 // ---------------------------------------------------------------------------
 
 static void* openssl_malloc_shim(std::size_t size, const char* /*file*/, int /*line*/) noexcept {
@@ -33,6 +34,7 @@ static void openssl_free_shim(void* ptr, const char* /*file*/, int /*line*/) noe
     detail::alloc::dark_free(ptr);
 }
 
+#ifdef _WIN32
 // Hashes of every libcrypto DLL name variant we might encounter.
 constexpr std::uint32_t kCryptoModuleHashes[] = {
     detail::kLibCrypto3x64DllHash,
@@ -40,7 +42,6 @@ constexpr std::uint32_t kCryptoModuleHashes[] = {
     detail::kLibCrypto1_1x64DllHash,
     detail::kLibCrypto1_1DllHash,
 };
-
 #endif // _WIN32
 
 // Set to true once our shims have been successfully registered with OpenSSL.
@@ -91,7 +92,41 @@ void TryApplyOpenSSLHooks(const SecurityPolicy& policy) noexcept {
     // libcrypto is not loaded yet; a future call (after bootstrap loads it)
     // will complete the hook.
 #else
+    // policy is used on Windows only (OnTamper on definitive failure).
+    // On Linux we cannot guarantee early-enough hooking, so we accept the
+    // best-effort result without signalling a tamper event.
     (void)policy;
+
+    // On Linux/Unix, resolve CRYPTO_set_mem_functions from the current process
+    // scope. dlsym(RTLD_DEFAULT, ...) finds it if libcrypto.so is already
+    // mapped in (which it always is when linked via libcurl with OpenSSL).
+    // This avoids a hard link-time dependency on OpenSSL, keeping the binary
+    // functional even if a non-OpenSSL TLS backend is used in the future.
+    void* const symbol = dlsym(RTLD_DEFAULT, "CRYPTO_set_mem_functions");
+    if (symbol != nullptr) {
+        auto* set_mem_fn = reinterpret_cast<detail::CryptoSetMemFunctionsFn>(symbol);
+        if (set_mem_fn(&openssl_malloc_shim, &openssl_realloc_shim, &openssl_free_shim) != 0) {
+            // Success: OpenSSL accepted our hooks.
+            s_hooks_applied.store(true, std::memory_order_release);
+        } else {
+            // CRYPTO_set_mem_functions returns 0 if OpenSSL has already
+            // performed an allocation and locked its memory functions.
+            //
+            // On Linux we cannot guarantee that we are called before
+            // libcrypto's own library constructors run, so this is an
+            // initialization-order race, not necessarily a tamper event.
+            // We mark hooks as applied to prevent repeated (always-failing)
+            // retry attempts and continue without aborting.
+            //
+            // On Windows the DLL load-order hook fires early enough that a
+            // 0 return genuinely indicates something ran before us and
+            // warrants a tamper signal.  That stricter check remains in the
+            // #ifdef _WIN32 branch above.
+            s_hooks_applied.store(true, std::memory_order_release);
+        }
+    }
+    // If symbol is nullptr, libcrypto is not loaded in this process;
+    // no hook is possible or necessary.
 #endif // _WIN32
 }
 
