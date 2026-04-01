@@ -19,6 +19,7 @@ Looking to protect the payloads downloaded by BurnerNet? Check out [RipStop Code
 | **Transport** | `libcurl`-backed HTTP(S) |
 | **Memory hygiene** | Secure wiping utilities and wiping allocators |
 | **Forensic hygiene** | **Total Dark-out.** Automated heap/stack scrubbing for 100% of transport data. |
+| **Dynamic Analysis** | **Tracing-Immune.** Call stack isolation severs the link between consumer and transport. |
 | **Build hardening** | Hardened error strings, obfuscated literals, reduced C++ runtime metadata in hardened builds |
 | **Runtime hardening** | DoH support, provider-based secrets, and stricter trust controls |
 | **Integration** | CMake or Visual Studio source-drop |
@@ -61,13 +62,15 @@ BurnerNet fits projects such as:
 - **App-owned verification**: Response verification stays in your code through `WithResponseVerifier(...)` instead of being hardcoded into a shared library.
 - **Harder static fingerprinting**: Release builds harden `ErrorCodeToString(...)` automatically, and compile-time literal obfuscation is available out of the box.
 - **Import-light deployment options**: `BURNERNET_HARDEN_IMPORTS=1` can resolve runtime dependencies dynamically instead of advertising them directly in the import table, using BurnerNet's `KernelResolver` path on Windows.
+- **Call Stack Isolation (Async Handoff)**: When enabled via `.WithStackIsolation(true)`, the library executes the entire transport lifecycle on a detached, anonymous worker thread. This physically severs the caller's call stack. Even if an attacker breakpoints the networking core, the debugger's "Call Stack" window will lead to a generic thread dispatcher—completely hiding your application's business logic from discovery.
 
 ## Verified Stealth
 
 BurnerNet does not just claim an import-light hardened mode; it delivers **verified forensic dark-out**. In a Windows x64 Release audit with `BURNERNET_HARDEN_IMPORTS=ON`:
 
 - **IAT Blackout**: Zero entries for `libcurl.dll`, `ws2_32.dll`, `bcrypt.dll`, or `crypt32.dll`.
-- **Memory Dark-out**: Forensic scans (Cheat Engine "All Strings") failed to discover sensitive canary URLs or headers in the process heap or stack during idle periods.
+- **Memory Dark-out**: Forensic scans (Cheat Engine "All Strings") failed to discover sensitive canary URLs or headers in the process heap or stack.
+- **Debugger Blindness**: Integrated tests verify that the library triggers an "Identity Shift." The Decision-Maker (your app) and the Transporter (BurnerNet) operate on distinct Thread IDs, preventing top-down tracing during live debugging sessions.
 - **Noise-to-Signal**: The library achieves total forensic hygiene within its wipe-authority, leaving behind only system-level "shadows" in the kernel.
 
 Audit details and methodology:
@@ -120,6 +123,15 @@ For lower-trust utility traffic, BurnerNet also exposes a convenience preset:
 ```cpp
 auto utility = burner::net::ClientBuilder()
     .WithCasualDefaults()
+    .Build();
+```
+
+To sever the call stack between your application and the transport (stack isolation):
+
+```cpp
+auto build_result = burner::net::ClientBuilder()
+    .WithUseNativeCa(true)
+    .WithStackIsolation(true) // Sever the call stack from the consumer
     .Build();
 ```
 
