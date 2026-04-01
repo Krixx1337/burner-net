@@ -145,6 +145,7 @@
     <ClCompile Include="..\..\src\curl\curl_session.cpp" />
     <ClCompile Include="..\..\src\curl\transport_orchestrator.cpp" />
     <ClCompile Include="..\..\src\detail\memory_hygiene.cpp" />
+    <ClCompile Include="..\..\src\detail\wiping_alloc_engine.cpp" />
     <ClCompile Include="..\..\src\error.cpp" />
     <ClCompile Include="..\..\src\internal\header_validation.cpp" />
   </ItemGroup>

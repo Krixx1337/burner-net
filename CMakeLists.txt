@@ -42,6 +42,7 @@ set(BURNERNET_RUNTIME_DIR "${CMAKE_BINARY_DIR}/bin")
 set(BURNERNET_SOURCES
     src/builder.cpp
     src/detail/memory_hygiene.cpp
+    src/detail/wiping_alloc_engine.cpp
     src/error.cpp
     src/curl/curl_session.cpp
     src/curl/curl_http_client.cpp
