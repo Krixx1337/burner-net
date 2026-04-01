@@ -176,13 +176,6 @@ Recommended defaults:
 - use provider callbacks for mTLS material, bearer tokens, and response verification secrets
 - keep business rules and trust anchors in your application
 
-For deeper guidance, see:
-- [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)
-- [examples/02_zero_trust_pipeline.cpp](examples/02_zero_trust_pipeline.cpp)
-- [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp)
-- [examples/05_mtls_usage.cpp](examples/05_mtls_usage.cpp)
-- [examples/06_hmac_custom_verifier.cpp](examples/06_hmac_custom_verifier.cpp)
-
 ## Examples and Docs
 
 Examples:
@@ -198,6 +191,7 @@ Documentation:
 - [docs/USAGE_BEST_PRACTICES.md](docs/USAGE_BEST_PRACTICES.md)
 - [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
 - [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
+- [docs/LINUX_USAGE.md](docs/LINUX_USAGE.md)
 
 ## Requirements
 
