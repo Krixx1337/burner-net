@@ -53,9 +53,7 @@ set(BURNERNET_SOURCES
     src/internal/openssl_sync.cpp
 )
 
-if(WIN32)
-    list(APPEND BURNERNET_SOURCES src/bootstrap/bootstrap_windows.cpp)
-endif()
+list(APPEND BURNERNET_SOURCES src/bootstrap/bootstrap_windows.cpp)
 
 add_library(BurnerNet ${BURNERNET_SOURCES})
 add_library(BurnerNet::BurnerNet ALIAS BurnerNet)

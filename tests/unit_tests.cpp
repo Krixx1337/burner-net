@@ -188,7 +188,7 @@ TEST_CASE("kernel resolver can locate signatures inside executable system module
     CHECK(ret_opcode != nullptr);
     CHECK(burner::net::detail::KernelResolver::FindModuleSignature(nullptr, 0xC3u) == nullptr);
 #else
-    SUCCEED();
+    CHECK(true); // nothing to assert on non-Windows; test passes vacuously
 #endif
 }
 
@@ -724,7 +724,7 @@ TEST_CASE("stack isolation executes transport on a distinct thread") {
 
     REQUIRE(build_result.Ok());
 
-    build_result.client->Get("https://example.com").Send();
+    (void)build_result.client->Get("https://example.com").Send();
 
     CHECK(transport_thread_id != std::thread::id{}); // Ensure the callback ran
     CHECK(transport_thread_id != caller_thread_id);  // PROOF OF SEVERED STACK
@@ -747,7 +747,7 @@ TEST_CASE("transport stays on caller thread when isolation is disabled") {
 
     REQUIRE(build_result.Ok());
 
-    build_result.client->Get("https://example.com").Send();
+    (void)build_result.client->Get("https://example.com").Send();
 
     CHECK(transport_thread_id == caller_thread_id); // No thread hop
 }
