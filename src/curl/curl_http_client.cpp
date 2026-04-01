@@ -53,7 +53,12 @@ CurlHttpClient::CurlHttpClient(const ClientConfig& config)
     m_session = CreateCurlSession(m_config, &m_init_error);
 }
 
-CurlHttpClient::~CurlHttpClient() = default;
+CurlHttpClient::~CurlHttpClient() {
+    // Final "burst-and-burn" scrub: wipe a deep region of the stack as the
+    // client is torn down, giving a clean slate before the thread returns to
+    // the application's general pool.
+    ::burner::net::obf::scrub_stack(32768);
+}
 
 CurlHttpClient::CurlHttpClient(CurlHttpClient&& other) noexcept
     : m_config(std::move(other.m_config)),
@@ -239,6 +244,11 @@ HttpResponse CurlHttpClient::PerformOnce(
     }
 
     const CURLcode code = curl_api.easy_perform(easy);
+
+    // Wipe the stack region used by the transport chain (TLS keys, header
+    // fragments, session state) before any other logic can read it.
+    ::burner::net::obf::scrub_stack(16384);
+
     SecureWipe(protocol_scheme);
     SecureWipe(redirect_protocol_scheme);
     SecureWipe(custom_user_agent);
