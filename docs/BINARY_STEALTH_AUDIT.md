@@ -47,7 +47,6 @@ A full strings dump of the `.text` and `.rdata` sections was performed via IDA P
 ### Visible Strings (Accounted):
 The only visible strings were those explicitly defined in the application's `main()` entry point or mandatory C++ runtime metadata:
 *   Diagnostic version string (`0.1.0`).
-*   User-provided endpoint (`https://example48291.invalid`).
 *   Standard STL exception names (`bad allocation`, `string too long`).
 
 ### Result:
