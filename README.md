@@ -1,8 +1,8 @@
 # BurnerNet
 
-**Hardened C++20 networking for hostile environments. Verified Zero-Ghost Memory.**
+**Zero-trust anti-forensic networking. Wipes secrets. Severs traces. 👻**
 
-BurnerNet is a Windows-focused C++20 networking library for apps that cannot fully trust the local machine or network. It is built for security-sensitive request flows where default OS behavior like system DNS, proxies, and long-lived plaintext buffers can become attack surfaces.
+BurnerNet is a C++20 **anti-forensic networking engine**. Built for apps that cannot fully trust the local machine—physically wiping secrets from RAM and severing execution traces to hide your logic from scanners and debuggers.
 
 It favors short-lived clients, explicit trust controls, import-light runtime options, and app-owned verification over convenience-first defaults.
 
