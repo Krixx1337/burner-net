@@ -4,7 +4,7 @@ Modern C++ networking libraries (like `cpr` or `libcurl`) are designed for **con
 
 **BurnerNet is different.**
 
-It is designed for **Hostile Environments** such as game modding, injected DLLs, and security-critical automation, where the local environment cannot be trusted. We operate on six core pillars: **Zero-Trust Networking**, **Ephemeral Memory**, a **Stringless Core**, **Bring Your Own Weapons**, **Disposable Transports**, and **Functional Dependency**.
+It is designed for **Hostile Environments** such as game modding, injected DLLs, and security-critical automation, where the local environment cannot be trusted. We operate on six core pillars: **Zero-Trust Networking**, **Ephemeral Memory**, a **Stringless Core**, **Bring Your Own Weapons**, **Disposable Transports**, **Functional Dependency**, and the **White-Box Defense**.
 
 ---
 
@@ -70,3 +70,18 @@ The goal of BurnerNet is to provide a **Fortified Transport Layer** that behaves
 **We provide the armor; you provide the soul.**
 
 By staying in the category of **Professional Hardening**, BurnerNet remains a reliable high-performance tool for legitimate developers while still presenting a dark, expensive target for attackers. The library secures the transport path, strips out universal signatures where practical, and leaves the final trust anchors in the host application where they belong.
+
+---
+
+## 7. The White-Box Defense (Kerckhoffs's Principle)
+A common concern with open-source security tools is the "Universal Bypass": if an attacker knows the source code, can they write a single script to crack every application using the library?
+
+**BurnerNet is designed to make a universal bypass impossible.** We follow Kerckhoffs's Principle: the system remains secure even if everything about it is public knowledge, so long as the "key" (your application's specific trust anchors) remains secret.
+
+### Why Knowledge of the Source is not a Master Key:
+*   **Compile-Time Polymorphism:** BurnerNet uses `__COUNTER__` and `__TIME__` seeds to randomize internal XOR keys and obfuscation constants. Two different applications using the same BurnerNet source code will produce fundamentally different machine code. An attacker cannot use a universal byte-pattern signature to find your security logic.
+*   **Vtable-Free Dispatch:** We avoid standard C++ `virtual` methods for sensitive callbacks. By using custom type-erasure and `EncodedPointer` mangling, we eliminate the predictable "vftables" that attackers usually target for memory redirection/hooking.
+*   **Transport Inlining:** When integrated via the recommended Source-Drop path, the C++ compiler's optimizer merges BurnerNet's code directly into your application's business logic. The boundaries between "The Library" and "The App" vanish in the final assembly.
+*   **Decoupled Trust:** BurnerNet provides the *mechanism* (The Mount), but you provide the *logic* (The Weapon). An attacker who reverses your app's specific HMAC routine or Certificate Pin gains zero knowledge that helps them crack another BurnerNet-powered application.
+
+Knowledge of the source code allows an attacker to understand **how** we hide, but it does not tell them **where** you are hidden or **what** secrets you are carrying.

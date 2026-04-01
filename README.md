@@ -203,15 +203,15 @@ Documentation:
 - Windows x64/x86
 - `libcurl`
 
-## Security Reality
+## Security Reality & The White-Box Defense
 
-BurnerNet is a hardening layer, not a silver bullet.
+BurnerNet is a hardening layer designed to raise the cost of attack to a professional level. We operate on the principle that **stealth should be architectural, not just superficial.**
 
-It is designed to raise the cost of attack and force attackers out of standard convenience tooling. It does not provide complete protection against a determined reverse engineer with administrative or kernel-level access.
+**Can an attacker bypass BurnerNet if they have the source code?**
+No. BurnerNet follows Kerckhoffs's Principle: the library is designed to be secure even if the attacker has the full source code on their second monitor. Because your specific trust anchors (HMAC secrets, pinned keys, UI logic) are injected by your application and the binary is randomized at compile-time, knowledge of the library does not lead to a "universal bypass" of your specific security flow.
 
-- Keep critical decisions anchored on the server.
-- Assume hostile clients can eventually patch local logic.
-- Treat transport hardening, obfuscation, and integrity checks as delay and detection mechanisms, not absolute prevention.
-- Validate the tradeoffs against your own threat model, deployment environment, and legal obligations.
+- **Stealth as a Delay:** Hardening forces attackers out of standard convenience tools and into tedious instruction-level analysis.
+- **Data as the Root:** Use **Functional Dependency** (Principle 6) to ensure your app is literally broken without server-provided data.
+- **The Ghost Advantage:** By the time an attacker finds your request logic, the **Stack Isolation** and **Memory Wiping** have already destroyed the forensic evidence they need.
 
 C++20 • Windows x64/x86 • MIT
