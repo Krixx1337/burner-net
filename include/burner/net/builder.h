@@ -161,6 +161,7 @@ public:
     ClientBuilder& AllowSystemDns(bool fallback_allowed = true);
     ClientBuilder& WithDnsFallback(DnsMode mode, std::string value, std::string name = {});
     ClientBuilder& WithPinnedKey(std::string pin);
+    ClientBuilder& WithStackIsolation(bool enabled);
 
     struct ClientBuildResult {
         std::unique_ptr<FluentClient<CurlHttpClient>> client;

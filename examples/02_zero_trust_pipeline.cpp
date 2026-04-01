@@ -47,6 +47,7 @@ int RunZeroTrustPipeline() {
         .WithSecurityPolicy(ZeroTrustPolicy{})
         .WithUseNativeCa(true)
         .WithPinnedKey(kPinnedKey)
+        .WithStackIsolation(true) // <-- Enable the Stack Severing
         .Build();
 
     if (!paranoid.Ok()) {

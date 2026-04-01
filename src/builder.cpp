@@ -213,6 +213,11 @@ ClientBuilder& ClientBuilder::WithPinnedKey(std::string pin) {
     return *this;
 }
 
+ClientBuilder& ClientBuilder::WithStackIsolation(bool enabled) {
+    m_config.enable_stack_isolation = enabled;
+    return *this;
+}
+
 ClientBuilder::ClientBuildResult ClientBuilder::Build() {
     ClientConfig config = m_config;
     config.security_policy = SecurityPolicy(detail::BuilderSecurityPolicy{

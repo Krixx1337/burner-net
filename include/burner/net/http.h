@@ -283,6 +283,7 @@ struct ClientConfig {
     std::size_t global_max_body_bytes = 0;
     DarkVector<DarkString> pinned_public_keys;
     DarkString curl_module_name;
+    bool enable_stack_isolation = false;
 };
 
 } // namespace burner::net

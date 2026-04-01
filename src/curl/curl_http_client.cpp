@@ -11,7 +11,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <condition_variable>
 #include <limits>
+#include <mutex>
+#include <thread>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -119,7 +122,7 @@ bool CurlHttpClient::IsInitialized() const {
     return m_session != nullptr && m_session->IsInitialized();
 }
 
-HttpResponse CurlHttpClient::PerformOnce(
+HttpResponse CurlHttpClient::PerformOnceInternal(
     const HttpRequest& request,
     const std::optional<DnsStrategy>& strategy) {
     HttpResponse response{};
@@ -296,6 +299,44 @@ HttpResponse CurlHttpClient::PerformOnce(
 
     ResetMethodState();
     wipe_error_buffer();
+    return response;
+}
+
+HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request, const std::optional<DnsStrategy>& strategy) {
+    // Fast-path: If isolation is disabled, execute on the caller's thread.
+    if (!m_config.enable_stack_isolation) {
+        return PerformOnceInternal(request, strategy);
+    }
+
+    HttpResponse response{};
+    std::mutex mtx;
+    std::condition_variable cv;
+    bool completed = false;
+
+    // Spawn an anonymous, short-lived worker thread to sever the call stack.
+    std::thread worker([&]() {
+        // The internal logic creates its own stack frame. Phase 4's scrub_stack
+        // inside PerformOnceInternal will automatically wipe this worker's stack
+        // right after curl_easy_perform completes!
+        response = PerformOnceInternal(request, strategy);
+
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            completed = true;
+        }
+        cv.notify_one();
+    });
+
+    // The caller (consumer) thread sleeps here. Its stack halts at this frame.
+    std::unique_lock<std::mutex> lock(mtx);
+    cv.wait(lock, [&] { return completed; });
+
+    worker.join();
+
+    // Final hygiene: Wipe the caller's stack frame just in case any
+    // pointer residue was left during the handoff or thread setup.
+    ::burner::net::obf::scrub_stack(1024);
+
     return response;
 }
 

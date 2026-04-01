@@ -34,6 +34,7 @@ public:
     ErrorCode InitError() const { return m_init_error; }
 
 private:
+    HttpResponse PerformOnceInternal(const HttpRequest& request, const std::optional<DnsStrategy>& strategy);
     HttpResponse PerformOnce(const HttpRequest& request, const std::optional<DnsStrategy>& strategy);
     bool ShouldRetry(const HttpRequest& request, const HttpResponse& response, int attempt) const;
 
