@@ -47,7 +47,7 @@ A full strings dump of the `.text` and `.rdata` sections was performed via IDA P
 ### Visible Strings (Accounted):
 The only visible strings were those explicitly defined in the application's `main()` entry point or mandatory C++ runtime metadata:
 *   Diagnostic version string (`0.1.0`).
-*   User-provided endpoint (`https://example123.com`).
+*   User-provided endpoint (`https://example48291.invalid`).
 *   Standard STL exception names (`bad allocation`, `string too long`).
 
 ### Result:
@@ -63,9 +63,9 @@ The process memory was scanned for active code references to internal BurnerNet 
 *   **Result:** **0 matches.** No internal library strings were discoverable via pointer-reference analysis.
 
 ### Test B: Resident Memory Search (Heap/Stack Scan)
-A differential scan was performed to find sensitive request data remaining in memory after a request completed.
-*   **Target:** `https://example123.com` (consumer runtime test endpoint).
-*   **Result:** **0 matches.** During the idle phase between requests, the endpoint did not remain resident in discoverable heap or stack string scans.
+A differential scan was performed to find sensitive request data remaining in memory during the idle window after an expected failed request cycle.
+*   **Target:** `https://example48291.invalid` (consumer runtime test endpoint).
+*   **Result:** **0 matches.** During the idle phase between retries, the endpoint did not remain resident in discoverable heap or stack string scans.
 
 ---
 
@@ -85,8 +85,11 @@ int main() {
 
     auto build = ClientBuilder().Build();
     while (true) {
-        const auto resp = build.client->Get("https://example123.com").Send();
-        if (!resp.TransportOk()) return 1;
+        const auto resp = build.client->Get("https://example48291.invalid").Send();
+        if (!resp.TransportOk()) {
+            std::this_thread::sleep_for(std::chrono::seconds(10));
+            continue;
+        }
 
         std::this_thread::sleep_for(std::chrono::seconds(10));
     }
