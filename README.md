@@ -1,8 +1,8 @@
 # BurnerNet
 
-**Zero-trust anti-forensic networking. Wipes secrets. Severs traces. 👻**
+**Zero-trust anti-forensic networking. Wipes secrets. Severs traces. CPR in a Stealth Tank. 👻**
 
-BurnerNet is a C++20 **anti-forensic networking engine**. Built for apps that cannot fully trust the local machine—physically wiping secrets from RAM and severing execution traces to hide your logic from scanners and debuggers.
+BurnerNet is a C++20 **anti-forensic networking engine**. It provides a fluent, CPR-like API for apps that cannot fully trust the local machine—physically wiping secrets from RAM and severing execution traces to hide your logic from scanners and debuggers.
 
 It favors short-lived clients, explicit trust controls, import-light runtime options, and app-owned verification over convenience-first defaults.
 
