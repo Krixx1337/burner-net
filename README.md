@@ -15,7 +15,7 @@ Looking to protect the payloads downloaded by BurnerNet? Check out [RipStop Code
 | Area | BurnerNet |
 | :--- | :--- |
 | **Language** | C++20 |
-| **Platform** | Windows x64/x86 |
+| **Platform** | Windows x64/x86 (**First-Class**), Linux (Verified) |
 | **Transport** | `libcurl`-backed HTTP(S) |
 | **Memory hygiene** | Secure wiping utilities and wiping allocators |
 | **Forensic hygiene** | **Total Dark-out.** Automated heap/stack scrubbing for 100% of transport data. |
@@ -53,7 +53,7 @@ BurnerNet fits projects such as:
 
 ## Defensive Outcomes
 
-- **Zero-Ghost Memory Architecture**: BurnerNet uses a custom **Prefix-Size Scrubber** to hijack the internal memory allocation of both `libcurl` and `OpenSSL`. Every byte of URLs, HTTP headers, and TLS session keys is overwritten with zeros the millisecond it is no longer needed.
+- **Zero-Ghost Memory Architecture**: BurnerNet uses a custom **Prefix-Size Scrubber** to hijack the internal memory allocation of both `libcurl` and `OpenSSL`. Every byte of URLs, HTTP headers, and TLS session keys is overwritten with zeros the millisecond it is no longer needed. **This hygiene is verified on both Windows and Linux.**
 - **Stack-Frame Swiping**: After every request, the library proactively scrubs its own thread stack (High-Water Mark scrubbing). This ensures that ephemeral cryptographic fragments used during the TLS handshake are physically destroyed before control returns to your application.
 - **Moving-Target Heap**: The combination of disposable transports and aligned metadata headers creates high address-space dispersion, making the process memory unpredictable and resistant to stable pointer-mapping.
 - **Short-lived request state**: BurnerNet is designed around disposable clients instead of process-wide singleton transports.
@@ -166,6 +166,8 @@ Reference:
 - [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
 - [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
 
+> **Linux Support:** BurnerNet provides full forensic parity (Memory Wiping & Stack Isolation) on Linux. See [docs/LINUX_USAGE.md](docs/LINUX_USAGE.md) for build instructions.
+
 ## Usage Notes
 
 Recommended defaults:
@@ -200,8 +202,9 @@ Documentation:
 ## Requirements
 
 - C++20
-- Windows x64/x86
-- `libcurl`
+- Windows x64/x86 or Linux (GCC 13+ / Clang 15+)
+- `libcurl` and `OpenSSL` headers
+- **Linux Guide:** See [docs/LINUX_USAGE.md](docs/LINUX_USAGE.md)
 
 ## Security Reality & The White-Box Defense
 
