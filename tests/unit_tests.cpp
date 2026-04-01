@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <ostream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -702,4 +703,51 @@ TEST_CASE("selected error code strings are stable") {
         }
 #endif
     }
+}
+
+TEST_CASE("stack isolation executes transport on a distinct thread") {
+    using namespace burner::net;
+
+    const std::thread::id caller_thread_id = std::this_thread::get_id();
+    std::thread::id transport_thread_id;
+
+    // WithTransportCheck maps to OnVerifyTransport, called inside PerformOnceInternal
+    // after a successful curl_easy_perform — i.e. on the worker thread.
+    auto build_result = ClientBuilder()
+        .WithUseNativeCa(true)
+        .WithStackIsolation(true)
+        .WithTransportCheck([&](const char*, const char*) {
+            transport_thread_id = std::this_thread::get_id();
+            return true;
+        })
+        .Build();
+
+    REQUIRE(build_result.Ok());
+
+    build_result.client->Get("https://example.com").Send();
+
+    CHECK(transport_thread_id != std::thread::id{}); // Ensure the callback ran
+    CHECK(transport_thread_id != caller_thread_id);  // PROOF OF SEVERED STACK
+}
+
+TEST_CASE("transport stays on caller thread when isolation is disabled") {
+    using namespace burner::net;
+
+    const std::thread::id caller_thread_id = std::this_thread::get_id();
+    std::thread::id transport_thread_id;
+
+    auto build_result = ClientBuilder()
+        .WithUseNativeCa(true)
+        .WithStackIsolation(false)
+        .WithTransportCheck([&](const char*, const char*) {
+            transport_thread_id = std::this_thread::get_id();
+            return true;
+        })
+        .Build();
+
+    REQUIRE(build_result.Ok());
+
+    build_result.client->Get("https://example.com").Send();
+
+    CHECK(transport_thread_id == caller_thread_id); // No thread hop
 }

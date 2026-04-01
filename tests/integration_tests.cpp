@@ -158,3 +158,23 @@ TEST_CASE("timeouts fail closed for slow or unroutable endpoints") {
         CHECK(elapsed.count() < 5);
     }
 }
+
+TEST_CASE("isolated transport preserves response data integrity") {
+    using namespace burner::net;
+
+    auto build_result = ClientBuilder()
+        .WithUseNativeCa(true)
+        .WithStackIsolation(true)
+        .Build();
+
+    REQUIRE(build_result.Ok());
+
+    // Execute against a real endpoint to verify the HttpResponse moves
+    // cleanly across the thread boundary back to the caller.
+    const auto response = build_result.client->Get("https://example.com").Send();
+
+    CHECK(response.TransportOk());
+    CHECK(response.status_code == 200);
+    CHECK_FALSE(response.body.empty());
+    CHECK(response.body.find("Example Domain") != std::string::npos);
+}
