@@ -150,13 +150,17 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
                     FILE_ATTRIBUTE_NORMAL,
                     nullptr);
                 if (locked_file == INVALID_HANDLE_VALUE) {
-                    return {false, ErrorCode::BootstrapLoad};
+                    if (config.integrity_policy.fail_closed) {
+                        return {false, ErrorCode::BootstrapLoad};
+                    }
                 }
 
-                const bool ok = config.integrity_policy.integrity_provider(full_path, dll_name);
-                if (!ok && config.integrity_policy.fail_closed) {
-                    close_locked_file();
-                    return {false, ErrorCode::BootstrapIntegrityMismatch};
+                if (locked_file != INVALID_HANDLE_VALUE) {
+                    const bool ok = config.integrity_policy.integrity_provider(full_path, dll_name);
+                    if (!ok && config.integrity_policy.fail_closed) {
+                        close_locked_file();
+                        return {false, ErrorCode::BootstrapIntegrityMismatch};
+                    }
                 }
             }
         }
