@@ -20,7 +20,7 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
     auto check_tls_rejection = [&](const char* url) {
         const auto resp = client.client->Get(url).Send();
         MESSAGE("Testing: " << std::string(url) << " | ErrorCode: "
-                            << std::string(ErrorCodeToString(resp.transport_error)));
+                            << std::string(ErrorCodeDebugString(resp.transport_error)));
         CHECK_FALSE(resp.TransportOk());
         CHECK_FALSE(resp.Ok());
         CHECK(resp.transport_error == ErrorCode::TlsVerificationFailed);
@@ -36,7 +36,7 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
     SUBCASE("Protocol Downgrade Rejections (Enforcing TLS 1.2+)") {
         const auto resp = client.client->Get("https://tls-v1-0.badssl.com:1010").Send();
         MESSAGE("Testing: TLS 1.0 | ErrorCode: "
-                << std::string(ErrorCodeToString(resp.transport_error)));
+                << std::string(ErrorCodeDebugString(resp.transport_error)));
         CHECK_FALSE(resp.TransportOk());
         CHECK(resp.transport_code != 0);
     }
@@ -44,7 +44,7 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
     SUBCASE("Weak Cipher Rejections") {
         const auto resp = client.client->Get("https://rc4.badssl.com").Send();
         MESSAGE("Testing: RC4 | ErrorCode: "
-                << std::string(ErrorCodeToString(resp.transport_error)));
+                << std::string(ErrorCodeDebugString(resp.transport_error)));
         CHECK_FALSE(resp.TransportOk());
         CHECK(resp.transport_code != 0);
     }
