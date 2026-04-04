@@ -35,7 +35,10 @@ struct BURNER_API ISecurityPolicy {
         return true;
     }
 
-    bool OnAuditTelemetry(const TransportTelemetry& telemetry) const;
+    bool OnAuditTelemetry(const TransportTelemetry& telemetry) const {
+        (void)telemetry;
+        return true;
+    }
 
     bool OnHeartbeat(const TransferProgress& progress) const {
         (void)progress;
@@ -150,7 +153,15 @@ private:
             return static_cast<const PolicyType*>(raw)->OnVerifyTransport(url, remote_ip);
         };
         m_on_audit_telemetry = [](const void* raw, const TransportTelemetry& telemetry) {
-            return static_cast<const PolicyType*>(raw)->OnAuditTelemetry(telemetry);
+            if constexpr (requires(const PolicyType& policy, const TransportTelemetry& value) {
+                              { policy.OnAuditTelemetry(value) } -> std::convertible_to<bool>;
+                          }) {
+                return static_cast<const PolicyType*>(raw)->OnAuditTelemetry(telemetry);
+            } else {
+                (void)raw;
+                (void)telemetry;
+                return true;
+            }
         };
         m_on_heartbeat = [](const void* raw, const TransferProgress& progress) {
             return static_cast<const PolicyType*>(raw)->OnHeartbeat(progress);

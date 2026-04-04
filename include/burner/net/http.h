@@ -199,11 +199,6 @@ struct TransportTelemetry {
     DarkVector<DarkString> tls_chain;
 };
 
-inline bool ISecurityPolicy::OnAuditTelemetry(const TransportTelemetry& telemetry) const {
-    (void)telemetry;
-    return true;
-}
-
 struct HttpResponse {
     long status_code = 0;
     DarkString body;

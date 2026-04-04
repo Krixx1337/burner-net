@@ -18,7 +18,6 @@ concept SecurityPolicyConcept = requires(const T policy, HttpRequest& request, c
     { policy.OnVerifyEnvironment() } -> std::convertible_to<bool>;
     { policy.OnPreRequest(request) } -> std::convertible_to<bool>;
     { policy.OnVerifyTransport(url, remote_ip) } -> std::convertible_to<bool>;
-    { policy.OnAuditTelemetry(telemetry) } -> std::convertible_to<bool>;
     { policy.OnHeartbeat(progress) } -> std::convertible_to<bool>;
     { policy.OnResponseReceived(const_request, response) } -> std::convertible_to<bool>;
     { policy.OnSignatureVerified(verified, reason) } -> std::same_as<void>;
