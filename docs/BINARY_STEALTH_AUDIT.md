@@ -6,6 +6,8 @@
 ## Executive Summary
 This document records the results of static and dynamic analysis performed to verify BurnerNet's compliance with the **"Ghost Library"** principles. The audit focused on the effectiveness of import-hiding, string obfuscation, and runtime memory hygiene when the library is compiled with maximum hardening.
 
+This report is a point-in-time audit snapshot for the configuration listed below. Treat it as evidence for a specific tested build profile, not as an unconditional guarantee for every compiler, dependency set, architecture, or downstream integration style.
+
 ## Audit Configuration
 *   **Platform:** Windows 10/11 x64
 *   **Compiler:** MSVC (Visual Studio 2022)
@@ -23,12 +25,12 @@ This document records the results of static and dynamic analysis performed to ve
 Standard networking libraries typically advertise their capabilities through the IAT. A BurnerNet-hardened binary was inspected via `PE-Bear` and `dumpbin`.
 
 ### Findings:
-*   **Networking DLLs:** Total Blackout. `ws2_32.dll` and `libcurl.dll` are **absent**.
-*   **Cryptographic DLLs:** Total Blackout. `bcrypt.dll` and `crypt32.dll` are **absent**.
+*   **Networking DLLs:** In the audited binary, `ws2_32.dll` and `libcurl.dll` were **absent** from the import table.
+*   **Cryptographic DLLs:** In the audited binary, `bcrypt.dll` and `crypt32.dll` were **absent** from the import table.
 *   **Suspicious Loader APIs:** No imports for `LdrLoadDll` or manual mapping primitives were found.
 
 ### Result:
-Pass. The binary appears to have no networking capability to automated static scanners. All system calls are resolved at runtime via the `KernelResolver`.
+Pass for the audited configuration. The binary appears to have no networking capability to automated static scanners. System calls relevant to this audit were resolved at runtime via the `KernelResolver`.
 
 ---
 
@@ -57,8 +59,8 @@ Runtime audit performed using memory-resident string scanning (Cheat Engine) dur
 ### 3.2. Test B: Resident Memory Search (Forensic Heap/Stack Scan)
 *   **Target:** `example48291.invalid` (Canary String)
 *   **Pre-Killer Status:** String was previously discoverable in libcurl's internal buffers.
-*   **Current Status:** **TOTAL DARK-OUT.**
-*   **Finding:** After the implementation of the RAM Ghost Killers, the canary string is **completely absent** from the process heap and stack during the idle window.
+*   **Current Status:** No canary matches were observed during the audited idle window.
+*   **Finding:** After the implementation of the RAM Ghost Killers, the canary string was not observed in the process heap or stack during the audited idle window.
 *   **Mechanism:** The Prefix-Size Scrubber (Phase 1) combined with libcurl Global Injection (Phase 3) ensures that libcurl's internal copy of the URL is overwritten with zeros immediately upon handle reset or destruction.
 
 ### 3.3. Address Space Dispersion (Entropy)
@@ -92,6 +94,6 @@ int main() {
 ## Conclusion
 The BurnerNet binary footprint has transitioned from "Hardened" to **"Forensic-Resistant."**
 
-By synchronizing the memory lifecycles of the application, libcurl, and OpenSSL, we have effectively banished the "RAM Ghosts." The library now achieves a state of **Total Forensic Hygiene** within the process boundaries.
+By synchronizing the memory lifecycles of the application, libcurl, and OpenSSL, BurnerNet substantially reduces recoverable transport residue inside the audited process boundaries.
 
-**BurnerNet is now verified as a "Ghost Library."**
+Within the audited configuration above, BurnerNet behaved like the intended "Ghost Library."

@@ -18,8 +18,8 @@ Looking to protect the payloads downloaded by BurnerNet? Check out [RipStop Code
 | **Platform** | Windows x64/x86 (**First-Class**), Linux (Verified) |
 | **Transport** | `libcurl`-backed HTTP(S) |
 | **Memory hygiene** | Secure wiping utilities and wiping allocators |
-| **Forensic hygiene** | **Total Dark-out.** Automated heap/stack scrubbing for 100% of transport data. |
-| **Dynamic Analysis** | **Tracing-Immune.** Call stack isolation severs the link between consumer and transport. |
+| **Forensic hygiene** | Automated heap/stack scrubbing across BurnerNet-managed transport state |
+| **Dynamic Analysis** | Call stack isolation can sever the link between consumer and transport |
 | **Build hardening** | Hardened error strings, obfuscated literals, reduced C++ runtime metadata in hardened builds |
 | **Runtime hardening** | DoH support, provider-based secrets, and stricter trust controls |
 | **Integration** | CMake or Visual Studio source-drop |
@@ -53,8 +53,8 @@ BurnerNet fits projects such as:
 
 ## Defensive Outcomes
 
-- **Zero-Ghost Memory Architecture**: BurnerNet uses a custom **Prefix-Size Scrubber** to hijack the internal memory allocation of both `libcurl` and `OpenSSL`. Every byte of URLs, HTTP headers, and TLS session keys is overwritten with zeros the millisecond it is no longer needed. **This hygiene is verified on both Windows and Linux.**
-- **Stack-Frame Swiping**: After every request, the library proactively scrubs its own thread stack (High-Water Mark scrubbing). This ensures that ephemeral cryptographic fragments used during the TLS handshake are physically destroyed before control returns to your application.
+- **Zero-Ghost Memory Architecture**: BurnerNet uses a custom **Prefix-Size Scrubber** to hook the internal memory allocation paths of `libcurl` and OpenSSL-backed flows. Sensitive transport buffers are wiped as they leave BurnerNet-managed lifetime. **This hygiene is verified on both Windows and Linux within the audited configurations described in the docs.**
+- **Stack-Frame Swiping**: After every request, the library proactively scrubs its own thread stack (High-Water Mark scrubbing). This is intended to destroy ephemeral transport fragments before control returns to your application.
 - **Moving-Target Heap**: The combination of disposable transports and aligned metadata headers creates high address-space dispersion, making the process memory unpredictable and resistant to stable pointer-mapping.
 - **Short-lived request state**: BurnerNet is designed around disposable clients instead of process-wide singleton transports.
 - **Less trust in the host**: DoH support, pinned-key support, and transport auditing help reduce dependence on compromised local defaults.
@@ -62,16 +62,16 @@ BurnerNet fits projects such as:
 - **App-owned verification**: Response verification stays in your code through `WithResponseVerifier(...)` instead of being hardcoded into a shared library.
 - **Harder static fingerprinting**: Release builds harden `ErrorCodeToString(...)` automatically, and compile-time literal obfuscation is available out of the box.
 - **Import-light deployment options**: `BURNERNET_HARDEN_IMPORTS=1` can resolve runtime dependencies dynamically instead of advertising them directly in the import table, using BurnerNet's `KernelResolver` path on Windows.
-- **Call Stack Isolation (Async Handoff)**: When enabled via `.WithStackIsolation(true)`, the library executes the entire transport lifecycle on a detached, anonymous worker thread. This physically severs the caller's call stack. Even if an attacker breakpoints the networking core, the debugger's "Call Stack" window will lead to a generic thread dispatcher—completely hiding your application's business logic from discovery.
+- **Call Stack Isolation (Async Handoff)**: When enabled via `.WithStackIsolation(true)`, the library executes the transport lifecycle on a detached worker thread. This can physically sever the caller's call stack and reduce direct top-down tracing of application logic.
 
 ## Verified Stealth
 
-BurnerNet does not just claim an import-light hardened mode; it delivers **verified forensic dark-out**. In a Windows x64 Release audit with `BURNERNET_HARDEN_IMPORTS=ON`:
+BurnerNet does not just claim an import-light hardened mode; it also ships with audit notes for specific tested configurations. In a Windows x64 Release audit with `BURNERNET_HARDEN_IMPORTS=ON`:
 
-- **IAT Blackout**: Zero entries for `libcurl.dll`, `ws2_32.dll`, `bcrypt.dll`, or `crypt32.dll`.
+- **IAT Blackout**: No entries for `libcurl.dll`, `ws2_32.dll`, `bcrypt.dll`, or `crypt32.dll` were observed in the audited binary.
 - **Memory Dark-out**: Forensic scans (Cheat Engine "All Strings") failed to discover sensitive canary URLs or headers in the process heap or stack.
-- **Debugger Blindness**: Integrated tests verify that the library triggers an "Identity Shift." The Decision-Maker (your app) and the Transporter (BurnerNet) operate on distinct Thread IDs, preventing top-down tracing during live debugging sessions.
-- **Noise-to-Signal**: The library achieves total forensic hygiene within its wipe-authority, leaving behind only system-level "shadows" in the kernel.
+- **Debugger Blindness**: Integrated tests verify that the library triggers an "Identity Shift." The Decision-Maker (your app) and the Transporter (BurnerNet) operate on distinct Thread IDs, reducing top-down tracing during live debugging sessions.
+- **Noise-to-Signal**: The library aims for forensic hygiene within its wipe authority, while acknowledging remaining system-level "shadows" in the OS and runtime environment.
 
 Audit details and methodology:
 - [docs/BINARY_STEALTH_AUDIT.md](docs/BINARY_STEALTH_AUDIT.md)
@@ -205,10 +205,9 @@ Documentation:
 BurnerNet is a hardening layer designed to raise the cost of attack to a professional level. We operate on the principle that **stealth should be architectural, not just superficial.**
 
 **Can an attacker bypass BurnerNet if they have the source code?**
-No. BurnerNet follows Kerckhoffs's Principle: the library is designed to be secure even if the attacker has the full source code on their second monitor. Because your specific trust anchors (HMAC secrets, pinned keys, UI logic) are injected by your application and the binary is randomized at compile-time, knowledge of the library does not lead to a "universal bypass" of your specific security flow.
+Knowledge of BurnerNet's source code is not, by itself, a master key to every downstream application. BurnerNet follows Kerckhoffs's Principle: the library is designed so that your app-specific trust anchors (HMAC secrets, pinned keys, UI logic, policy hooks) remain application-owned. Knowing the transport layer does not automatically yield a universal bypass of your specific security flow.
 
 - **Stealth as a Delay:** Hardening forces attackers out of standard convenience tools and into tedious instruction-level analysis.
 - **Data as the Root:** Use **Functional Dependency** (Principle 6) to ensure your app is literally broken without server-provided data.
 - **The Ghost Advantage:** By the time an attacker finds your request logic, the **Stack Isolation** and **Memory Wiping** have already destroyed the forensic evidence they need.
 
-C++20 • Windows x64/x86 • MIT

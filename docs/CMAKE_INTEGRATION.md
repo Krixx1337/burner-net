@@ -149,8 +149,8 @@ For any mode, you need:
 Typical local folders for sibling-repo integration:
 
 - BurnerNet source: `burner-net/`
-- curl package config: `burner-net/out/build/x64-debug/vcpkg_installed/x64-windows/share/curl/CURLConfig.cmake`
-- curl runtime DLLs: `burner-net/out/build/x64-debug/vcpkg_installed/x64-windows/debug/bin/*.dll`
+- curl package config: somewhere under your dependency prefix or package manager output
+- curl runtime DLLs: whatever runtime set your active architecture/configuration requires
 
 ## Recommended Downstream Setup
 
@@ -195,7 +195,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(BURNERNET_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../burner-net" CACHE PATH "")
 set(BURNERNET_DEP_PREFIX
-    "${BURNERNET_SOURCE_DIR}/out/build/x64-debug/vcpkg_installed/x64-windows"
+    "/path/to/dependency/prefix"
     CACHE PATH "")
 
 list(PREPEND CMAKE_PREFIX_PATH "${BURNERNET_DEP_PREFIX}")
@@ -294,10 +294,9 @@ Use this only when you intentionally want to control where curl/OpenSSL/zlib DLL
 2. Provide curl headers.
 3. Do **not** rely on the normal curl import-table path.
 4. Stage the runtime DLLs in a custom folder, for example:
-   - `MyApp/redist/libcurl-d.dll`
-   - `MyApp/redist/libssl-3-x64.dll`
-   - `MyApp/redist/libcrypto-3-x64.dll`
-   - `MyApp/redist/zlibd1.dll`
+   - your curl runtime DLL
+   - the TLS/backend runtime DLLs required by that curl build
+   - any compression/support DLLs required by that curl build
 
 ### Configure-time option
 
@@ -320,9 +319,19 @@ int main() {
     burner::net::BootstrapConfig boot{};
     boot.link_mode = burner::net::LinkMode::Dynamic;
     boot.dependency_directory = std::filesystem::current_path() / "redist";
+    // Use the exact filenames emitted by your dependency set for the active
+    // architecture/configuration.
+    boot.dependency_dlls = {
+        L"libcurl-d.dll",
+        L"libssl-3-x64.dll",
+        L"libcrypto-3-x64.dll",
+        L"zlibd1.dll",
+    };
+    boot.integrity_policy.enabled = true;
+    boot.integrity_policy.fail_closed = true;
 
     auto init = burner::net::InitializeNetworkingRuntime(boot);
-    if (!init.Ok()) {
+    if (!init.success) {
         return 1;
     }
 

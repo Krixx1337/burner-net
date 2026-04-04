@@ -33,7 +33,7 @@ This document is primarily about that source-drop model.
 
 The curl stack can be integrated in different ways:
 
-- **dynamic via normal linking:** link `libcurl.lib` / `libcurl-d.lib`, then ship the required runtime DLLs
+- **dynamic via normal linking:** link the appropriate curl import library for your active configuration, then ship the required runtime DLLs
 - **dynamic via bootstrap:** set `BURNERNET_HARDEN_IMPORTS=1` and preload the runtime DLLs with `InitializeNetworkingRuntime(...)`
 - **static:** link curl and its dependency stack as static libraries, so no curl/OpenSSL/zlib runtime DLLs are needed
 
@@ -131,20 +131,22 @@ Typical local folders:
 
 - BurnerNet headers: `burner-net/include`
 - BurnerNet source: `burner-net/src`
-- curl headers from vcpkg: `.../vcpkg_installed/x64-windows/include`
-- curl debug import library: `.../vcpkg_installed/x64-windows/debug/lib/libcurl-d.lib`
-- curl debug runtime DLLs: `.../vcpkg_installed/x64-windows/debug/bin/*.dll`
+- curl headers from your package manager or prebuilt dependency tree
+- curl import libraries for the active configuration
+- runtime DLLs for the active architecture and build type
 
 ## BurnerNet Source Files To Add
 
-For a normal Windows build, add these BurnerNet `.cpp` files to your `.vcxproj`:
+For source-drop integration, add the BurnerNet implementation `.cpp` files from `burner-net/src` to your `.vcxproj` and preserve their relative include layout.
 
-- `src/builder.cpp`
-- `src/detail/memory_hygiene.cpp`
-- `src/error.cpp`
-- `src/curl/curl_http_client.cpp`
-- `src/internal/header_validation.cpp`
-- `src/bootstrap/bootstrap_windows.cpp`
+Practical rule:
+
+- include the library implementation sources under `src/`
+- include the Windows bootstrap source when targeting Windows:
+  - `src/bootstrap/bootstrap_windows.cpp`
+- do **not** add test files or example files
+
+If you want an exact current list for a given revision, treat the root `CMakeLists.txt` as the authoritative source of truth. That keeps this Visual Studio guide stable even as BurnerNet's internal file layout evolves.
 
 ## Include Directories
 
@@ -170,8 +172,8 @@ This is the lower-friction Visual Studio path.
 2. Add the include directories listed above.
 3. Add your curl import library directory to **Additional Library Directories**.
 4. Link the appropriate curl import library:
-   - Debug: usually `libcurl-d.lib`
-   - Release: usually `libcurl.lib`
+   - use the filename emitted by your dependency set for the active configuration
+   - many Windows packages use `libcurl-d.lib` for Debug and `libcurl.lib` for Release, but treat those as examples rather than a contract
 
 ### Preprocessor definitions
 
@@ -213,10 +215,9 @@ You do **not** need to switch to `/Zi` only to satisfy `BURNER_OBF_LITERAL(...)`
 For this mode, curl/OpenSSL/zlib runtime DLLs should usually be available next to the executable, for example:
 
 - `MyApp.exe`
-- `libcurl-d.dll`
-- `libssl-3-x64.dll`
-- `libcrypto-3-x64.dll`
-- `zlibd1.dll`
+- your curl runtime DLL
+- the TLS/backend runtime DLLs required by that curl build
+- any compression/support DLLs required by that curl build
 
 If you use vcpkg MSBuild integration, it may stage these automatically. If not, copy them in a post-build step.
 
@@ -231,10 +232,9 @@ Use this only when you intentionally want to control where curl/OpenSSL/zlib DLL
 3. Provide curl headers.
 4. Do **not** rely on the normal curl import-table path.
 5. Stage the runtime DLLs in a custom folder, for example:
-   - `MyApp\burner-redist\libcurl-d.dll`
-   - `MyApp\burner-redist\libssl-3-x64.dll`
-   - `MyApp\burner-redist\libcrypto-3-x64.dll`
-   - `MyApp\burner-redist\zlibd1.dll`
+   - your curl runtime DLL
+   - the TLS/backend runtime DLLs required by that curl build
+   - any compression/support DLLs required by that curl build
 
 ### Preprocessor definitions
 
@@ -265,7 +265,8 @@ const auto exe_dir = std::filesystem::path(argv[0]).parent_path();
 burner::net::BootstrapConfig boot{};
 boot.link_mode = burner::net::LinkMode::Dynamic;
 boot.dependency_directory = exe_dir / "burner-redist";
-// Explicitly list the DLLs you package; BurnerNet no longer assumes any default names.
+// Explicitly list the DLLs you package. Use the exact filenames emitted by
+// your dependency set for the active architecture/configuration.
 boot.dependency_dlls = {
     L"libcurl-d.dll",
     L"libssl-3-x64.dll",
@@ -296,10 +297,9 @@ In this mode, the DLLs do not need to sit next to the executable.
 Example:
 
 - `MyApp.exe`
-- `burner-redist/libcurl-d.dll`
-- `burner-redist/libssl-3-x64.dll`
-- `burner-redist/libcrypto-3-x64.dll`
-- `burner-redist/zlibd1.dll`
+- `burner-redist/<your curl runtime DLL>`
+- `burner-redist/<your TLS/backend runtime DLLs>`
+- `burner-redist/<any additional dependency DLLs required by that curl build>`
 
 ## Source-Drop With Curl Linked Statically
 
@@ -353,7 +353,7 @@ Typical examples:
 - Release import lib: `libcurl.lib`
 - Release DLL: `libcurl.dll`
 
-Do not mix Debug and Release runtime sets in the same consumer configuration.
+Do not mix Debug and Release runtime sets in the same consumer configuration. More generally, keep the import libraries, DLL names, architecture, and CRT/runtime model consistent with the dependency package you actually built against.
 
 ## Common Failure Cases
 

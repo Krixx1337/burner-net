@@ -2,19 +2,17 @@
 
 This guide shows recommended usage patterns for short-lived secrets and mixed security levels (public + login APIs).
 
-## 1. Choose your integration path
+## 1. Choose the right integration document
+This guide focuses on runtime usage patterns, trust boundaries, and operational defaults.
+
+For build and integration mechanics, use the dedicated guides:
+- CMake: [CMAKE_INTEGRATION.md](CMAKE_INTEGRATION.md)
+- Visual Studio `.vcxproj`: [VISUAL_STUDIO_INTEGRATION.md](VISUAL_STUDIO_INTEGRATION.md)
+
+Rule of thumb:
 - Prefer CMake when your downstream project already uses CMake.
 - Prefer Visual Studio source-drop when your downstream project is MSBuild-first.
 - Use bootstrap runtime loading only for custom runtime DLL redist scenarios.
-
-Why:
-- Compiling BurnerNet inside your own build re-instantiates compile-time obfuscation and hardened error-string generation.
-- This is a hardening advantage, not a cryptographic identity guarantee. Do not treat build-time polymorphism as a substitute for server-side secrets or response verification.
-- CMake is the cleanest dependency-managed path, but `.vcxproj` source-drop is also viable when your environment is anchored to MSBuild.
-
-Integration guides:
-- CMake: [CMAKE_INTEGRATION.md](CMAKE_INTEGRATION.md)
-- Visual Studio `.vcxproj`: [VISUAL_STUDIO_INTEGRATION.md](VISUAL_STUDIO_INTEGRATION.md)
 
 ## 2. Treat clients as disposable transports
 - Prefer request-scope or burst-scope clients: create, use, destroy.
@@ -162,38 +160,17 @@ cfg.mtls.enabled = false;
 auto created = burner::net::CreateHttpClient(cfg);
 ```
 
-## 7. Host bootstrap templates
+## 7. Bootstrap runtime loading
+If you are using `InitializeNetworkingRuntime(...)`, keep the bootstrap policy simple and explicit:
+- list the exact packaged runtime DLLs for the active architecture/configuration
+- keep integrity verification in application code
+- use `fail_closed=true` for sensitive flows
+- keep the dependency directory non-user-writable when possible
 
-### `.exe` host
-```cpp
-burner::net::BootstrapConfig boot{};
-boot.link_mode = burner::net::LinkMode::Dynamic;
-boot.dependency_directory = LR"(C:\MyApp\bin)";
-boot.integrity_policy.enabled = true;
-boot.integrity_policy.fail_closed = true;
-boot.integrity_policy.integrity_provider =
-    [](const std::filesystem::path& dll_path, const std::wstring& dll_name) {
-        return VerifyPackagedRuntimeDll(dll_path, dll_name);
-    };
-auto init = burner::net::InitializeNetworkingRuntime(boot);
-```
-
-### injected `.dll` host
-```cpp
-// Do not initialize heavy networking inside DllMain.
-// Defer to a worker/init thread, then call:
-burner::net::BootstrapConfig boot{};
-boot.link_mode = burner::net::LinkMode::Dynamic;
-boot.dependency_directory = LR"(C:\Games\Guild Wars 2\addons\kxvision)";
-auto init = burner::net::InitializeNetworkingRuntime(boot);
-```
-
-## 8. Dependency integrity policy (dynamic mode)
-- Integrity checks happen once per dependency, immediately before `LoadLibraryExW`.
-- If your callback returns `false` and `fail_closed=true`, bootstrap fails.
-- Keep hashes or signature verification in app code, not in shared library code.
-- Recompute any expected hashes or signatures when you upgrade runtime DLLs.
-- Ensure `dependency_directory` is not writable by standard users; prefer app-owned folder with strict ACLs.
+For concrete bootstrap setup, examples, and build-system mechanics, see:
+- [CMAKE_INTEGRATION.md](CMAKE_INTEGRATION.md)
+- [VISUAL_STUDIO_INTEGRATION.md](VISUAL_STUDIO_INTEGRATION.md)
+- [../examples/04_bootstrap_runtime.cpp](../examples/04_bootstrap_runtime.cpp)
 
 ## 9. Response body limits
 - Use `HttpRequest::max_body_bytes` for endpoints that should never return large payloads.
@@ -216,17 +193,16 @@ auto init = burner::net::InitializeNetworkingRuntime(boot);
 - Prefer separate client instances for paranoid and utility traffic instead of toggling one client back and forth.
 - Keep transport integrity hooks synchronous and fail closed by returning `false`.
 
-## 12. CI recommendation for redist
-- Build the example or test targets in CI so CMake stages the runtime set into `out/build/<preset>/bin/redist`.
-- Treat missing runtime DLLs in that generated `redist` folder as a build failure.
-- Run that check separately for each dynamic triplet you ship (`x64-windows`, `x86-windows`).
+## 11. CI recommendation for runtime staging
+- If you ship dynamic runtime dependencies, add a CI check that verifies the expected runtime set is present for each shipped architecture/configuration.
+- Treat missing runtime DLLs or mismatched runtime layouts as a build/deployment failure.
 
-## 13. Startup canary
+## 12. Startup canary
 - For high-risk paths, run `burner::net::SecurityAuditor::CheckTransportIntegrity(client->Raw(), canary_urls)` during startup or before auth. If the audit fails, BurnerNet now forwards that result into `ISecurityPolicy::OnTamper()`.
 - A `true` result means the transport rejected each app-owned TLS-failure canary exactly as expected.
 - A `false` result means the environment is compromised or inconclusive; fail closed for sensitive flows.
 
-## 14. Defeating Local DNS Hijacking & API Spoofing
+## 13. Defeating Local DNS Hijacking & API Spoofing
 
 **The Threat:** In hostile environments such as compromised machines or game modding contexts, attackers often use PowerShell scripts, local DNS overrides, or `hosts` file modifications to redirect your API domains to a malicious server. They may then supply a valid or locally-trusted TLS certificate and return spoofed `200 OK` responses to bypass auth checks or feed malicious data to your application.
 
@@ -265,6 +241,8 @@ auto client = burner::net::ClientBuilder()
     .Build();
 ```
 
+The `resolver.example` URL above is intentionally a placeholder. Replace it with a real DoH endpoint owned or approved by your application. BurnerNet does not ship public resolver defaults, and placeholder URLs are not expected to run out of the box.
+
 If an attacker spoofs the API, your app-owned verifier returns a signature verification error and the untrusted payload is rejected instead of being handed to app logic.
 
 ## 14. Managing Strict DoH (DNS-over-HTTPS)
@@ -281,6 +259,8 @@ auto client = burner::net::ClientBuilder()
     .AllowSystemDns(true) // Explicitly permits fallback to the easily hijacked OS DNS
     .Build();
 ```
+
+Again, the resolver URL here is illustrative only. Use your own real DoH endpoint before expecting the request path to succeed.
 
 ## 15. Binary Uniqueness (Polymorphism)
 BurnerNet now derives its hardened error XOR key from compile-time state automatically, so each build gets a distinct numeric error surface without a generator step. Literal obfuscation is also built in by default.
@@ -314,9 +294,6 @@ Important:
 
 - BurnerNet supports both x64 and x86 Windows client builds.
 - Match the process architecture to the runtime dependencies exactly: a 32-bit process must load 32-bit `libcurl.dll`, and a 64-bit process must load 64-bit `libcurl.dll`.
-- `x64-debug` / `x64-release` use `x64-windows`
-- `x64-debug-static` / `x64-release-static` use `x64-windows-static-md`
-- `x86-debug` / `x86-release` use `x86-windows`
-- `x86-debug-static` / `x86-release-static` use `x86-windows-static-md`
+- Keep the dependency triplet/package set aligned with both the process architecture and the linkage mode you chose (dynamic vs static).
 - `InitializeNetworkingRuntime(...)` is only needed for dynamic triplets. Static triplets should keep `BootstrapConfig::link_mode = LinkMode::Static` or skip bootstrap entirely.
 - If you preload runtime DLLs with `InitializeNetworkingRuntime(...)`, keep separate `redist/` layouts for x86 and x64 so you never cross-load the wrong binary set.

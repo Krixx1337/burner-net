@@ -76,12 +76,12 @@ By staying in the category of **Professional Hardening**, BurnerNet remains a re
 ## 7. The White-Box Defense (Kerckhoffs's Principle)
 A common concern with open-source security tools is the "Universal Bypass": if an attacker knows the source code, can they write a single script to crack every application using the library?
 
-**BurnerNet is designed to make a universal bypass impossible.** We follow Kerckhoffs's Principle: the system remains secure even if everything about it is public knowledge, so long as the "key" (your application's specific trust anchors) remains secret.
+**BurnerNet is designed to avoid a simple universal bypass.** We follow Kerckhoffs's Principle: the system should remain defensible even if everything about it is public knowledge, so long as the "key" (your application's specific trust anchors) remains secret.
 
 ### Why Knowledge of the Source is not a Master Key:
 *   **Compile-Time Polymorphism:** BurnerNet uses `__COUNTER__` and `__TIME__` seeds to randomize internal XOR keys and obfuscation constants. Two different applications using the same BurnerNet source code will produce fundamentally different machine code. An attacker cannot use a universal byte-pattern signature to find your security logic.
 *   **Vtable-Free Dispatch:** We avoid standard C++ `virtual` methods for sensitive callbacks. By using custom type-erasure and `EncodedPointer` mangling, we eliminate the predictable "vftables" that attackers usually target for memory redirection/hooking.
-*   **Transport Inlining:** When integrated via the recommended Source-Drop path, the C++ compiler's optimizer merges BurnerNet's code directly into your application's business logic. The boundaries between "The Library" and "The App" vanish in the final assembly.
+*   **Transport Inlining:** When integrated via the recommended Source-Drop path, the C++ compiler can merge BurnerNet code directly into your application's business logic. The boundary between "The Library" and "The App" becomes less obvious in the final assembly.
 *   **Decoupled Trust:** BurnerNet provides the *mechanism* (The Mount), but you provide the *logic* (The Weapon). An attacker who reverses your app's specific HMAC routine or Certificate Pin gains zero knowledge that helps them crack another BurnerNet-powered application.
 
 Knowledge of the source code allows an attacker to understand **how** we hide, but it does not tell them **where** you are hidden or **what** secrets you are carrying.
