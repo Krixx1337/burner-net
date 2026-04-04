@@ -14,8 +14,12 @@ int main()
 
     auto build_result = burner::net::ClientBuilder().Build();
     if (build_result.client == nullptr) {
+        // ErrorCodeDebugString is intentionally non-descriptive in hardened
+        // production builds. Pair it with ErrorCodeToString so this example
+        // stays diagnosable in both debug and release configurations.
         std::cerr << "Failed to build client. Error: "
-                  << burner::net::ErrorCodeToString(build_result.error) << '\n';
+                  << burner::net::ErrorCodeDebugString(build_result.error)
+                  << " (" << burner::net::ErrorCodeToString(build_result.error) << ")\n";
         return 1;
     }
 

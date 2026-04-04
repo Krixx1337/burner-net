@@ -21,6 +21,9 @@ set(BURNERNET_DEP_PREFIX
     ""
     CACHE PATH
     "Optional fallback path to a local dependency prefix containing curl/OpenSSL/zlib for burner-net")
+option(BURNERNET_CMAKE_EXAMPLE_TEST_HARDEN_IMPORTS
+    "Build the consumer example in advanced bootstrap mode instead of normal curl linking"
+    OFF)
 
 if(NOT EXISTS "${BURNERNET_SOURCE_DIR}/CMakeLists.txt")
   message(FATAL_ERROR
@@ -39,6 +42,8 @@ endif()
 set(BURNERNET_BUILD_TESTING OFF CACHE BOOL "Disable burner-net tests in this example consumer" FORCE)
 set(BURNERNET_BUILD_INTEGRATION_TESTS OFF CACHE BOOL "Disable burner-net integration tests in this example consumer" FORCE)
 set(BURNERNET_BUILD_EXAMPLES OFF CACHE BOOL "Disable burner-net examples in this example consumer" FORCE)
+set(BURNERNET_HARDEN_IMPORTS ${BURNERNET_CMAKE_EXAMPLE_TEST_HARDEN_IMPORTS}
+    CACHE BOOL "Use BurnerNet's advanced hardened-imports bootstrap mode in this example consumer" FORCE)
 
 add_subdirectory("${BURNERNET_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/_deps/burner-net")
 
