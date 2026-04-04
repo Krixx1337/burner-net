@@ -22,10 +22,6 @@ int RunBasicUsage() {
     auto build_result = burner::net::ClientBuilder()
         .WithSecurityPolicy(ExamplePolicy{})
         .WithUseNativeCa(true)
-        .WithDnsFallback(
-            burner::net::DnsMode::Doh,
-            "https://resolver.example/dns-query",
-            "DoH Custom")
         .Build();
 
     if (build_result.client == nullptr) {
@@ -35,6 +31,9 @@ int RunBasicUsage() {
     }
 
     std::cout << "Sending a basic hardened request with the fluent builder...\n";
+    std::cout << "Tip: add WithDnsFallback(DnsMode::Doh, <your resolver>, <name>)\n";
+    std::cout << "once you have a real DoH endpoint. The out-of-box sample avoids\n";
+    std::cout << "placeholder resolvers so it stays runnable by default.\n";
     const auto response = build_result.client
         ->Get("https://example.com")
         .WithHeader("Accept", "text/html")
