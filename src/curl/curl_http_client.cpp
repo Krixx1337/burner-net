@@ -6,6 +6,7 @@
 #include "curl_session.h"
 #include "transport_orchestrator.h"
 #include "burner/net/detail/dark_arithmetic.h"
+#include "burner/net/detail/wiping_alloc_engine.h"
 #include "burner/net/obfuscation.h"
 #include "../internal/header_validation.h"
 
@@ -52,6 +53,23 @@ DarkString BuildHeaderLine(std::string_view name, std::string_view value) {
     header.append(value);
     return header;
 }
+
+struct IsolatedThreadState {
+    IsolatedThreadState(HttpRequest request_value,
+                        std::optional<DnsStrategy> strategy_value,
+                        CurlHttpClient* client_value)
+        : request(std::move(request_value)),
+          strategy(std::move(strategy_value)),
+          client(client_value) {}
+
+    HttpRequest request;
+    std::optional<DnsStrategy> strategy;
+    HttpResponse response{};
+    CurlHttpClient* client = nullptr;
+    std::mutex mutex;
+    std::condition_variable cv;
+    bool completed = false;
+};
 
 } // namespace
 
@@ -352,40 +370,53 @@ HttpResponse CurlHttpClient::PerformOnce(HttpRequest request, std::optional<DnsS
         return PerformOnceInternal(request, strategy);
     }
 
-    HttpResponse response{};
-    std::mutex mtx;
-    std::condition_variable cv;
-    bool completed = false;
+    void* raw_state = detail::alloc::dark_malloc(sizeof(IsolatedThreadState));
+    if (raw_state == nullptr) {
+        HttpResponse response{};
+        response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
+        response.transport_error = ErrorCode::CurlGeneric;
+        return response;
+    }
+
+    auto* state = new (raw_state) IsolatedThreadState(
+        std::move(request),
+        std::move(strategy),
+        this);
 
     // Spawn an anonymous, short-lived worker thread to sever the call stack.
-    std::thread worker([&, worker_request = std::move(request), worker_strategy = std::move(strategy)]() mutable {
+    std::thread worker([state]() {
         // TRIGGER: Worker Start Hook
-        if (!m_config.security_policy.OnIsolatedWorkerStart()) {
+        if (!state->client->m_config.security_policy.OnIsolatedWorkerStart()) {
             // If the user's anti-debug check fails, we abort immediately.
-            response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
-            response.transport_error = ErrorCode::PreFlightAbort;
+            state->response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
+            state->response.transport_error = ErrorCode::PreFlightAbort;
         } else {
             // Normal execution path: The internal logic creates its own stack frame.
             // Phase 4's scrub_stack inside PerformOnceInternal will automatically
             // wipe this worker's stack right after curl_easy_perform completes!
-            response = PerformOnceInternal(worker_request, worker_strategy);
+            state->response = state->client->PerformOnceInternal(state->request, state->strategy);
         }
 
         // TRIGGER: Worker End Hook (After stack scrubbing is done in PerformOnceInternal)
-        m_config.security_policy.OnIsolatedWorkerEnd();
+        state->client->m_config.security_policy.OnIsolatedWorkerEnd();
 
         {
-            std::lock_guard<std::mutex> lock(mtx);
-            completed = true;
+            std::lock_guard<std::mutex> lock(state->mutex);
+            state->completed = true;
         }
-        cv.notify_one();
+        state->cv.notify_one();
     });
 
     // The caller (consumer) thread sleeps here. Its stack halts at this frame.
-    std::unique_lock<std::mutex> lock(mtx);
-    cv.wait(lock, [&] { return completed; });
+    std::unique_lock<std::mutex> lock(state->mutex);
+    state->cv.wait(lock, [state] { return state->completed; });
+    lock.unlock();
 
     worker.join();
+
+    HttpResponse response = std::move(state->response);
+    state->~IsolatedThreadState();
+    detail::alloc::dark_free(state);
 
     // Final hygiene: Wipe the caller's stack frame just in case any
     // pointer residue was left during the handoff or thread setup.
