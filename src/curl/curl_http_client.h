@@ -36,7 +36,7 @@ public:
 
 private:
     HttpResponse PerformOnceInternal(const HttpRequest& request, const std::optional<DnsStrategy>& strategy);
-    HttpResponse PerformOnce(const HttpRequest& request, const std::optional<DnsStrategy>& strategy);
+    HttpResponse PerformOnce(HttpRequest request, std::optional<DnsStrategy> strategy);
     bool ShouldRetry(const HttpRequest& request, const HttpResponse& response, int attempt) const;
 
     static size_t WriteBodyCallback(void* contents, size_t size, size_t nmemb, void* user_data);

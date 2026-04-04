@@ -10,10 +10,10 @@ class TransportOrchestrator {
 public:
     explicit TransportOrchestrator(CurlHttpClient& client);
 
-    HttpResponse Execute(const HttpRequest& request);
+    HttpResponse Execute(HttpRequest request);
 
 private:
-    HttpResponse PerformWithDnsFallback(const HttpRequest& request);
+    HttpResponse PerformWithDnsFallback(HttpRequest request);
 
     CurlHttpClient& m_client;
 };

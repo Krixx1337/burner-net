@@ -346,7 +346,7 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     return response;
 }
 
-HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request, const std::optional<DnsStrategy>& strategy) {
+HttpResponse CurlHttpClient::PerformOnce(HttpRequest request, std::optional<DnsStrategy> strategy) {
     // Fast-path: If isolation is disabled, execute on the caller's thread.
     if (!m_config.enable_stack_isolation) {
         return PerformOnceInternal(request, strategy);
@@ -358,7 +358,7 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request, const std::
     bool completed = false;
 
     // Spawn an anonymous, short-lived worker thread to sever the call stack.
-    std::thread worker([&]() {
+    std::thread worker([&, worker_request = std::move(request), worker_strategy = std::move(strategy)]() mutable {
         // TRIGGER: Worker Start Hook
         if (!m_config.security_policy.OnIsolatedWorkerStart()) {
             // If the user's anti-debug check fails, we abort immediately.
@@ -368,7 +368,7 @@ HttpResponse CurlHttpClient::PerformOnce(const HttpRequest& request, const std::
             // Normal execution path: The internal logic creates its own stack frame.
             // Phase 4's scrub_stack inside PerformOnceInternal will automatically
             // wipe this worker's stack right after curl_easy_perform completes!
-            response = PerformOnceInternal(request, strategy);
+            response = PerformOnceInternal(worker_request, worker_strategy);
         }
 
         // TRIGGER: Worker End Hook (After stack scrubbing is done in PerformOnceInternal)

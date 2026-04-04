@@ -11,7 +11,7 @@ namespace burner::net {
 TransportOrchestrator::TransportOrchestrator(CurlHttpClient& client)
     : m_client(client) {}
 
-HttpResponse TransportOrchestrator::Execute(const HttpRequest& request) {
+HttpResponse TransportOrchestrator::Execute(HttpRequest request) {
     HttpResponse response{};
     const int attempts = (std::max)(1, request.retry.max_attempts);
 
@@ -23,10 +23,12 @@ HttpResponse TransportOrchestrator::Execute(const HttpRequest& request) {
             return response;
         }
 
-        response = PerformWithDnsFallback(active_request);
+        DarkString request_url = active_request.url;
+        response = PerformWithDnsFallback(std::move(active_request));
         if (!response.TransportOk()) {
-            m_client.SecurityPolicy()->OnError(response.transport_error, active_request.url.c_str());
+            m_client.SecurityPolicy()->OnError(response.transport_error, request_url.c_str());
         }
+        SecureWipe(request_url);
         if (!m_client.ShouldRetry(request, response, attempt)) {
             break;
         }
@@ -40,9 +42,9 @@ HttpResponse TransportOrchestrator::Execute(const HttpRequest& request) {
     return response;
 }
 
-HttpResponse TransportOrchestrator::PerformWithDnsFallback(const HttpRequest& request) {
+HttpResponse TransportOrchestrator::PerformWithDnsFallback(HttpRequest request) {
     if (!request.dns_fallback.enabled || request.dns_fallback.strategies.empty()) {
-        return m_client.PerformOnce(request, std::nullopt);
+        return m_client.PerformOnce(std::move(request), std::nullopt);
     }
 
     HttpResponse last_response{};

@@ -124,7 +124,7 @@ public:
             request.dns_fallback = m_default_dns_fallback;
             request.dns_fallback.enabled = true;
         }
-        return m_transport.Send(request);
+        return m_transport.Send(std::move(request));
     }
 
 private:
