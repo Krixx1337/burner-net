@@ -299,3 +299,28 @@ Important:
 - Keep the dependency triplet/package set aligned with both the process architecture and the linkage mode you chose (dynamic vs static).
 - `InitializeNetworkingRuntime(...)` is only needed for dynamic triplets. Static triplets should keep `BootstrapConfig::link_mode = LinkMode::Static` or skip bootstrap entirely.
 - If you preload runtime DLLs with `InitializeNetworkingRuntime(...)`, keep separate `redist/` layouts for x86 and x64 so you never cross-load the wrong binary set.
+
+## 17. Advanced Hardening: Defense-in-Depth
+BurnerNet is best used as one layer in a broader hardening strategy.
+
+For higher-value targets, it can make sense to combine BurnerNet with a code protection or virtualization tool, provided that choice fits the deployment model, maintenance burden, and performance budget of the application.
+
+### Layering Strategy
+BurnerNet focuses on transport hardening, forensic hygiene, and explicit trust boundaries. External protectors focus on making application logic slower and more expensive to reverse engineer. Used together, they can increase the effort required to inspect both the transport path and the code that consumes trusted data.
+
+Potential integration patterns:
+
+- Protect the application-owned logic attached to `SecurityPolicy` callbacks and `ResponseVerifier` hooks, since that is where BurnerNet intentionally hands control back to app code.
+- Protect the code surrounding `InitializeNetworkingRuntime(...)` or other bootstrap decisions when those paths carry sensitive trust or packaging assumptions.
+- If `WithStackIsolation(true)` is enabled, treat the handoff between the calling thread and the worker thread as a boundary worth reviewing in the surrounding application logic.
+
+### Functional Dependency
+The strongest pattern is still functional dependency: the application should depend on trusted server-provided data in a way that is meaningful to runtime behavior, not just to a yes/no gate.
+
+A practical flow looks like this:
+
+1. Fetch a required seed, configuration block, or protected payload through BurnerNet.
+2. Verify it with the application's `ResponseVerifier` or other app-owned trust logic.
+3. Feed that verified data directly into application behavior that matters.
+
+This does not make an application impossible to break. It does make the attack materially more expensive by forcing the attacker to deal with both the protected logic and the trusted data path instead of patching a single superficial check.
