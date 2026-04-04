@@ -105,6 +105,7 @@ void CurlHttpClient::ApplyCommonOptions(
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_VERIFYPEER))), m_config.verify_peer ? 1L : 0L);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_VERIFYHOST))), m_config.verify_host ? 2L : 0L);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSLVERSION))), CURL_SSLVERSION_TLSv1_2);
+    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_CERTINFO))), 1L);
 #ifdef CURLSSLOPT_NATIVE_CA
     if (m_config.use_native_ca) {
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_OPTIONS))), CURLSSLOPT_NATIVE_CA);

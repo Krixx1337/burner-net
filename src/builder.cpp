@@ -37,6 +37,10 @@ struct BuilderSecurityPolicy final {
         return wrapped_policy.OnVerifyTransport(url, remote_ip);
     }
 
+    bool OnAuditTelemetry(const TransportTelemetry& telemetry) const {
+        return wrapped_policy.OnAuditTelemetry(telemetry);
+    }
+
     bool OnHeartbeat(const TransferProgress& progress) const {
         if (heartbeat && !heartbeat(progress)) {
             return false;

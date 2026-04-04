@@ -8,6 +8,7 @@ int RunBootstrapRuntime();
 int RunMtlsUsage();
 int RunCustomHmacVerifier();
 int RunStreamedDescrambler();
+int RunTelemetryAuditExample();
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -20,7 +21,8 @@ int main(int argc, char* argv[]) {
                   << "  bootstrap  - Load curl/OpenSSL runtime DLLs from a custom folder\n"
                   << "  mtls       - Short-lived mTLS credential provider pattern\n"
                   << "  hmac       - App-owned HMAC response verification via lambda\n"
-                  << "  stream     - JIT-decrypt a streamed request body on the transport thread\n";
+                  << "  stream     - JIT-decrypt a streamed request body on the transport thread\n"
+                  << "  telemetry  - App-owned MITM/debugger heuristics using raw transport telemetry\n";
         return 0;
     }
 
@@ -45,6 +47,9 @@ int main(int argc, char* argv[]) {
     }
     if (example == "stream") {
         return RunStreamedDescrambler();
+    }
+    if (example == "telemetry") {
+        return RunTelemetryAuditExample();
     }
 
     std::cerr << "Unknown example: " << example << '\n';

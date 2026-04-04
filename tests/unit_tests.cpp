@@ -363,6 +363,17 @@ TEST_CASE("http response resolves an empty dns strategy name lazily") {
     CHECK(response.DnsStrategyDisplayName() == "Cloudflare");
 }
 
+TEST_CASE("transport telemetry preserves raw certificate lines") {
+    burner::net::TransportTelemetry telemetry{};
+    telemetry.tls_chain.emplace_back("Issuer: O = Example Org, CN = Edge Root");
+    telemetry.tls_chain.emplace_back("Subject: CN = api.internal");
+
+    CHECK(telemetry.total_time_seconds == doctest::Approx(0.0));
+    REQUIRE(telemetry.tls_chain.size() == 2);
+    CHECK(telemetry.tls_chain[0] == "Issuer: O = Example Org, CN = Edge Root");
+    CHECK(telemetry.tls_chain[1] == "Subject: CN = api.internal");
+}
+
 TEST_CASE("dns fallback policy defaults to an empty strategy list") {
     burner::net::DnsFallbackPolicy policy{};
     CHECK(policy.strategies.empty());
@@ -619,6 +630,31 @@ TEST_CASE("builder transport check layers on top of an existing custom security 
 
     CHECK_FALSE(response.TransportOk());
     CHECK(response.transport_error == burner::net::ErrorCode::TransportVerificationFailed);
+    CHECK(response.transport_code != 0);
+}
+
+TEST_CASE("security policy can fail closed on transport telemetry") {
+    struct RejectTelemetryPolicy final : burner::net::ISecurityPolicy {
+        bool OnAuditTelemetry(const burner::net::TransportTelemetry& telemetry) const {
+            return telemetry.total_time_seconds < 0.0;
+        }
+    };
+
+    auto build_result = burner::net::ClientBuilder()
+        .WithSecurityPolicy(RejectTelemetryPolicy{})
+        .Build();
+
+    REQUIRE(build_result.Ok());
+
+    burner::net::HttpRequest request{};
+    request.method = burner::net::HttpMethod::Get;
+    request.url = "https://example.com";
+    request.dns_fallback.enabled = false;
+
+    const auto response = build_result.client->Send(request);
+
+    CHECK_FALSE(response.TransportOk());
+    CHECK(response.transport_error == burner::net::ErrorCode::EnvironmentCompromised);
     CHECK(response.transport_code != 0);
 }
 

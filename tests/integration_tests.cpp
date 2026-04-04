@@ -20,7 +20,7 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
     auto check_tls_rejection = [&](const char* url) {
         const auto resp = client.client->Get(url).Send();
         MESSAGE("Testing: " << std::string(url) << " | ErrorCode: "
-                            << std::string(ErrorCodeToString(resp.transport_error)));
+                            << std::string(ErrorCodeDebugString(resp.transport_error)));
         CHECK_FALSE(resp.TransportOk());
         CHECK_FALSE(resp.Ok());
         CHECK(resp.transport_error == ErrorCode::TlsVerificationFailed);
@@ -36,7 +36,7 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
     SUBCASE("Protocol Downgrade Rejections (Enforcing TLS 1.2+)") {
         const auto resp = client.client->Get("https://tls-v1-0.badssl.com:1010").Send();
         MESSAGE("Testing: TLS 1.0 | ErrorCode: "
-                << std::string(ErrorCodeToString(resp.transport_error)));
+                << std::string(ErrorCodeDebugString(resp.transport_error)));
         CHECK_FALSE(resp.TransportOk());
         CHECK(resp.transport_code != 0);
     }
@@ -44,7 +44,7 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
     SUBCASE("Weak Cipher Rejections") {
         const auto resp = client.client->Get("https://rc4.badssl.com").Send();
         MESSAGE("Testing: RC4 | ErrorCode: "
-                << std::string(ErrorCodeToString(resp.transport_error)));
+                << std::string(ErrorCodeDebugString(resp.transport_error)));
         CHECK_FALSE(resp.TransportOk());
         CHECK(resp.transport_code != 0);
     }
@@ -177,4 +177,28 @@ TEST_CASE("isolated transport preserves response data integrity") {
     CHECK(response.status_code == 200);
     CHECK_FALSE(response.body.empty());
     CHECK(response.body.find("Example Domain") != std::string::npos);
+}
+
+TEST_CASE("successful https requests expose timing and tls telemetry") {
+    using namespace burner::net;
+
+    auto client = ClientBuilder()
+        .WithUseNativeCa(true)
+        .Build();
+
+    REQUIRE(static_cast<bool>(client.client));
+
+    burner::net::HttpRequest request{};
+    request.method = burner::net::HttpMethod::Get;
+    request.url = "https://example.com";
+    request.timeout_seconds = 15;
+    request.connect_timeout_seconds = 10;
+    request.dns_fallback.enabled = false;
+
+    const auto response = client.client->Send(request);
+
+    CHECK(response.TransportOk());
+    CHECK(response.status_code == 200);
+    CHECK(response.telemetry.total_time_seconds >= 0.0);
+    CHECK_FALSE(response.telemetry.tls_chain.empty());
 }
