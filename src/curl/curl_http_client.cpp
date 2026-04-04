@@ -140,6 +140,11 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     const std::size_t request_body_size = request.stream_payload_provider
         ? request.streamed_payload_size
         : (request.body_view.empty() ? request.body.size() : request.body_view.size());
+    if (request.stream_payload_provider && request.method != HttpMethod::Post) {
+        response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
+        response.transport_error = ErrorCode::UnsupportedStreamedMethod;
+        return response;
+    }
     if (RequestBodyTooLargeForCurl(request_body_size)) {
         response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
         response.transport_error = ErrorCode::RequestBodyTooLarge;

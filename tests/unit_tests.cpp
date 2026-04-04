@@ -738,6 +738,7 @@ TEST_CASE("selected error code strings are stable") {
         burner::net::ErrorCode::PreFlightAbort,
         burner::net::ErrorCode::EnvironmentCompromised,
         burner::net::ErrorCode::TransportVerificationFailed,
+        burner::net::ErrorCode::UnsupportedStreamedMethod,
     };
 
     for (const auto code : codes) {
@@ -751,11 +752,42 @@ TEST_CASE("selected error code strings are stable") {
             CHECK(burner::net::ErrorCodeToString(code) == "EnvironmentCompromised");
         } else if (code == burner::net::ErrorCode::TransportVerificationFailed) {
             CHECK(burner::net::ErrorCodeToString(code) == "TransportVerificationFailed");
+        } else if (code == burner::net::ErrorCode::UnsupportedStreamedMethod) {
+            CHECK(burner::net::ErrorCodeToString(code) == "UnsupportedStreamedMethod");
         } else {
             FAIL("Unexpected error code in stability test");
         }
 #endif
     }
+}
+
+TEST_CASE("streamed bodies fail closed for non-post methods") {
+    auto build_result = burner::net::ClientBuilder()
+        .Build();
+
+    REQUIRE(build_result.Ok());
+
+    burner::net::HttpRequest request{};
+    request.method = burner::net::HttpMethod::Put;
+    request.url = "https://example.com";
+    request.dns_fallback.enabled = false;
+    request.streamed_payload_size = 4;
+    request.stream_payload_provider = [](std::span<char> dest) -> std::size_t {
+        if (dest.size() < 4) {
+            return 0;
+        }
+        dest[0] = 't';
+        dest[1] = 'e';
+        dest[2] = 's';
+        dest[3] = 't';
+        return 4;
+    };
+
+    const auto response = build_result.client->Send(request);
+
+    CHECK_FALSE(response.TransportOk());
+    CHECK(response.transport_code == static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT));
+    CHECK(response.transport_error == burner::net::ErrorCode::UnsupportedStreamedMethod);
 }
 
 TEST_CASE("stack isolation executes transport on a distinct thread") {

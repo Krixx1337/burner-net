@@ -46,6 +46,7 @@ const char* ErrorCodeDebugString(ErrorCode code) noexcept {
         "RedirectAuth",
         "BootstrapDllDirs",
         "RequestBodyTooLarge",
+        "UnsupportedStreamedMethod",
         "CurlApiIncomplete",
         "CurlApiUntrusted",
         "EnvironmentCompromised",
