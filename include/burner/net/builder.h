@@ -34,12 +34,24 @@ public:
     RequestBuilder& WithBody(std::string body) {
         m_request.body = std::move(body);
         m_request.body_view = {};
+        m_request.stream_payload_provider = {};
+        m_request.streamed_payload_size = 0;
         return *this;
     }
 
     RequestBuilder& WithBodyView(std::string_view view) {
         m_request.body_view = view;
         m_request.body.clear();
+        m_request.stream_payload_provider = {};
+        m_request.streamed_payload_size = 0;
+        return *this;
+    }
+
+    RequestBuilder& WithStreamedBody(std::size_t total_size, StreamPayloadCallback provider) {
+        m_request.streamed_payload_size = total_size;
+        m_request.stream_payload_provider = std::move(provider);
+        m_request.body.clear();
+        m_request.body_view = {};
         return *this;
     }
 

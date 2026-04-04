@@ -37,7 +37,11 @@ bool WouldExceedBodyLimit(std::size_t current_size, std::size_t chunk_size, std:
 namespace {
 
 bool RequestBodyTooLargeForCurl(std::size_t body_size) {
+#ifdef CURLOPT_POSTFIELDSIZE_LARGE
+    return body_size > static_cast<std::size_t>((std::numeric_limits<curl_off_t>::max)());
+#else
     return body_size > static_cast<std::size_t>((std::numeric_limits<long>::max)());
+#endif
 }
 
 DarkString BuildHeaderLine(std::string_view name, std::string_view value) {
@@ -133,7 +137,9 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         response.transport_error = ErrorCode::NoCurlHandle;
         return response;
     }
-    const std::size_t request_body_size = request.body_view.empty() ? request.body.size() : request.body_view.size();
+    const std::size_t request_body_size = request.stream_payload_provider
+        ? request.streamed_payload_size
+        : (request.body_view.empty() ? request.body.size() : request.body_view.size());
     if (RequestBodyTooLargeForCurl(request_body_size)) {
         response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
         response.transport_error = ErrorCode::RequestBodyTooLarge;
@@ -162,6 +168,8 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
                 : (std::min)(body_ctx.max_body_bytes, m_config.global_max_body_bytes);
     }
     body_ctx.on_chunk_received = request.on_chunk_received;
+    BodyReadContext read_ctx{};
+    read_ctx.provider = &request.stream_payload_provider;
 
     DarkString protocol_scheme;
     DarkString redirect_protocol_scheme;
@@ -181,7 +189,7 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         &redirect_protocol_scheme,
         &custom_user_agent,
         strategy);
-    ApplyMethodAndBody(request, &custom_method);
+    ApplyMethodAndBody(request, &custom_method, &read_ctx);
     ApplyTlsOptions(&cert_type, &key_type);
 
     const CurlApi& curl_api = m_session->Api();

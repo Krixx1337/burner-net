@@ -129,17 +129,35 @@ void CurlHttpClient::ApplyCommonOptions(
     }
 }
 
-void CurlHttpClient::ApplyMethodAndBody(const HttpRequest& request, DarkString* custom_method_storage) {
+void CurlHttpClient::ApplyMethodAndBody(
+    const HttpRequest& request,
+    DarkString* custom_method_storage,
+    BodyReadContext* read_ctx) {
     auto* easy = m_session ? m_session->EasyHandle() : nullptr;
     if (easy == nullptr) {
         return;
     }
 
     const CurlApi& curl_api = m_session->Api();
+    const bool has_streamed_body = static_cast<bool>(request.stream_payload_provider);
     const bool has_body_view = !request.body_view.empty();
     const char* body_data = has_body_view ? request.body_view.data() : request.body.c_str();
     const auto body_size = has_body_view ? request.body_view.size() : request.body.size();
-    const bool has_body = has_body_view || !request.body.empty();
+    const bool has_body = has_streamed_body || has_body_view || !request.body.empty();
+
+    auto apply_request_body = [&]() {
+        if (has_streamed_body) {
+            curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_READFUNCTION))), &CurlHttpClient::ReadBodyCallback);
+            curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_READDATA))), read_ctx);
+#ifdef CURLOPT_POSTFIELDSIZE_LARGE
+            curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDSIZE_LARGE))), static_cast<curl_off_t>(request.streamed_payload_size));
+#else
+            curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDSIZE))), static_cast<long>(request.streamed_payload_size));
+#endif
+        } else if (has_body_view || !request.body.empty()) {
+            SetPostBody(curl_api, easy, body_data, body_size);
+        }
+    };
 
     switch (request.method) {
     case HttpMethod::Get:
@@ -147,7 +165,7 @@ void CurlHttpClient::ApplyMethodAndBody(const HttpRequest& request, DarkString* 
         break;
     case HttpMethod::Post:
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POST))), 1L);
-        SetPostBody(curl_api, easy, body_data, body_size);
+        apply_request_body();
         break;
     case HttpMethod::Put:
     case HttpMethod::Delete:
@@ -157,7 +175,7 @@ void CurlHttpClient::ApplyMethodAndBody(const HttpRequest& request, DarkString* 
             curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_CUSTOMREQUEST))), custom_method_storage->c_str());
         }
         if (has_body) {
-            SetPostBody(curl_api, easy, body_data, body_size);
+            apply_request_body();
         }
         break;
     }
@@ -240,8 +258,13 @@ void CurlHttpClient::ResetMethodState() {
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPGET))), 0L);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POST))), 0L);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_CUSTOMREQUEST))), nullptr);
+    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_READFUNCTION))), nullptr);
+    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_READDATA))), nullptr);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDS))), nullptr);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDSIZE))), 0L);
+#ifdef CURLOPT_POSTFIELDSIZE_LARGE
+    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDSIZE_LARGE))), static_cast<curl_off_t>(0));
+#endif
 #ifdef CURLOPT_XFERINFOFUNCTION
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_XFERINFOFUNCTION))), nullptr);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_XFERINFODATA))), nullptr);

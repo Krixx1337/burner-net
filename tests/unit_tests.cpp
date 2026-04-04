@@ -1,8 +1,10 @@
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <cstdint>
 #include <ostream>
+#include <span>
 #include <string>
 #include <thread>
 #include <utility>
@@ -456,6 +458,57 @@ TEST_CASE("request builder switches between owned bodies and body views") {
     CHECK(client.Raw()->last_request.body_view.empty());
 }
 
+TEST_CASE("request builder switches cleanly between streamed and static bodies") {
+    RecordingTransport transport{};
+    burner::net::FluentClient<RecordingTransport> client(std::move(transport), {});
+
+    std::size_t first_cursor = 0;
+    const auto first_response = client.Post("https://example.com")
+        .WithBody("owned-payload")
+        .WithStreamedBody(3, [&first_cursor](std::span<char> dest) -> std::size_t {
+            const char payload[] = {'a', 'b', 'c'};
+            const std::size_t remaining = sizeof(payload) - first_cursor;
+            const std::size_t chunk = (std::min)(dest.size(), remaining);
+            for (std::size_t i = 0; i < chunk; ++i) {
+                dest[i] = payload[first_cursor + i];
+            }
+            first_cursor += chunk;
+            return chunk;
+        })
+        .Send();
+    (void)first_response;
+
+    CHECK(client.Raw()->last_request.body.empty());
+    CHECK(client.Raw()->last_request.body_view.empty());
+    CHECK(client.Raw()->last_request.stream_payload_provider);
+    CHECK(client.Raw()->last_request.streamed_payload_size == 3);
+
+    char first_buffer[8] = {};
+    const auto first_bytes = client.Raw()->last_request.stream_payload_provider(std::span<char>(first_buffer, 8));
+    CHECK(first_bytes == 3);
+    CHECK(std::string_view(first_buffer, first_bytes) == "abc");
+
+    const auto second_response = client.Post("https://example.com")
+        .WithStreamedBody(4, [](std::span<char>) -> std::size_t { return 0; })
+        .WithBodyView("borrowed")
+        .Send();
+    (void)second_response;
+
+    CHECK_FALSE(client.Raw()->last_request.stream_payload_provider);
+    CHECK(client.Raw()->last_request.streamed_payload_size == 0);
+    CHECK(std::string(client.Raw()->last_request.body_view) == "borrowed");
+
+    const auto third_response = client.Post("https://example.com")
+        .WithStreamedBody(4, [](std::span<char>) -> std::size_t { return 0; })
+        .WithBody("owned-again")
+        .Send();
+    (void)third_response;
+
+    CHECK_FALSE(client.Raw()->last_request.stream_payload_provider);
+    CHECK(client.Raw()->last_request.streamed_payload_size == 0);
+    CHECK(client.Raw()->last_request.body.str() == "owned-again");
+    CHECK(client.Raw()->last_request.body_view.empty());
+}
 namespace {
 
 int IncrementValue(int value) {
