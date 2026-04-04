@@ -5,6 +5,10 @@
 #include <cstdlib>
 #include <cstring>
 
+#ifdef _WIN32
+#include <malloc.h>
+#endif
+
 namespace burner::net::detail::alloc {
 
 // ---------------------------------------------------------------------------
@@ -16,7 +20,14 @@ void* dark_malloc(std::size_t size) noexcept {
     }
 
     const std::size_t total_size = sizeof(AllocHeader) + size;
-    void* base = std::malloc(total_size);
+    void* base = nullptr;
+#ifdef _WIN32
+    base = _aligned_malloc(total_size, alignof(AllocHeader));
+#else
+    if (posix_memalign(&base, alignof(AllocHeader), total_size) != 0) {
+        return nullptr;
+    }
+#endif
     if (base == nullptr) {
         return nullptr;
     }
@@ -42,7 +53,11 @@ void dark_free(void* ptr) noexcept {
     // Wipe the user-data area before returning memory to the OS.
     burner::net::obf::secure_wipe(ptr, requested_size);
 
+#ifdef _WIN32
+    _aligned_free(base);
+#else
     std::free(base);
+#endif
 }
 
 // ---------------------------------------------------------------------------

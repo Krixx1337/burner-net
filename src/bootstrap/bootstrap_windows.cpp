@@ -127,6 +127,13 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
 
     for (const auto& dll_name : config.dependency_dlls) {
         const std::filesystem::path full_path = config.dependency_directory / dll_name;
+        HANDLE locked_file = INVALID_HANDLE_VALUE;
+        auto close_locked_file = [&]() noexcept {
+            if (locked_file != INVALID_HANDLE_VALUE) {
+                ::CloseHandle(locked_file);
+                locked_file = INVALID_HANDLE_VALUE;
+            }
+        };
 
         if (config.integrity_policy.enabled) {
             if (!config.integrity_policy.integrity_provider) {
@@ -134,8 +141,21 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
                     return {false, ErrorCode::BootstrapIntegrityCfg};
                 }
             } else {
+                locked_file = ::CreateFileW(
+                    full_path.c_str(),
+                    GENERIC_READ,
+                    FILE_SHARE_READ,
+                    nullptr,
+                    OPEN_EXISTING,
+                    FILE_ATTRIBUTE_NORMAL,
+                    nullptr);
+                if (locked_file == INVALID_HANDLE_VALUE) {
+                    return {false, ErrorCode::BootstrapLoad};
+                }
+
                 const bool ok = config.integrity_policy.integrity_provider(full_path, dll_name);
                 if (!ok && config.integrity_policy.fail_closed) {
+                    close_locked_file();
                     return {false, ErrorCode::BootstrapIntegrityMismatch};
                 }
             }
@@ -148,6 +168,7 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
             full_path.c_str(),
             nullptr,
             LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
+        close_locked_file();
 
         if (module == nullptr) {
             return {false, ErrorCode::BootstrapLoad};
