@@ -1,12 +1,13 @@
 # Binary Stealth Audit Report
-**Date:** 01.04.2026  
+**Audit Version:** `1.0.0`  
+**Audit Date:** 01.04.2026  
 **Status:** Verified / Clean (With Known OS Artifacts)  
-**Audit Target:** BurnerNet Core (Windows x64 Release)
+**Audit Target:** BurnerNet Core `v1.0.0` (Windows x64 Release)
 
 ## Executive Summary
-This document records the results of static and dynamic analysis performed to verify BurnerNet's compliance with the **"Ghost Library"** principles. The audit focused on the effectiveness of import-hiding, string obfuscation, and runtime memory hygiene when the library is compiled with maximum hardening.
+This document records the results of static and dynamic analysis performed to verify BurnerNet's compliance with the **"Ghost Library"** principles. The audit focused on the effectiveness of import-hiding, string obfuscation, and runtime memory hygiene when BurnerNet `v1.0.0` is compiled with maximum hardening.
 
-This report is a point-in-time audit snapshot for the configuration listed below. Treat it as evidence for a specific tested build profile, not as an unconditional guarantee for every compiler, dependency set, architecture, or downstream integration style.
+This report is a point-in-time audit snapshot for BurnerNet `v1.0.0` under the configuration listed below. Treat it as evidence for a specific tested build profile, not as an unconditional guarantee for every compiler, dependency set, architecture, or downstream integration style.
 
 ## Audit Configuration
 *   **Platform:** Windows 10/11 x64
@@ -30,7 +31,7 @@ Standard networking libraries typically advertise their capabilities through the
 *   **Suspicious Loader APIs:** No imports for `LdrLoadDll` or manual mapping primitives were found.
 
 ### Result:
-Pass for the audited configuration. The binary appears to have no networking capability to automated static scanners. System calls relevant to this audit were resolved at runtime via the `KernelResolver`.
+Pass for the audited `v1.0.0` configuration. The binary appears to have no networking capability to automated static scanners. System calls relevant to this audit were resolved at runtime via the `KernelResolver`.
 
 ---
 
@@ -96,4 +97,4 @@ The BurnerNet binary footprint has transitioned from "Hardened" to **"Forensic-R
 
 By synchronizing the memory lifecycles of the application, libcurl, and OpenSSL, BurnerNet substantially reduces recoverable transport residue inside the audited process boundaries.
 
-Within the audited configuration above, BurnerNet behaved like the intended "Ghost Library."
+Within the audited `v1.0.0` configuration above, BurnerNet behaved like the intended "Ghost Library."
