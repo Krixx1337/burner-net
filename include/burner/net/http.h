@@ -3,6 +3,7 @@
 #include <cctype>
 #include <cstddef>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -126,6 +127,7 @@ inline void HeaderMap::clear() noexcept {
 }
 using TokenProvider = detail::CompactCallable<bool(DarkString& out)>;
 using ChunkCallback = detail::CompactCallable<void(const uint8_t*, size_t)>;
+using StreamPayloadCallback = detail::CompactCallable<std::size_t(std::span<char> dest_buffer)>;
 using PreFlightCallback = detail::CompactCallable<bool(const struct HttpRequest& request)>;
 using EnvironmentCheckCallback = detail::CompactCallable<bool()>;
 using TransportCheckCallback = detail::CompactCallable<bool(const char* url, const char* remote_ip)>;
@@ -178,6 +180,8 @@ struct HttpRequest {
     DarkString url;
     SecureString body;
     std::string_view body_view;
+    StreamPayloadCallback stream_payload_provider;
+    std::size_t streamed_payload_size = 0;
     HeaderMap headers;
     TokenProvider bearer_token_provider;
     ChunkCallback on_chunk_received;

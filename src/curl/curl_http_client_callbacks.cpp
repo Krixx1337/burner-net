@@ -80,6 +80,25 @@ size_t CurlHttpClient::WriteHeaderCallback(void* contents, size_t size, size_t n
     return total;
 }
 
+size_t CurlHttpClient::ReadBodyCallback(char* buffer, size_t size, size_t nmemb, void* user_data) {
+    if (size > 0 && nmemb > ((std::numeric_limits<size_t>::max)() / size)) {
+        return CURL_READFUNC_ABORT;
+    }
+
+    const size_t total = size * nmemb;
+    if (buffer == nullptr || user_data == nullptr) {
+        return total == 0 ? 0 : CURL_READFUNC_ABORT;
+    }
+
+    auto* ctx = static_cast<BodyReadContext*>(user_data);
+    if (ctx->provider == nullptr || !(*ctx->provider)) {
+        return CURL_READFUNC_ABORT;
+    }
+
+    const size_t produced = (*ctx->provider)(std::span<char>(buffer, total));
+    return produced <= total ? produced : CURL_READFUNC_ABORT;
+}
+
 int CurlHttpClient::ProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow) {
     auto* self = static_cast<CurlHttpClient*>(clientp);
     if (self == nullptr) {

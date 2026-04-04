@@ -12,4 +12,8 @@ struct BodyWriteContext {
     ChunkCallback on_chunk_received;
 };
 
+struct BodyReadContext {
+    const StreamPayloadCallback* provider = nullptr;
+};
+
 } // namespace burner::net

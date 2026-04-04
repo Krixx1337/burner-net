@@ -53,6 +53,7 @@ enum class ErrorCode : uint32_t {
     RedirectAuth,
     BootstrapDllDirs,
     RequestBodyTooLarge,
+    UnsupportedStreamedMethod,
     CurlApiIncomplete,
     CurlApiUntrusted,
     EnvironmentCompromised,

@@ -1,8 +1,10 @@
 #include <doctest/doctest.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <cstdint>
 #include <ostream>
+#include <span>
 #include <string>
 #include <thread>
 #include <utility>
@@ -456,6 +458,57 @@ TEST_CASE("request builder switches between owned bodies and body views") {
     CHECK(client.Raw()->last_request.body_view.empty());
 }
 
+TEST_CASE("request builder switches cleanly between streamed and static bodies") {
+    RecordingTransport transport{};
+    burner::net::FluentClient<RecordingTransport> client(std::move(transport), {});
+
+    std::size_t first_cursor = 0;
+    const auto first_response = client.Post("https://example.com")
+        .WithBody("owned-payload")
+        .WithStreamedBody(3, [&first_cursor](std::span<char> dest) -> std::size_t {
+            const char payload[] = {'a', 'b', 'c'};
+            const std::size_t remaining = sizeof(payload) - first_cursor;
+            const std::size_t chunk = (std::min)(dest.size(), remaining);
+            for (std::size_t i = 0; i < chunk; ++i) {
+                dest[i] = payload[first_cursor + i];
+            }
+            first_cursor += chunk;
+            return chunk;
+        })
+        .Send();
+    (void)first_response;
+
+    CHECK(client.Raw()->last_request.body.empty());
+    CHECK(client.Raw()->last_request.body_view.empty());
+    CHECK(client.Raw()->last_request.stream_payload_provider);
+    CHECK(client.Raw()->last_request.streamed_payload_size == 3);
+
+    char first_buffer[8] = {};
+    const auto first_bytes = client.Raw()->last_request.stream_payload_provider(std::span<char>(first_buffer, 8));
+    CHECK(first_bytes == 3);
+    CHECK(std::string_view(first_buffer, first_bytes) == "abc");
+
+    const auto second_response = client.Post("https://example.com")
+        .WithStreamedBody(4, [](std::span<char>) -> std::size_t { return 0; })
+        .WithBodyView("borrowed")
+        .Send();
+    (void)second_response;
+
+    CHECK_FALSE(client.Raw()->last_request.stream_payload_provider);
+    CHECK(client.Raw()->last_request.streamed_payload_size == 0);
+    CHECK(std::string(client.Raw()->last_request.body_view) == "borrowed");
+
+    const auto third_response = client.Post("https://example.com")
+        .WithStreamedBody(4, [](std::span<char>) -> std::size_t { return 0; })
+        .WithBody("owned-again")
+        .Send();
+    (void)third_response;
+
+    CHECK_FALSE(client.Raw()->last_request.stream_payload_provider);
+    CHECK(client.Raw()->last_request.streamed_payload_size == 0);
+    CHECK(client.Raw()->last_request.body.str() == "owned-again");
+    CHECK(client.Raw()->last_request.body_view.empty());
+}
 namespace {
 
 int IncrementValue(int value) {
@@ -685,6 +738,7 @@ TEST_CASE("selected error code strings are stable") {
         burner::net::ErrorCode::PreFlightAbort,
         burner::net::ErrorCode::EnvironmentCompromised,
         burner::net::ErrorCode::TransportVerificationFailed,
+        burner::net::ErrorCode::UnsupportedStreamedMethod,
     };
 
     for (const auto code : codes) {
@@ -698,11 +752,42 @@ TEST_CASE("selected error code strings are stable") {
             CHECK(burner::net::ErrorCodeToString(code) == "EnvironmentCompromised");
         } else if (code == burner::net::ErrorCode::TransportVerificationFailed) {
             CHECK(burner::net::ErrorCodeToString(code) == "TransportVerificationFailed");
+        } else if (code == burner::net::ErrorCode::UnsupportedStreamedMethod) {
+            CHECK(burner::net::ErrorCodeToString(code) == "UnsupportedStreamedMethod");
         } else {
             FAIL("Unexpected error code in stability test");
         }
 #endif
     }
+}
+
+TEST_CASE("streamed bodies fail closed for non-post methods") {
+    auto build_result = burner::net::ClientBuilder()
+        .Build();
+
+    REQUIRE(build_result.Ok());
+
+    burner::net::HttpRequest request{};
+    request.method = burner::net::HttpMethod::Put;
+    request.url = "https://example.com";
+    request.dns_fallback.enabled = false;
+    request.streamed_payload_size = 4;
+    request.stream_payload_provider = [](std::span<char> dest) -> std::size_t {
+        if (dest.size() < 4) {
+            return 0;
+        }
+        dest[0] = 't';
+        dest[1] = 'e';
+        dest[2] = 's';
+        dest[3] = 't';
+        return 4;
+    };
+
+    const auto response = build_result.client->Send(request);
+
+    CHECK_FALSE(response.TransportOk());
+    CHECK(response.transport_code == static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT));
+    CHECK(response.transport_error == burner::net::ErrorCode::UnsupportedStreamedMethod);
 }
 
 TEST_CASE("stack isolation executes transport on a distinct thread") {

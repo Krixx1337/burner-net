@@ -16,6 +16,7 @@ bool WouldExceedBodyLimit(std::size_t current_size, std::size_t chunk_size, std:
 
 class CurlSession;
 class TransportOrchestrator;
+struct BodyReadContext;
 
 class CurlHttpClient final {
 public:
@@ -40,6 +41,7 @@ private:
 
     static size_t WriteBodyCallback(void* contents, size_t size, size_t nmemb, void* user_data);
     static size_t WriteHeaderCallback(void* contents, size_t size, size_t nmemb, void* user_data);
+    static size_t ReadBodyCallback(char* buffer, size_t size, size_t nmemb, void* user_data);
     static int ProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow);
 
     void ApplyCommonOptions(
@@ -51,7 +53,7 @@ private:
         DarkString* redirect_protocol_scheme,
         DarkString* user_agent_storage,
         const std::optional<DnsStrategy>& strategy);
-    void ApplyMethodAndBody(const HttpRequest& request, DarkString* custom_method_storage);
+    void ApplyMethodAndBody(const HttpRequest& request, DarkString* custom_method_storage, BodyReadContext* read_ctx);
     void ApplyTlsOptions(DarkString* cert_type_storage, DarkString* key_type_storage);
     void ApplyDnsStrategy(const DnsStrategy& strategy);
     void ClearDnsStrategy();
