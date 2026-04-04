@@ -15,6 +15,7 @@
 namespace burner::net {
 
 enum class ErrorCode : std::uint32_t;
+struct TransportTelemetry;
 struct HttpRequest;
 struct HttpResponse;
 struct TransferProgress;
@@ -33,6 +34,8 @@ struct BURNER_API ISecurityPolicy {
         (void)remote_ip;
         return true;
     }
+
+    bool OnAuditTelemetry(const TransportTelemetry& telemetry) const;
 
     bool OnHeartbeat(const TransferProgress& progress) const {
         (void)progress;
@@ -95,6 +98,10 @@ public:
         return m_on_verify_transport(m_state.get(), url, remote_ip);
     }
 
+    [[nodiscard]] bool OnAuditTelemetry(const TransportTelemetry& telemetry) const {
+        return m_on_audit_telemetry(m_state.get(), telemetry);
+    }
+
     [[nodiscard]] bool OnHeartbeat(const TransferProgress& progress) const {
         return m_on_heartbeat(m_state.get(), progress);
     }
@@ -142,6 +149,9 @@ private:
         m_on_verify_transport = [](const void* raw, const char* url, const char* remote_ip) {
             return static_cast<const PolicyType*>(raw)->OnVerifyTransport(url, remote_ip);
         };
+        m_on_audit_telemetry = [](const void* raw, const TransportTelemetry& telemetry) {
+            return static_cast<const PolicyType*>(raw)->OnAuditTelemetry(telemetry);
+        };
         m_on_heartbeat = [](const void* raw, const TransferProgress& progress) {
             return static_cast<const PolicyType*>(raw)->OnHeartbeat(progress);
         };
@@ -172,6 +182,7 @@ private:
     EncodedPointer<bool (*)(const void*)> m_on_verify_environment = nullptr;
     EncodedPointer<bool (*)(const void*, HttpRequest&)> m_on_pre_request = nullptr;
     EncodedPointer<bool (*)(const void*, const char*, const char*)> m_on_verify_transport = nullptr;
+    EncodedPointer<bool (*)(const void*, const TransportTelemetry&)> m_on_audit_telemetry = nullptr;
     EncodedPointer<bool (*)(const void*, const TransferProgress&)> m_on_heartbeat = nullptr;
     EncodedPointer<bool (*)(const void*, const HttpRequest&, const HttpResponse&)> m_on_response_received = nullptr;
     EncodedPointer<void (*)(const void*, bool, ErrorCode)> m_on_signature_verified = nullptr;

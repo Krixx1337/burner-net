@@ -291,13 +291,44 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     }
 
     if (response.TransportOk()) {
-        char* primary_ip = nullptr;
-        if (curl_api.easy_getinfo(easy, static_cast<CURLINFO>(BURNER_MASK_INT(static_cast<long>(CURLINFO_PRIMARY_IP))), &primary_ip) == CURLE_OK &&
-            primary_ip != nullptr &&
-            !m_config.security_policy.OnVerifyTransport(request.url.c_str(), primary_ip)) {
+        double total_time = 0.0;
+        if (curl_api.easy_getinfo(
+                easy,
+                static_cast<CURLINFO>(BURNER_MASK_INT(static_cast<long>(CURLINFO_TOTAL_TIME))),
+                &total_time) == CURLE_OK) {
+            response.telemetry.total_time_seconds = total_time;
+        }
+
+        curl_certinfo* cert_info = nullptr;
+        if (curl_api.easy_getinfo(
+                easy,
+                static_cast<CURLINFO>(BURNER_MASK_INT(static_cast<long>(CURLINFO_CERTINFO))),
+                &cert_info) == CURLE_OK &&
+            cert_info != nullptr) {
+            for (int cert_index = 0; cert_index < cert_info->num_of_certs; ++cert_index) {
+                for (curl_slist* line = cert_info->certinfo[cert_index]; line != nullptr; line = line->next) {
+                    if (line->data != nullptr) {
+                        response.telemetry.tls_chain.emplace_back(line->data);
+                    }
+                }
+            }
+        }
+
+        if (!m_config.security_policy.OnAuditTelemetry(response.telemetry)) {
             response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
-            response.transport_error = ErrorCode::TransportVerificationFailed;
+            response.transport_error = ErrorCode::EnvironmentCompromised;
             WipeResponse(response);
+        }
+
+        if (response.TransportOk()) {
+            char* primary_ip = nullptr;
+            if (curl_api.easy_getinfo(easy, static_cast<CURLINFO>(BURNER_MASK_INT(static_cast<long>(CURLINFO_PRIMARY_IP))), &primary_ip) == CURLE_OK &&
+                primary_ip != nullptr &&
+                !m_config.security_policy.OnVerifyTransport(request.url.c_str(), primary_ip)) {
+                response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
+                response.transport_error = ErrorCode::TransportVerificationFailed;
+                WipeResponse(response);
+            }
         }
     }
 

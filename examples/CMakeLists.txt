@@ -7,6 +7,7 @@ add_executable(BurnerNetExamples
     05_mtls_usage.cpp
     06_hmac_custom_verifier.cpp
     07_streamed_descrambler.cpp
+    08_telemetry_audit.cpp
 )
 
 target_link_libraries(BurnerNetExamples PRIVATE BurnerNet::BurnerNet)

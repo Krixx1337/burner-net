@@ -6,17 +6,19 @@
 namespace burner::net {
 
 enum class ErrorCode : std::uint32_t;
+struct TransportTelemetry;
 struct HttpRequest;
 struct HttpResponse;
 struct TransferProgress;
 
 template <typename T>
 concept SecurityPolicyConcept = requires(const T policy, HttpRequest& request, const HttpRequest& const_request,
-    const HttpResponse& response, const TransferProgress& progress, bool verified, ErrorCode reason, const char* url,
-    const char* remote_ip) {
+    const HttpResponse& response, const TransportTelemetry& telemetry, const TransferProgress& progress,
+    bool verified, ErrorCode reason, const char* url, const char* remote_ip) {
     { policy.OnVerifyEnvironment() } -> std::convertible_to<bool>;
     { policy.OnPreRequest(request) } -> std::convertible_to<bool>;
     { policy.OnVerifyTransport(url, remote_ip) } -> std::convertible_to<bool>;
+    { policy.OnAuditTelemetry(telemetry) } -> std::convertible_to<bool>;
     { policy.OnHeartbeat(progress) } -> std::convertible_to<bool>;
     { policy.OnResponseReceived(const_request, response) } -> std::convertible_to<bool>;
     { policy.OnSignatureVerified(verified, reason) } -> std::same_as<void>;

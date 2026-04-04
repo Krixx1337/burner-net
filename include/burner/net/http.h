@@ -194,10 +194,21 @@ struct HttpRequest {
     DnsFallbackPolicy dns_fallback{};
 };
 
+struct TransportTelemetry {
+    double total_time_seconds = 0.0;
+    DarkVector<DarkString> tls_chain;
+};
+
+inline bool ISecurityPolicy::OnAuditTelemetry(const TransportTelemetry& telemetry) const {
+    (void)telemetry;
+    return true;
+}
+
 struct HttpResponse {
     long status_code = 0;
     DarkString body;
     HeaderMap headers;
+    TransportTelemetry telemetry;
 
     int transport_code = 0;
     ErrorCode transport_error = ErrorCode::None;

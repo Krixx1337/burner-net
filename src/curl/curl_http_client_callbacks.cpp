@@ -123,6 +123,11 @@ int CurlHttpClient::ProgressCallback(void* clientp, curl_off_t dltotal, curl_off
 void CurlHttpClient::WipeResponse(HttpResponse& response) const {
     SecureWipe(response.body);
     response.headers.clear();
+    for (auto& line : response.telemetry.tls_chain) {
+        SecureWipe(line);
+    }
+    response.telemetry.tls_chain.clear();
+    response.telemetry.total_time_seconds = 0.0;
     response.streamed_body_bytes = 0;
 }
 

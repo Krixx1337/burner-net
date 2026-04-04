@@ -178,3 +178,27 @@ TEST_CASE("isolated transport preserves response data integrity") {
     CHECK_FALSE(response.body.empty());
     CHECK(response.body.find("Example Domain") != std::string::npos);
 }
+
+TEST_CASE("successful https requests expose timing and tls telemetry") {
+    using namespace burner::net;
+
+    auto client = ClientBuilder()
+        .WithUseNativeCa(true)
+        .Build();
+
+    REQUIRE(static_cast<bool>(client.client));
+
+    burner::net::HttpRequest request{};
+    request.method = burner::net::HttpMethod::Get;
+    request.url = "https://example.com";
+    request.timeout_seconds = 15;
+    request.connect_timeout_seconds = 10;
+    request.dns_fallback.enabled = false;
+
+    const auto response = client.client->Send(request);
+
+    CHECK(response.TransportOk());
+    CHECK(response.status_code == 200);
+    CHECK(response.telemetry.total_time_seconds >= 0.0);
+    CHECK_FALSE(response.telemetry.tls_chain.empty());
+}
