@@ -8,6 +8,12 @@
 
 namespace burner::net {
 
+enum class AuditResult {
+    Trusted,
+    Compromised,
+    Inconclusive
+};
+
 class BURNER_API SecurityAuditor {
 public:
     template <HttpClientConcept TClient>
@@ -20,20 +26,27 @@ public:
         TClient* client,
         const burner::net::SecurityPolicy* policy,
         const std::vector<std::string>& canary_urls) {
+        const AuditResult result = AuditTransportTrust(client, canary_urls);
+        const bool ok = result == AuditResult::Trusted;
+        if (!ok && policy != nullptr) {
+            policy->OnTamper();
+        }
+        return ok;
+    }
+
+    template <HttpClientConcept TClient>
+    static AuditResult AuditTransportTrust(TClient* client, const std::vector<std::string>& canary_urls) {
         if (client == nullptr) {
-            return false;
+            return AuditResult::Inconclusive;
         }
         if (!HasExpectedSystemModuleShape()) {
-            if (policy != nullptr) {
-                policy->OnTamper();
-            }
-            return false;
+            return AuditResult::Compromised;
         }
         if (canary_urls.empty()) {
-            return true;
+            return AuditResult::Trusted;
         }
 
-        auto check_domain = [&](const std::string& url) -> bool {
+        for (const auto& url : canary_urls) {
             HttpRequest request{};
             request.method = HttpMethod::Get;
             request.url = url;
@@ -43,20 +56,16 @@ public:
             request.retry.max_attempts = 1;
 
             const HttpResponse response = client->Send(request);
-            return response.transport_error == ErrorCode::TlsVerificationFailed;
-        };
-
-        bool ok = true;
-        for (const auto& url : canary_urls) {
-            if (!check_domain(url)) {
-                ok = false;
-                break;
+            if (response.transport_error == ErrorCode::TlsVerificationFailed) {
+                continue;
             }
+            if (response.TransportOk()) {
+                return AuditResult::Compromised;
+            }
+            return AuditResult::Inconclusive;
         }
-        if (!ok && policy != nullptr) {
-            policy->OnTamper();
-        }
-        return ok;
+
+        return AuditResult::Trusted;
     }
 
 private:

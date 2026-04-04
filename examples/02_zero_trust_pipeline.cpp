@@ -69,7 +69,7 @@ int RunZeroTrustPipeline() {
     std::cout << "Paranoid lane: auth, licensing, and high-trust business logic.\n";
     std::cout << "Utility lane: telemetry, metadata, and lower-trust traffic.\n";
     std::cout << "The paranoid client uses a concrete policy object plus pinning,\n";
-    std::cout << "and transport integrity auditing. Add an app-layer verifier when needed.\n";
+    std::cout << "and transport trust auditing. Add an app-layer verifier when needed.\n";
 
     bool canaries_configured = true;
     for (const auto& url : kTransportCanaries) {
@@ -80,21 +80,30 @@ int RunZeroTrustPipeline() {
     }
 
     if (!canaries_configured) {
-        std::cout << "Transport canary audit skipped.\n";
+        std::cout << "Transport trust audit skipped.\n";
         std::cout << "Replace the sample canary URLs with your own TLS-failure endpoints to exercise the audit path.\n";
-    } else if (!SecurityAuditor::CheckTransportIntegrity(paranoid.client->Raw(), kTransportCanaries)) {
-        std::cerr << "Transport integrity check failed before the hardened request.\n";
-        return 3;
+    } else {
+        const auto audit = SecurityAuditor::AuditTransportTrust(paranoid.client->Raw(), kTransportCanaries);
+        if (audit == AuditResult::Compromised) {
+            paranoid.client->Raw()->SecurityPolicy()->OnTamper();
+            std::cerr << "Transport trust audit detected an unexpected canary success.\n";
+            return 3;
+        }
+        if (audit == AuditResult::Inconclusive) {
+            paranoid.client->Raw()->SecurityPolicy()->OnTamper();
+            std::cerr << "Transport trust audit was inconclusive.\n";
+            return 3;
+        }
     }
 
     if (canaries_configured) {
-        std::cout << "Transport integrity check passed.\n";
+        std::cout << "Transport trust audit passed.\n";
     }
     if (std::string_view(kPinnedKey).find("replace-with-a-real-pin") != std::string_view::npos ||
         std::string_view(kEndpoint).find("example.com") != std::string_view::npos) {
         std::cout << "Hardened request skipped.\n";
         std::cout << "Replace the sample pin, endpoint, and canary URLs with your own hardened service\n";
-        std::cout << "to exercise the pinned-key and transport-audited path.\n";
+        std::cout << "to exercise the pinned-key and transport-trust-audited path.\n";
         return 0;
     }
 

@@ -58,15 +58,16 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
     }
 }
 
-TEST_CASE("security auditor rejects compromised or inconclusive transport") {
+TEST_CASE("security auditor reports trusted TLS canary rejection") {
     auto client = burner::net::ClientBuilder()
         .WithUseNativeCa(true)
         .Build();
 
     REQUIRE(static_cast<bool>(client.client));
-    CHECK(burner::net::SecurityAuditor::CheckTransportIntegrity(
+    CHECK(burner::net::SecurityAuditor::AuditTransportTrust(
         client.client->Raw(),
-        {"https://expired.badssl.com", "https://wrong.host.badssl.com"}));
+        {"https://expired.badssl.com", "https://wrong.host.badssl.com"}) ==
+        burner::net::AuditResult::Trusted);
 }
 
 TEST_CASE("max_body_bytes aborts oversized responses mid-stream") {

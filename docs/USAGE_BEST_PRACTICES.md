@@ -191,16 +191,18 @@ For concrete bootstrap setup, examples, and build-system mechanics, see:
 - Keep login/business logic in app code, not inside `BurnerNet`.
 - Prefer one disposable HTTP client instance per worker/thread or burst of requests.
 - Prefer separate client instances for paranoid and utility traffic instead of toggling one client back and forth.
-- Keep transport integrity hooks synchronous and fail closed by returning `false`.
+- Keep transport trust hooks synchronous and fail closed by returning `false`.
 
 ## 11. CI recommendation for runtime staging
 - If you ship dynamic runtime dependencies, add a CI check that verifies the expected runtime set is present for each shipped architecture/configuration.
 - Treat missing runtime DLLs or mismatched runtime layouts as a build/deployment failure.
 
 ## 12. Startup canary
-- For high-risk paths, run `burner::net::SecurityAuditor::CheckTransportIntegrity(client->Raw(), canary_urls)` during startup or before auth. If the audit fails, BurnerNet now forwards that result into `ISecurityPolicy::OnTamper()`.
-- A `true` result means the transport rejected each app-owned TLS-failure canary exactly as expected.
-- A `false` result means the environment is compromised or inconclusive; fail closed for sensitive flows.
+- Prefer `burner::net::SecurityAuditor::AuditTransportTrust(client->Raw(), canary_urls)` during startup or before auth.
+- `burner::net::AuditResult::Trusted` means each app-owned TLS-failure canary was rejected as expected.
+- `burner::net::AuditResult::Compromised` means a canary unexpectedly succeeded or the local environment sanity probe failed.
+- `burner::net::AuditResult::Inconclusive` means connectivity failed in a way that did not prove trust failure.
+- `burner::net::SecurityAuditor::CheckTransportIntegrity(...)` remains as a compatibility wrapper for fail-closed callers and still forwards non-trusted results into `ISecurityPolicy::OnTamper()`.
 
 ## 13. Defeating Local DNS Hijacking & API Spoofing
 
