@@ -8,6 +8,7 @@
 #include "burner/net/detail/dark_arithmetic.h"
 #include "burner/net/detail/wiping_alloc_engine.h"
 #include "burner/net/obfuscation.h"
+#include "internal/openssl_sync.h"
 #include "../internal/header_validation.h"
 
 #include <algorithm>
@@ -399,6 +400,7 @@ HttpResponse CurlHttpClient::PerformOnce(HttpRequest request, std::optional<DnsS
 
         // TRIGGER: Worker End Hook (After stack scrubbing is done in PerformOnceInternal)
         state->client->m_config.security_policy.OnIsolatedWorkerEnd();
+        TryInvokeOpenSSLThreadStop();
 
         {
             std::lock_guard<std::mutex> lock(state->mutex);

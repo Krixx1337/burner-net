@@ -25,4 +25,6 @@ using CryptoSetMemFunctionsFn = int (*)(
     OpenSSL_free_fn    f
 );
 
+using OpenSSLThreadStopFn = void (*)();
+
 } // namespace burner::net::detail

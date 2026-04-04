@@ -24,6 +24,7 @@
 #include "burner/net/detail/kernel_resolver.h"
 #include "burner/net/detail/dark_simd.h"
 #include "burner/net/detail/pointer_mangling.h"
+#include "burner/net/detail/wiping_alloc_engine.h"
 #include "curl/curl_http_client.h"
 #include "internal/header_validation.h"
 
@@ -233,6 +234,13 @@ TEST_CASE("wiping allocator satisfies allocator usage for containers") {
 
     CHECK(secret == "classified");
     CHECK(bytes.size() == 4);
+}
+
+TEST_CASE("dark allocator returns 16-byte-aligned user pointers") {
+    void* ptr = burner::net::detail::alloc::dark_malloc(64);
+    REQUIRE(ptr != nullptr);
+    CHECK((reinterpret_cast<std::uintptr_t>(ptr) % 16u) == 0u);
+    burner::net::detail::alloc::dark_free(ptr);
 }
 
 TEST_CASE("response verifier accepts lambda callbacks") {

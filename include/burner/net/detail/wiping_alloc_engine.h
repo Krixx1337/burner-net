@@ -11,6 +11,10 @@ struct alignas(16) AllocHeader {
     std::size_t requested_size;
 };
 
+static_assert(alignof(AllocHeader) == 16, "AllocHeader must stay 16-byte aligned.");
+static_assert(sizeof(AllocHeader) % alignof(AllocHeader) == 0,
+              "AllocHeader size must preserve user-pointer alignment.");
+
 // C-linkage-compatible allocator callbacks suitable for passing to
 // libcurl (CURLOPT_SHARE / curl_global_init_mem) and OpenSSL
 // (CRYPTO_set_mem_functions).

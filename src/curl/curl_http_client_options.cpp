@@ -106,6 +106,18 @@ void CurlHttpClient::ApplyCommonOptions(
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_VERIFYHOST))), m_config.verify_host ? 2L : 0L);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSLVERSION))), CURL_SSLVERSION_TLSv1_2);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_CERTINFO))), 1L);
+#ifdef CURLOPT_NOSIGNAL
+    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_NOSIGNAL))), 1L);
+#endif
+#ifdef CURLOPT_SSL_SESSIONID_CACHE
+    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_SESSIONID_CACHE))), 0L);
+#endif
+#ifdef CURLOPT_DNS_CACHE_TIMEOUT
+    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_DNS_CACHE_TIMEOUT))), 0L);
+#endif
+#ifdef CURLOPT_CA_CACHE_TIMEOUT
+    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_CA_CACHE_TIMEOUT))), 0L);
+#endif
 #ifdef CURLSSLOPT_NATIVE_CA
     if (m_config.use_native_ca) {
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_OPTIONS))), CURLSSLOPT_NATIVE_CA);

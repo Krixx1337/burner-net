@@ -18,4 +18,8 @@ class SecurityPolicy;
 // Subsequent calls are silently ignored once the hooks have been applied.
 void TryApplyOpenSSLHooks(const SecurityPolicy& policy) noexcept;
 
+// Best-effort worker-thread cleanup for OpenSSL per-thread state.
+// Safe to call even when OpenSSL is not present or exports are unavailable.
+void TryInvokeOpenSSLThreadStop() noexcept;
+
 } // namespace burner::net

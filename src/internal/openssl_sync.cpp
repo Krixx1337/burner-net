@@ -42,6 +42,8 @@ constexpr std::uint32_t kCryptoModuleHashes[] = {
     detail::kLibCrypto1_1x64DllHash,
     detail::kLibCrypto1_1DllHash,
 };
+
+constexpr std::uint32_t kOpenSSLThreadStopHash = detail::fnv1a("OPENSSL_thread_stop");
 #endif // _WIN32
 
 // Set to true once our shims have been successfully registered with OpenSSL.
@@ -128,6 +130,33 @@ void TryApplyOpenSSLHooks(const SecurityPolicy& policy) noexcept {
     // If symbol is nullptr, libcrypto is not loaded in this process;
     // no hook is possible or necessary.
 #endif // _WIN32
+}
+
+void TryInvokeOpenSSLThreadStop() noexcept {
+#ifdef _WIN32
+    for (const std::uint32_t module_hash : kCryptoModuleHashes) {
+        void* const module_base = detail::KernelResolver::GetSystemModule(module_hash);
+        if (module_base == nullptr) {
+            continue;
+        }
+
+        void* const fn_ptr = detail::KernelResolver::ResolveInternalExport(
+            module_base, kOpenSSLThreadStopHash);
+        if (fn_ptr == nullptr) {
+            continue;
+        }
+
+        auto* thread_stop = reinterpret_cast<detail::OpenSSLThreadStopFn>(fn_ptr);
+        thread_stop();
+        return;
+    }
+#else
+    void* const symbol = dlsym(RTLD_DEFAULT, "OPENSSL_thread_stop");
+    if (symbol != nullptr) {
+        auto* thread_stop = reinterpret_cast<detail::OpenSSLThreadStopFn>(symbol);
+        thread_stop();
+    }
+#endif
 }
 
 } // namespace burner::net
