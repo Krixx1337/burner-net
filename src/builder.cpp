@@ -88,6 +88,9 @@ struct BuilderSecurityPolicy final {
 
 } // namespace detail
 
+ClientBuilder::ClientBuilder()
+    : m_build(&ClientBuilder::BuildThunk) {}
+
 ClientBuilder& ClientBuilder::WithUserAgent(std::string user_agent) {
     m_config.user_agent = std::move(user_agent);
     return *this;
@@ -231,18 +234,22 @@ ClientBuilder& ClientBuilder::WithStackIsolation(bool enabled) {
 }
 
 ClientBuilder::ClientBuildResult ClientBuilder::Build() {
-    ClientConfig config = m_config;
+    return m_build(this);
+}
+
+ClientBuilder::ClientBuildResult ClientBuilder::BuildThunk(ClientBuilder* builder) {
+    ClientConfig config = builder->m_config;
     config.security_policy = SecurityPolicy(detail::BuilderSecurityPolicy{
-        .wrapped_policy = m_security_policy,
-        .pre_flight = m_pre_flight,
-        .environment_check = m_environment_check,
-        .transport_check = m_transport_check,
-        .heartbeat = m_heartbeat,
-        .response_received = m_response_received,
-        .post_verification = m_post_verification,
-        .tamper_action = m_tamper_action,
+        .wrapped_policy = builder->m_security_policy,
+        .pre_flight = builder->m_pre_flight,
+        .environment_check = builder->m_environment_check,
+        .transport_check = builder->m_transport_check,
+        .heartbeat = builder->m_heartbeat,
+        .response_received = builder->m_response_received,
+        .post_verification = builder->m_post_verification,
+        .tamper_action = builder->m_tamper_action,
     });
-    config.response_verifier = m_response_verifier;
+    config.response_verifier = builder->m_response_verifier;
 
     if (!config.security_policy.OnVerifyEnvironment()) {
         return {nullptr, ErrorCode::EnvironmentCompromised};
@@ -253,7 +260,7 @@ ClientBuilder::ClientBuildResult ClientBuilder::Build() {
         return {nullptr, transport.InitError()};
     }
 
-    return {std::make_unique<FluentClient<CurlHttpClient>>(std::move(transport), m_default_dns_fallback), ErrorCode::None};
+    return {std::make_unique<FluentClient<CurlHttpClient>>(std::move(transport), builder->m_default_dns_fallback), ErrorCode::None};
 }
 
 } // namespace burner::net

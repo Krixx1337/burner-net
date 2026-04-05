@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "curl/curl_http_client.h"
+#include "detail/pointer_mangling.h"
 #include "export.h"
 #include "http.h"
 
@@ -94,7 +95,8 @@ class BURNER_API FluentClient {
 public:
     FluentClient(TTransport transport, DnsFallbackPolicy default_dns_fallback)
         : m_transport(std::move(transport)),
-          m_default_dns_fallback(std::move(default_dns_fallback)) {}
+          m_default_dns_fallback(std::move(default_dns_fallback)),
+          m_dispatch(&FluentClient::DispatchThunk) {}
 
     [[nodiscard]] RequestBuilder<TTransport> Get(std::string url) {
         return RequestBuilder<TTransport>(*this, HttpMethod::Get, std::move(url));
@@ -124,12 +126,17 @@ public:
             request.dns_fallback = m_default_dns_fallback;
             request.dns_fallback.enabled = true;
         }
-        return m_transport.Send(std::move(request));
+        return m_dispatch(&m_transport, std::move(request));
     }
 
 private:
+    static HttpResponse DispatchThunk(TTransport* transport, HttpRequest req) {
+        return transport->Send(std::move(req));
+    }
+
     TTransport m_transport;
     DnsFallbackPolicy m_default_dns_fallback;
+    EncodedPointer<HttpResponse (*)(TTransport*, HttpRequest)> m_dispatch;
 };
 
 class BURNER_API ClientBuilder {
@@ -182,9 +189,13 @@ public:
         [[nodiscard]] bool Ok() const { return client != nullptr; }
     };
 
+    ClientBuilder();
+
     [[nodiscard]] ClientBuildResult Build();
 
 private:
+    static ClientBuildResult BuildThunk(ClientBuilder* builder);
+
     ClientConfig m_config;
     SecurityPolicy m_security_policy;
     ResponseVerifier m_response_verifier;
@@ -196,6 +207,7 @@ private:
     PostVerificationCallback m_post_verification;
     TamperActionCallback m_tamper_action;
     DnsFallbackPolicy m_default_dns_fallback;
+    EncodedPointer<ClientBuildResult (*)(ClientBuilder*)> m_build;
     bool m_custom_dns_fallback = false;
 };
 
