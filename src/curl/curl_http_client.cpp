@@ -38,8 +38,11 @@ bool WouldExceedBodyLimit(std::size_t current_size, std::size_t chunk_size, std:
 
 namespace {
 
+#define BURNER_CURL_AT_LEAST(major, minor, patch) \
+    (LIBCURL_VERSION_NUM >= (((major) << 16) | ((minor) << 8) | (patch)))
+
 bool RequestBodyTooLargeForCurl(std::size_t body_size) {
-#ifdef CURLOPT_POSTFIELDSIZE_LARGE
+#if BURNER_CURL_AT_LEAST(7, 11, 1)
     return body_size > static_cast<std::size_t>((std::numeric_limits<curl_off_t>::max)());
 #else
     return body_size > static_cast<std::size_t>((std::numeric_limits<long>::max)());
@@ -445,5 +448,7 @@ bool CurlHttpClient::ShouldRetry(const HttpRequest& request, const HttpResponse&
 }
 
 } // namespace burner::net
+
+#undef BURNER_CURL_AT_LEAST
 
 #endif
