@@ -4,6 +4,10 @@
 
 #include <curl/curl.h>
 
+#if !CURL_AT_LEAST_VERSION(7, 87, 0)
+#error "BurnerNet requires libcurl >= 7.87.0"
+#endif
+
 namespace burner::net {
 
 using CurlEasyInitFn = CURL* (*)();

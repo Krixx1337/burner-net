@@ -197,7 +197,7 @@ Documentation:
 
 - C++20
 - Windows x64/x86 or Linux (GCC 13+ / Clang 15+)
-- `libcurl` and `OpenSSL` headers
+- `libcurl` 7.87.0+ and `OpenSSL` headers
 - **Linux Guide:** See [docs/LINUX_USAGE.md](docs/LINUX_USAGE.md)
 
 ## Security Reality & The White-Box Defense

@@ -9,9 +9,6 @@
 namespace burner::net {
 namespace {
 
-#define BURNER_CURL_AT_LEAST(major, minor, patch) \
-    (LIBCURL_VERSION_NUM >= (((major) << 16) | ((minor) << 8) | (patch)))
-
 DarkString ToCurlMethod(HttpMethod method) {
     switch (method) {
     case HttpMethod::Get: return DarkString(BURNER_OBF_LITERAL("GET"));
@@ -25,11 +22,7 @@ DarkString ToCurlMethod(HttpMethod method) {
 
 void SetPostBody(const CurlApi& curl_api, CURL* easy, const char* body_data, std::size_t body_size) {
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDS))), body_data);
-#if BURNER_CURL_AT_LEAST(7, 11, 1)
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDSIZE_LARGE))), static_cast<curl_off_t>(body_size));
-#else
-    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDSIZE))), static_cast<long>(body_size));
-#endif
 }
 
 } // namespace
@@ -49,12 +42,6 @@ void CurlHttpClient::ApplyCommonOptions(
     }
 
     const CurlApi& curl_api = m_session->Api();
-#if !BURNER_CURL_AT_LEAST(7, 85, 0)
-    (void)protocol_scheme;
-#endif
-#if !BURNER_CURL_AT_LEAST(7, 85, 0)
-    (void)redirect_protocol_scheme;
-#endif
 
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_URL))), request.url.c_str());
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_ERRORBUFFER))), error_buffer);
@@ -62,41 +49,27 @@ void CurlHttpClient::ApplyCommonOptions(
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_WRITEDATA))), body_ctx);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HEADERFUNCTION))), &CurlHttpClient::WriteHeaderCallback);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HEADERDATA))), &response.headers);
-#if BURNER_CURL_AT_LEAST(7, 32, 0)
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_XFERINFOFUNCTION))), &CurlHttpClient::ProgressCallback);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_XFERINFODATA))), this);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_NOPROGRESS))), 0L);
-#endif
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_FRESH_CONNECT))), 1L);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_FORBID_REUSE))), 1L);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_FOLLOWLOCATION))), request.follow_redirects ? 1L : 0L);
     if (!m_config.use_system_proxy) {
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PROXY))), "");
-#if BURNER_CURL_AT_LEAST(7, 19, 4)
         // Force all hosts to bypass proxies, including any inherited environment configuration.
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_NOPROXY))), "*");
-#endif
     }
-#if BURNER_CURL_AT_LEAST(7, 85, 0)
     if (protocol_scheme != nullptr) {
         *protocol_scheme = BURNER_OBF_LITERAL("https");
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PROTOCOLS_STR))), protocol_scheme->c_str());
     }
-#else
-    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PROTOCOLS))), CURLPROTO_HTTPS);
-#endif
-#if BURNER_CURL_AT_LEAST(7, 61, 0)
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_DISALLOW_USERNAME_IN_URL))), 1L);
-#endif
     if (request.follow_redirects) {
-#if BURNER_CURL_AT_LEAST(7, 85, 0)
         if (redirect_protocol_scheme != nullptr) {
             *redirect_protocol_scheme = BURNER_OBF_LITERAL("https");
             curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_REDIR_PROTOCOLS_STR))), redirect_protocol_scheme->c_str());
         }
-#else
-        curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_REDIR_PROTOCOLS))), CURLPROTO_HTTPS);
-#endif
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_MAXREDIRS))), 10L);
     }
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_TIMEOUT))), request.timeout_seconds);
@@ -115,18 +88,10 @@ void CurlHttpClient::ApplyCommonOptions(
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_VERIFYHOST))), m_config.verify_host ? 2L : 0L);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSLVERSION))), CURL_SSLVERSION_TLSv1_2);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_CERTINFO))), 1L);
-#if BURNER_CURL_AT_LEAST(7, 10, 0)
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_NOSIGNAL))), 1L);
-#endif
-#if BURNER_CURL_AT_LEAST(7, 16, 0)
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_SESSIONID_CACHE))), 0L);
-#endif
-#if BURNER_CURL_AT_LEAST(7, 9, 3)
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_DNS_CACHE_TIMEOUT))), 0L);
-#endif
-#if BURNER_CURL_AT_LEAST(7, 87, 0)
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_CA_CACHE_TIMEOUT))), 0L);
-#endif
 #ifdef CURLSSLOPT_NATIVE_CA
     if (m_config.use_native_ca) {
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_OPTIONS))), CURLSSLOPT_NATIVE_CA);
@@ -171,11 +136,7 @@ void CurlHttpClient::ApplyMethodAndBody(
         if (has_streamed_body) {
             curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_READFUNCTION))), &CurlHttpClient::ReadBodyCallback);
             curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_READDATA))), read_ctx);
-#if BURNER_CURL_AT_LEAST(7, 11, 1)
             curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDSIZE_LARGE))), static_cast<curl_off_t>(request.streamed_payload_size));
-#else
-            curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDSIZE))), static_cast<long>(request.streamed_payload_size));
-#endif
         } else if (has_body_view || !request.body.empty()) {
             SetPostBody(curl_api, easy, body_data, body_size);
         }
@@ -284,18 +245,12 @@ void CurlHttpClient::ResetMethodState() {
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_READDATA))), nullptr);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDS))), nullptr);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDSIZE))), 0L);
-#if BURNER_CURL_AT_LEAST(7, 11, 1)
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDSIZE_LARGE))), static_cast<curl_off_t>(0));
-#endif
-#if BURNER_CURL_AT_LEAST(7, 32, 0)
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_XFERINFOFUNCTION))), nullptr);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_XFERINFODATA))), nullptr);
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_NOPROGRESS))), 1L);
-#endif
 }
 
 } // namespace burner::net
-
-#undef BURNER_CURL_AT_LEAST
 
 #endif

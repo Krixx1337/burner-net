@@ -38,15 +38,8 @@ bool WouldExceedBodyLimit(std::size_t current_size, std::size_t chunk_size, std:
 
 namespace {
 
-#define BURNER_CURL_AT_LEAST(major, minor, patch) \
-    (LIBCURL_VERSION_NUM >= (((major) << 16) | ((minor) << 8) | (patch)))
-
 bool RequestBodyTooLargeForCurl(std::size_t body_size) {
-#if BURNER_CURL_AT_LEAST(7, 11, 1)
     return body_size > static_cast<std::size_t>((std::numeric_limits<curl_off_t>::max)());
-#else
-    return body_size > static_cast<std::size_t>((std::numeric_limits<long>::max)());
-#endif
 }
 
 DarkString BuildHeaderLine(std::string_view name, std::string_view value) {
@@ -313,7 +306,6 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPHEADER))), headers);
     }
 
-#if BURNER_CURL_AT_LEAST(7, 80, 0)
     m_active_url = request.url.c_str();
     curl_api.easy_setopt(
         easy,
@@ -323,11 +315,8 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         easy,
         static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PREREQDATA))),
         this);
-#endif
     const CURLcode code = curl_api.easy_perform(easy);
-#if BURNER_CURL_AT_LEAST(7, 80, 0)
     m_active_url = nullptr;
-#endif
 
     // Wipe the stack region used by the transport chain (TLS keys, header
     // fragments, session state) before any other logic can read it.
@@ -390,18 +379,6 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
             WipeResponse(response);
         }
 
-#if !BURNER_CURL_AT_LEAST(7, 80, 0)
-        if (response.TransportOk()) {
-            char* primary_ip = nullptr;
-            if (curl_api.easy_getinfo(easy, static_cast<CURLINFO>(BURNER_MASK_INT(static_cast<long>(CURLINFO_PRIMARY_IP))), &primary_ip) == CURLE_OK &&
-                primary_ip != nullptr &&
-                !m_config.security_policy.OnVerifyTransport(request.url.c_str(), primary_ip)) {
-                response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
-                response.transport_error = ErrorCode::TransportVerificationFailed;
-                WipeResponse(response);
-            }
-        }
-#endif
     }
 
     response.dns_strategy_used = strategy.has_value() ? strategy->name : DarkString{};
@@ -498,7 +475,5 @@ bool CurlHttpClient::ShouldRetry(const HttpRequest& request, const HttpResponse&
 }
 
 } // namespace burner::net
-
-#undef BURNER_CURL_AT_LEAST
 
 #endif
