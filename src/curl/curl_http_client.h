@@ -43,6 +43,7 @@ private:
     static size_t WriteHeaderCallback(void* contents, size_t size, size_t nmemb, void* user_data);
     static size_t ReadBodyCallback(char* buffer, size_t size, size_t nmemb, void* user_data);
     static int ProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow);
+    static int PrereqCallback(void* clientp, char* conn_primary_ip, char* conn_local_ip, int conn_primary_port, int conn_local_port);
 
     void ApplyCommonOptions(
         const HttpRequest& request,
@@ -67,7 +68,9 @@ private:
     ClientConfig m_config;
     std::unique_ptr<CurlSession> m_session;
     ErrorCode m_init_error = ErrorCode::None;
+    const char* m_active_url = nullptr;
     bool m_heartbeat_aborted = false;
+    bool m_transport_verification_aborted = false;
 };
 
 } // namespace burner::net

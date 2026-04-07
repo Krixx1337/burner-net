@@ -93,9 +93,13 @@ CurlHttpClient::CurlHttpClient(CurlHttpClient&& other) noexcept
     : m_config(std::move(other.m_config)),
       m_session(std::move(other.m_session)),
       m_init_error(other.m_init_error),
-      m_heartbeat_aborted(other.m_heartbeat_aborted) {
+      m_active_url(nullptr),
+      m_heartbeat_aborted(other.m_heartbeat_aborted),
+      m_transport_verification_aborted(other.m_transport_verification_aborted) {
     other.m_init_error = ErrorCode::None;
+    other.m_active_url = nullptr;
     other.m_heartbeat_aborted = false;
+    other.m_transport_verification_aborted = false;
 }
 
 CurlHttpClient& CurlHttpClient::operator=(CurlHttpClient&& other) noexcept {
@@ -106,11 +110,38 @@ CurlHttpClient& CurlHttpClient::operator=(CurlHttpClient&& other) noexcept {
     m_config = std::move(other.m_config);
     m_session = std::move(other.m_session);
     m_init_error = other.m_init_error;
+    m_active_url = nullptr;
     m_heartbeat_aborted = other.m_heartbeat_aborted;
+    m_transport_verification_aborted = other.m_transport_verification_aborted;
 
     other.m_init_error = ErrorCode::None;
+    other.m_active_url = nullptr;
     other.m_heartbeat_aborted = false;
+    other.m_transport_verification_aborted = false;
     return *this;
+}
+
+int CurlHttpClient::PrereqCallback(
+    void* clientp,
+    char* conn_primary_ip,
+    char* conn_local_ip,
+    int conn_primary_port,
+    int conn_local_port) {
+    (void)conn_local_ip;
+    (void)conn_local_port;
+
+    auto* self = static_cast<CurlHttpClient*>(clientp);
+    if (self == nullptr || conn_primary_ip == nullptr || self->m_active_url == nullptr) {
+        return CURL_PREREQFUNC_OK;
+    }
+
+    if (!self->m_config.security_policy.OnVerifyTransport(self->m_active_url, conn_primary_ip)) {
+        self->m_transport_verification_aborted = true;
+        return CURL_PREREQFUNC_ABORT;
+    }
+
+    (void)conn_primary_port;
+    return CURL_PREREQFUNC_OK;
 }
 
 HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
@@ -206,6 +237,7 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     DarkString key_type;
 
     m_heartbeat_aborted = false;
+    m_transport_verification_aborted = false;
     m_session->Reset();
     ApplyCommonOptions(
         request,
@@ -281,7 +313,21 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPHEADER))), headers);
     }
 
+#if BURNER_CURL_AT_LEAST(7, 80, 0)
+    m_active_url = request.url.c_str();
+    curl_api.easy_setopt(
+        easy,
+        static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PREREQFUNCTION))),
+        &CurlHttpClient::PrereqCallback);
+    curl_api.easy_setopt(
+        easy,
+        static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PREREQDATA))),
+        this);
+#endif
     const CURLcode code = curl_api.easy_perform(easy);
+#if BURNER_CURL_AT_LEAST(7, 80, 0)
+    m_active_url = nullptr;
+#endif
 
     // Wipe the stack region used by the transport chain (TLS keys, header
     // fragments, session state) before any other logic can read it.
@@ -302,6 +348,8 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
 #endif
         ) {
             response.transport_error = ErrorCode::TlsVerificationFailed;
+        } else if (code == CURLE_ABORTED_BY_CALLBACK && m_transport_verification_aborted) {
+            response.transport_error = ErrorCode::TransportVerificationFailed;
         } else if (code == CURLE_WRITE_ERROR && body_ctx.limit_exceeded) {
             response.transport_error = ErrorCode::BodyTooLarge;
         } else if (code == CURLE_ABORTED_BY_CALLBACK && m_heartbeat_aborted) {
@@ -342,6 +390,7 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
             WipeResponse(response);
         }
 
+#if !BURNER_CURL_AT_LEAST(7, 80, 0)
         if (response.TransportOk()) {
             char* primary_ip = nullptr;
             if (curl_api.easy_getinfo(easy, static_cast<CURLINFO>(BURNER_MASK_INT(static_cast<long>(CURLINFO_PRIMARY_IP))), &primary_ip) == CURLE_OK &&
@@ -352,6 +401,7 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
                 WipeResponse(response);
             }
         }
+#endif
     }
 
     response.dns_strategy_used = strategy.has_value() ? strategy->name : DarkString{};
