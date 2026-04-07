@@ -67,6 +67,10 @@ void CurlHttpClient::ApplyCommonOptions(
     curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_FOLLOWLOCATION))), request.follow_redirects ? 1L : 0L);
     if (!m_config.use_system_proxy) {
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PROXY))), "");
+#ifdef CURLOPT_NOPROXY
+        // Force all hosts to bypass proxies, including any inherited environment configuration.
+        curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_NOPROXY))), "*");
+#endif
     }
 #ifdef CURLOPT_PROTOCOLS_STR
     if (protocol_scheme != nullptr) {
