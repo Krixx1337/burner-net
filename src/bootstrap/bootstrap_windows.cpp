@@ -13,6 +13,7 @@
 #endif
 #include <windows.h>
 #include <algorithm>
+#include <atomic>
 #include <cwctype>
 #include <mutex>
 #include <vector>
@@ -24,10 +25,12 @@ namespace {
 std::mutex g_loader_mutex;
 std::vector<HMODULE> g_loaded_modules;
 DLL_DIRECTORY_COOKIE g_dependency_cookie = nullptr;
+std::atomic<bool> g_global_allocator_hooks_enabled{true};
 
 using AddDllDirectoryFn = decltype(&AddDllDirectory);
 using LoadLibraryExWFn = decltype(&LoadLibraryExW);
 using SetDefaultDllDirectoriesFn = decltype(&SetDefaultDllDirectories);
+using RemoveDllDirectoryFn = decltype(&RemoveDllDirectory);
 
 constexpr std::uint32_t kKernel32Hash = ::burner::net::detail::fnv1a_ci("kernel32.dll");
 constexpr std::uint32_t kKernelBaseHash = ::burner::net::detail::fnv1a_ci("kernelbase.dll");
@@ -36,6 +39,7 @@ constexpr std::uint32_t kAddDllDirectoryHash = ::burner::net::detail::fnv1a("Add
 constexpr std::uint32_t kLoadLibraryExWHash = ::burner::net::detail::fnv1a("LoadLibraryExW");
 constexpr std::uint32_t kSetDefaultDllDirectoriesHash =
     ::burner::net::detail::fnv1a("SetDefaultDllDirectories");
+constexpr std::uint32_t kRemoveDllDirectoryHash = ::burner::net::detail::fnv1a("RemoveDllDirectory");
 
 #if BURNERNET_HARDEN_IMPORTS
 constexpr std::uint32_t kLibCurlBootstrapHash  = ::burner::net::detail::fnv1a_ci("libcurl.dll");
@@ -83,6 +87,7 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         reinterpret_cast<std::uintptr_t>(&config));
 
     const SecurityPolicy& security_policy = config.security_policy;
+    g_global_allocator_hooks_enabled.store(config.install_global_allocator_hooks, std::memory_order_release);
     if (config.link_mode == LinkMode::Static || !config.preload_dependencies) {
         return {true, ErrorCode::BootstrapSkip};
     }
@@ -189,7 +194,7 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
 
         // Hook OpenSSL immediately after each DLL is loaded so we are
         // "first-to-alloc" if this was the libcrypto DLL.
-        TryApplyOpenSSLHooks(security_policy);
+        if (config.install_global_allocator_hooks) TryApplyOpenSSLHooks(security_policy);
 
 #if BURNERNET_HARDEN_IMPORTS
         // If this was the libcurl DLL, inject wiping allocators before any
@@ -204,13 +209,32 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
                 curl_api.global_init_mem = reinterpret_cast<CurlGlobalInitMemFn>(
                     ::burner::net::detail::KernelResolver::ResolveInternalExport(
                         module, ::burner::net::detail::kCurlGlobalInitMemHash));
-                EnsureCurlGlobalZapped(curl_api, security_policy);
+                if (config.install_global_allocator_hooks) EnsureCurlGlobalZapped(curl_api, security_policy);
             }
         }
 #endif
     }
 
     return {true, ErrorCode::BootstrapLoaded};
+}
+
+bool GlobalAllocatorHooksEnabled() noexcept {
+    return g_global_allocator_hooks_enabled.load(std::memory_order_acquire);
+}
+
+void ShutdownNetworkingRuntime() noexcept {
+    std::lock_guard<std::mutex> lock(g_loader_mutex);
+    for (auto it = g_loaded_modules.rbegin(); it != g_loaded_modules.rend(); ++it) {
+        if (*it) ::FreeLibrary(*it);
+    }
+    g_loaded_modules.clear();
+    if (g_dependency_cookie) {
+        const RemoveDllDirectoryFn remove_directory =
+            ResolveSystemPrimitive<RemoveDllDirectoryFn>(kRemoveDllDirectoryHash);
+        if (remove_directory) (void)remove_directory(g_dependency_cookie);
+        g_dependency_cookie = nullptr;
+    }
+    g_global_allocator_hooks_enabled.store(true, std::memory_order_release);
 }
 
 } // namespace burner::net
@@ -223,6 +247,9 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig&) {
     ::burner::net::detail::InitializeEncodedPointerKey();
     return {true, ErrorCode::BootstrapWinOnly};
 }
+
+void ShutdownNetworkingRuntime() noexcept {}
+bool GlobalAllocatorHooksEnabled() noexcept { return true; }
 
 } // namespace burner::net
 

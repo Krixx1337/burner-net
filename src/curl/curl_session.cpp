@@ -1,5 +1,6 @@
 #include "curl_session.h"
 
+#include "burner/net/bootstrap.h"
 #include "burner/net/detail/dark_hashing.h"
 #include "burner/net/detail/kernel_resolver.h"
 #include "burner/net/detail/wiping_alloc_engine.h"
@@ -197,7 +198,7 @@ std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, Error
     // Attempt to hook OpenSSL's allocator before any TLS session begins.
     // This handles the case where BURNERNET_HARDEN_IMPORTS=0 and libcrypto
     // was loaded by the OS loader at process startup.
-    TryApplyOpenSSLHooks(config.security_policy);
+    if (GlobalAllocatorHooksEnabled()) TryApplyOpenSSLHooks(config.security_policy);
 
     if (init_error == nullptr) {
         return nullptr;
@@ -221,7 +222,7 @@ std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, Error
 #endif
 
     // Inject wiping allocators into libcurl before the first easy_init call.
-    EnsureCurlGlobalZapped(curl_api, config.security_policy);
+    if (GlobalAllocatorHooksEnabled()) EnsureCurlGlobalZapped(curl_api, config.security_policy);
 
     auto session = std::unique_ptr<CurlSession>(new CurlSession(curl_api));
     if (!session->IsInitialized()) {

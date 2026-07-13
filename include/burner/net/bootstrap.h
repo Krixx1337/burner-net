@@ -27,6 +27,7 @@ struct DependencyIntegrityPolicy {
 struct BootstrapConfig {
     LinkMode link_mode = LinkMode::Static;
     bool preload_dependencies = true;
+    bool install_global_allocator_hooks = true;
     SecurityPolicy security_policy;
     std::filesystem::path dependency_directory;
     DependencyIntegrityPolicy integrity_policy;
@@ -39,5 +40,7 @@ struct BootstrapResult {
 };
 
 BURNER_API BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config);
+BURNER_API void ShutdownNetworkingRuntime() noexcept;
+BURNER_API bool GlobalAllocatorHooksEnabled() noexcept;
 
 } // namespace burner::net
