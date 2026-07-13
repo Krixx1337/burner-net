@@ -4,7 +4,7 @@
 
 BurnerNet is a C++20 **anti-forensic networking engine**. It provides a fluent, CPR-like API for apps that cannot fully trust the local machine—physically wiping secrets from RAM and severing execution traces to hide your logic from scanners and debuggers.
 
-It favors short-lived clients, explicit trust controls, import-light runtime options, and app-owned verification over convenience-first defaults.
+It offers familiar host-compatible defaults for ordinary HTTP and an explicit Hardened profile for hostile environments. Both paths favor short-lived clients; advanced trust remains application-owned.
 
 Looking to protect the payloads downloaded by BurnerNet? Check out [RipStop Codec](https://github.com/Krixx1337/ripstop-codec) for in-memory asset descrambling.
 
@@ -20,7 +20,7 @@ Looking to protect the payloads downloaded by BurnerNet? Check out [RipStop Code
 | **Memory hygiene** | Secure wiping utilities and wiping allocators |
 | **Forensic hygiene** | Automated heap/stack scrubbing across BurnerNet-managed transport state |
 | **Dynamic Analysis** | Call stack isolation can sever the link between consumer and transport |
-| **Build hardening** | Hardened error strings, obfuscated literals, reduced C++ runtime metadata in hardened builds |
+| **Build hardening** | Optional diagnostic-string removal, obfuscated literals, reduced C++ runtime metadata in hardened builds |
 | **Runtime hardening** | DoH support, provider-based secrets, and stricter trust controls |
 | **Integration** | CMake or Visual Studio source-drop |
 
@@ -60,7 +60,7 @@ BurnerNet fits projects such as:
 - **Less trust in the host**: DoH support, pinned-key support, and transport auditing help reduce dependence on compromised local defaults.
 - **Lower plaintext exposure**: Provider callbacks and secure wiping utilities reduce the lifetime of certs, keys, tokens, and other sensitive buffers.
 - **App-owned verification**: Response verification stays in your code through `WithResponseVerifier(...)` instead of being hardcoded into a shared library.
-- **Harder static fingerprinting**: Release builds harden `ErrorCodeToString(...)` automatically, and compile-time literal obfuscation is available out of the box.
+- **Harder static fingerprinting**: hardened builds can set `BURNERNET_DIAGNOSTIC_STRINGS=0` so `ErrorCodeToString(...)` returns stable `E<number>` values without embedding symbolic error names.
 - **Import-light deployment options**: `BURNERNET_HARDEN_IMPORTS=1` can resolve runtime dependencies dynamically instead of advertising them directly in the import table, using BurnerNet's `KernelResolver` path on Windows.
 - **Call Stack Isolation (Async Handoff)**: When enabled via `.WithStackIsolation(true)`, the library executes the transport lifecycle on a detached worker thread. This can physically sever the caller's call stack and reduce direct top-down tracing of application logic.
 
@@ -80,30 +80,25 @@ Audit details and methodology:
 
 Fastest path:
 - Add BurnerNet to your build with CMake or Visual Studio source-drop.
-- Build a client.
-- Send a request.
-- Destroy the client as soon as that request flow is done.
+- Include `<burner/net.h>`.
+- Create a stack client, send a request, then let it leave scope.
 
 Minimal example:
 
 ```cpp
 #include <iostream>
 
-#include "burner/net/builder.h"
-#include "burner/net/error.h"
+#include <burner/net.h>
 
 int main() {
-    auto build_result = burner::net::ClientBuilder()
-        .WithUseNativeCa(true)
-        .Build();
-
-    if (!build_result.Ok()) {
-        std::cerr << burner::net::ErrorCodeToString(build_result.error) << '\n';
+    burner::net::Client client;
+    if (!client.IsReady()) {
+        std::cerr << burner::net::ErrorCodeToString(client.InitError()) << '\n';
         return 1;
     }
 
-    const auto response = build_result.client
-        ->Get("https://example.com")
+    const auto response = client
+        .Get("https://example.com")
         .WithHeader("Accept", "text/html")
         .WithTimeoutSeconds(10)
         .Send();
@@ -118,22 +113,23 @@ int main() {
 }
 ```
 
-For lower-trust utility traffic, BurnerNet also exposes a convenience preset:
+`Client` uses Standard defaults: system CA, DNS, and proxy with TLS peer and hostname verification enabled. `WithCasualDefaults()` remains available as a Standard compatibility alias.
+
+For security-critical traffic, use the Hardened profile. `Build()` rejects missing controls before any request:
 
 ```cpp
-auto utility = burner::net::ClientBuilder()
-    .WithCasualDefaults()
+auto secure = burner::net::ClientBuilder(burner::net::ClientProfile::Hardened)
+    .WithMtlsProvider(ProvideMtlsCredentials)
+    .WithSecurityPolicy(AppSecurityPolicy{})
+    .WithDnsFallback(burner::net::DnsMode::Doh,
+                     "https://resolver.example/dns-query",
+                     "Primary DoH")
+    .AllowSystemDns(true) // explicit fallback, after DoH
+    .WithResponseVerifier(VerifySignedResponse)
     .Build();
 ```
 
-To sever the call stack between your application and the transport (stack isolation):
-
-```cpp
-auto build_result = burner::net::ClientBuilder()
-    .WithUseNativeCa(true)
-    .WithStackIsolation(true) // Sever the call stack from the consumer
-    .Build();
-```
+Hardened requires peer and hostname verification, stack isolation, DoH-first routing, an app response verifier, and an app-owned trust mount. Persistent `WithMtls(...)` credentials are rejected; use `WithMtlsProvider(...)`.
 
 ## Integration Paths
 

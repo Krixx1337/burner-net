@@ -1,32 +1,32 @@
 # The BurnerNet Principles: Paranoid Networking
 
-Modern C++ networking libraries (like `cpr` or `libcurl`) are designed for **convenience and compatibility**. They assume a "Friendly Host" environment where the user, the Operating System, and the local network are all trusted actors.
+Modern C++ networking libraries (like `cpr` or `libcurl`) are designed for **convenience and compatibility**. BurnerNet supports that adoption path through its Standard profile, while keeping a separate Hardened contract for applications that treat the host as hostile.
 
 **BurnerNet is different.**
 
-It is designed for **Hostile Environments** such as game modding, injected DLLs, and security-critical automation, where the local environment cannot be trusted. We operate on six core pillars: **Zero-Trust Networking**, **Ephemeral Memory**, a **Stringless Core**, **Bring Your Own Weapons**, **Disposable Transports**, **Functional Dependency**, and the **White-Box Defense**.
+Standard uses system CA, DNS, and proxy behavior with TLS peer and hostname verification. Hardened disables system proxy use, requires DoH-first routing and app response verification, enables stack isolation, and requires an app-owned trust mount. We operate on seven core pillars: **Zero-Trust Networking**, **Ephemeral Memory**, a **Stringless Core**, **Bring Your Own Weapons**, **Disposable Transports**, **Functional Dependency**, and the **White-Box Defense**.
 
 ---
 
 ## 1. Zero-Trust Networking (Verified Server and Response)
-Standard clients trust the Windows Certificate Store and the System Proxy. An attacker with Fiddler or a custom Root CA can intercept and decrypt this traffic effortlessly.
+Standard intentionally follows normal host networking behavior for compatibility. Applications facing a hostile host must select `ClientProfile::Hardened`; its builder validation fails closed when required controls are absent.
 
-*   **Proxy Blackholing:** BurnerNet ignores system proxies by default. Traffic is forced directly to the edge, bypassing local interception tools.
-*   **Certificate Pinning:** We do not trust the OS to validate certificates. We support Public Key Pinning to ensure you are talking to *your* server, and no one else.
-*   **Explicit Secure DNS:** The OS DNS resolver is treated as compromised. BurnerNet does not bake public DoH endpoints into the default client state; you opt into strict DNS-over-HTTPS targets explicitly so those resolver choices live in your application, not in every BurnerNet binary.
-*   **TLS Hardening:** We enforce modern TLS 1.2+ protocols and secure cipher suites, preventing downgrade attacks.
+*   **Proxy Blackholing:** Hardened disables system proxy use. Standard preserves system proxy behavior for ordinary desktop, VPN, and enterprise environments.
+*   **Application-Owned Trust:** Hardened requires at least one mTLS provider, pinned key, explicit transport check, or custom security policy. Pinning remains supported but is not mandatory when another trust design is used.
+*   **Explicit Secure DNS:** Hardened requires at least one application-selected DoH strategy. System DNS is allowed only as an explicit fallback after DoH. BurnerNet bakes no public resolver endpoints into default state.
+*   **TLS Verification:** Both profiles enable peer and hostname verification. Hardened refuses to build if either is disabled and the transport enforces TLS 1.2+.
 
 ## 2. Ephemeral Memory (Short-Lived Secrets)
 If a secret exists in memory for more than a few milliseconds, it is a target for memory dumpers and scanners.
 
-*   **Provider Pattern:** Secrets (Tokens, Keys, Certs) are never stored in long-lived configuration structs. They are fetched via callbacks nanoseconds before they are needed.
+*   **Provider Pattern:** Provider callbacks fetch tokens, keys, and certificates close to use. Hardened rejects persistent `WithMtls(...)` credentials and requires `WithMtlsProvider(...)`; Standard retains the legacy API for compatibility.
 *   **Aggressive Wiping:** Every temporary buffer used for sensitive data is scrubbed using `SecureZeroMemory` immediately after use.
 
 ## 3. Stringless Core (No Plaintext Breadcrumbs or Magic Numbers)
 Plaintext strings and cryptographic "magic numbers" are the fingerprints of security logic. A reverse engineer does not need to understand your whole binary if a `strings` dump, a domain search, or a `FindCrypt` pass already reveals where the trust decisions live.
 
 *   **Dark Core Architecture:** BurnerNet aims to be a ghost library. The core binary avoids shipping hardcoded cryptographic implementations, public DoH endpoint lists, and universal canary domains that would otherwise act as signatures across every downstream build.
-*   **Opaque Error Codes:** The library emits no plaintext error strings in hardened mode. It operates exclusively on a strictly typed `enum class ErrorCode`, and `ErrorCodeToString(...)` collapses to a numeric/XORed representation by default.
+*   **Selectable Diagnostics:** Readable symbolic errors are the default for developer usability. Builds setting `BURNERNET_DIAGNOSTIC_STRINGS=0` compile that table out and return stable `E<number>` identifiers. `ErrorCode` numeric values are explicit and append-only.
 *   **Signature-Free Infrastructure:** Verification algorithms, transport canary targets, and bootstrap integrity checks live in application callbacks rather than inside BurnerNet itself. That keeps the transport layer agnostic and denies attackers an obvious universal bypass point.
 *   **Protocol Stealth:** Essential internal strings that must exist for transport behavior are stack-obfuscated and wiped after use so a naïve static dump reveals as little as possible.
 *   **Source-Drop Advantage (Recommended):** The preferred integration model is to compile BurnerNet's source directly inside the host project. That keeps setup simple and lets compile-time hardening be instantiated inside each downstream build instead of being frozen into one shared prebuilt library artifact.
@@ -65,7 +65,7 @@ The goal of BurnerNet is to provide a **Fortified Transport Layer** that behaves
 
 1. **Security (The Dark Core):** No universal crypto signatures, no baked-in third-party endpoints, and no default canary domains. Every compiled instance can carry different trust logic and is harder to classify with static analysis.
 2. **Maintainability (The Clean Source):** Clean, idiomatic C++20 source code that remains easy to audit, debug, and extend even though the resulting machine code stays intentionally sparse and unhelpful to attackers.
-3. **Independence (The Final Boss):** A transport layer that does not trust the OS, the local network, or even its own defaults. Trust decisions are explicit and application-owned.
+3. **Independence (The Final Boss):** Hardened does not trust the OS, local network, or implicit defaults. Its trust decisions are explicit, validated, and application-owned; Standard remains available when compatibility is the correct tradeoff.
 
 **We provide the armor; you provide the soul.**
 

@@ -1,41 +1,21 @@
 #include <iostream>
 
-#include "burner/net/builder.h"
-#include "burner/net/error.h"
-#include "burner/net/http.h"
-#include "burner/net/policy.h"
-#include "burner/net/version.h"
-
-namespace {
-
-struct ExamplePolicy : burner::net::ISecurityPolicy {
-    std::string GetUserAgent() const {
-        return "BurnerNetExamples/Basic";
-    }
-};
-
-} // namespace
+#include "burner/net.h"
 
 int RunBasicUsage() {
     std::cout << "BurnerNet version: " << burner::net::VersionString << '\n';
 
-    auto build_result = burner::net::ClientBuilder()
-        .WithSecurityPolicy(ExamplePolicy{})
-        .WithUseNativeCa(true)
-        .Build();
+    burner::net::Client client;
 
-    if (build_result.client == nullptr) {
-        std::cerr << "Failed to build client. Error: "
-                  << burner::net::ErrorCodeToString(build_result.error) << '\n';
+    if (!client.IsReady()) {
+        std::cerr << "Failed to initialize client. Error: "
+                  << burner::net::ErrorCodeToString(client.InitError()) << '\n';
         return 1;
     }
 
-    std::cout << "Sending a basic hardened request with the fluent builder...\n";
-    std::cout << "Tip: add WithDnsFallback(DnsMode::Doh, <your resolver>, <name>)\n";
-    std::cout << "once you have a real DoH endpoint. The out-of-box sample avoids\n";
-    std::cout << "placeholder resolvers so it stays runnable by default.\n";
-    const auto response = build_result.client
-        ->Get("https://example.com")
+    std::cout << "Sending a basic Standard request...\n";
+    const auto response = client
+        .Get("https://example.com")
         .WithHeader("Accept", "text/html")
         .WithTimeoutSeconds(10)
         .Send();

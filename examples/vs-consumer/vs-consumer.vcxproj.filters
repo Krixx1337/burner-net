@@ -27,6 +27,9 @@
     <ClCompile Include="..\..\src\builder.cpp">
       <Filter>BurnerNet Source</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\src\client.cpp">
+      <Filter>BurnerNet Source</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\src\curl\curl_http_client.cpp">
       <Filter>BurnerNet Source</Filter>
     </ClCompile>

@@ -89,7 +89,17 @@ struct BuilderSecurityPolicy final {
 } // namespace detail
 
 ClientBuilder::ClientBuilder()
-    : m_build(&ClientBuilder::BuildThunk) {}
+    : ClientBuilder(ClientProfile::Standard) {}
+
+ClientBuilder::ClientBuilder(ClientProfile profile)
+    : m_build(&ClientBuilder::BuildThunk),
+      m_profile(profile) {
+    m_config.use_native_ca = true;
+    m_config.verify_peer = true;
+    m_config.verify_host = true;
+    m_config.use_system_proxy = profile == ClientProfile::Standard;
+    m_config.enable_stack_isolation = profile == ClientProfile::Hardened;
+}
 
 ClientBuilder& ClientBuilder::WithUserAgent(std::string user_agent) {
     m_config.user_agent = std::move(user_agent);
@@ -113,11 +123,13 @@ ClientBuilder& ClientBuilder::WithUseNativeCa(bool enabled) {
 
 ClientBuilder& ClientBuilder::WithMtls(MtlsCredentials creds) {
     m_config.mtls = std::move(creds);
+    m_has_persistent_mtls = true;
     return *this;
 }
 
 ClientBuilder& ClientBuilder::WithMtlsProvider(detail::CompactCallable<bool(MtlsCredentials&)> provider) {
     m_config.mtls_provider = std::move(provider);
+    m_has_mtls_provider = static_cast<bool>(m_config.mtls_provider);
     return *this;
 }
 
@@ -138,6 +150,7 @@ ClientBuilder& ClientBuilder::WithEnvironmentCheck(EnvironmentCheckCallback call
 
 ClientBuilder& ClientBuilder::WithTransportCheck(TransportCheckCallback callback) {
     m_transport_check = std::move(callback);
+    m_has_transport_check = static_cast<bool>(m_transport_check);
     return *this;
 }
 
@@ -199,13 +212,19 @@ ClientBuilder& ClientBuilder::AllowSystemDns(bool fallback_allowed) {
         m_default_dns_fallback.strategies.push_back(std::move(system_strategy));
     }
     m_default_dns_fallback.enabled = true;
+    m_system_dns_explicit = true;
     return *this;
 }
 
 ClientBuilder& ClientBuilder::WithDnsFallback(DnsMode mode, std::string value, std::string name) {
     if (!m_custom_dns_fallback) {
         m_default_dns_fallback.strategies.clear();
+        m_system_dns_explicit = false;
         m_custom_dns_fallback = true;
+    }
+
+    if (mode == DnsMode::System) {
+        m_system_dns_explicit = false;
     }
 
     DnsStrategy strategy{};
@@ -238,7 +257,58 @@ ClientBuilder::ClientBuildResult ClientBuilder::Build() {
 }
 
 ClientBuilder::ClientBuildResult ClientBuilder::BuildThunk(ClientBuilder* builder) {
+    if (builder->m_profile == ClientProfile::Hardened) {
+        if (builder->m_config.use_system_proxy) {
+            return {nullptr, ErrorCode::HardenedSystemProxyForbidden};
+        }
+        if (!builder->m_config.verify_peer) {
+            return {nullptr, ErrorCode::HardenedVerifyPeerRequired};
+        }
+        if (!builder->m_config.verify_host) {
+            return {nullptr, ErrorCode::HardenedVerifyHostRequired};
+        }
+        if (!builder->m_config.enable_stack_isolation) {
+            return {nullptr, ErrorCode::HardenedStackIsolationRequired};
+        }
+
+        bool has_doh = false;
+        bool has_system_dns = false;
+        bool system_dns_seen = false;
+        bool invalid_dns_order = false;
+        for (const auto& strategy : builder->m_default_dns_fallback.strategies) {
+            if (strategy.mode == DnsMode::System) {
+                has_system_dns = true;
+                system_dns_seen = true;
+            } else {
+                has_doh = true;
+                if (system_dns_seen) {
+                    invalid_dns_order = true;
+                }
+            }
+        }
+        if (!has_doh) {
+            return {nullptr, ErrorCode::HardenedDohRequired};
+        }
+        if (invalid_dns_order || (has_system_dns && !builder->m_system_dns_explicit)) {
+            return {nullptr, ErrorCode::HardenedSystemDnsOrder};
+        }
+        if (!builder->m_response_verifier.Enabled()) {
+            return {nullptr, ErrorCode::HardenedResponseVerifierRequired};
+        }
+        if (builder->m_has_persistent_mtls) {
+            return {nullptr, ErrorCode::HardenedPersistentMtlsForbidden};
+        }
+        const bool has_trust_mount = builder->m_has_mtls_provider ||
+            !builder->m_config.pinned_public_keys.empty() ||
+            builder->m_has_transport_check ||
+            builder->m_has_custom_security_policy;
+        if (!has_trust_mount) {
+            return {nullptr, ErrorCode::HardenedTrustMountRequired};
+        }
+    }
+
     ClientConfig config = builder->m_config;
+    config.require_response_verification = builder->m_profile == ClientProfile::Hardened;
     config.security_policy = SecurityPolicy(detail::BuilderSecurityPolicy{
         .wrapped_policy = builder->m_security_policy,
         .pre_flight = builder->m_pre_flight,

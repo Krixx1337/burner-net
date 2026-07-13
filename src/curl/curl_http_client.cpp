@@ -145,6 +145,11 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
         if (!m_config.security_policy.OnResponseReceived(request, response)) {
             response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
             response.transport_error = ErrorCode::HeartbeatAbort;
+            if (m_config.require_response_verification) {
+                response.verified = false;
+                response.verification_status = VerificationStatus::Failed;
+                response.verification_error = ErrorCode::VerifyGeneric;
+            }
             WipeResponse(response);
             return response;
         }
@@ -153,16 +158,27 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
     if (response.TransportOk() && m_config.response_verifier.Enabled()) {
         if (request.on_chunk_received) {
             response.verified = false;
+            response.verification_status = VerificationStatus::Failed;
             response.verification_error = ErrorCode::VerifyGeneric;
             m_config.security_policy.OnSignatureVerified(false, response.verification_error);
             return response;
         }
         ErrorCode reason = ErrorCode::None;
         response.verified = m_config.response_verifier.Verify(request, response, &reason);
+        response.verification_status = response.verified
+            ? VerificationStatus::Passed
+            : VerificationStatus::Failed;
         m_config.security_policy.OnSignatureVerified(response.verified, reason);
         if (!response.verified) {
             response.verification_error = (reason == ErrorCode::None) ? ErrorCode::VerifyGeneric : reason;
         }
+    }
+
+    if (m_config.require_response_verification &&
+        response.verification_status == VerificationStatus::NotConfigured) {
+        response.verified = false;
+        response.verification_status = VerificationStatus::Failed;
+        response.verification_error = ErrorCode::VerifyGeneric;
     }
 
     return response;

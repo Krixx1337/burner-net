@@ -98,6 +98,12 @@ public:
           m_default_dns_fallback(std::move(default_dns_fallback)),
           m_dispatch(&FluentClient::DispatchThunk) {}
 
+    FluentClient(TTransport transport, DnsFallbackPolicy default_dns_fallback, ErrorCode unavailable_error)
+        : m_transport(std::move(transport)),
+          m_default_dns_fallback(std::move(default_dns_fallback)),
+          m_dispatch(&FluentClient::DispatchThunk),
+          m_unavailable_error(unavailable_error) {}
+
     [[nodiscard]] RequestBuilder<TTransport> Get(std::string url) {
         return RequestBuilder<TTransport>(*this, HttpMethod::Get, std::move(url));
     }
@@ -122,6 +128,12 @@ public:
     [[nodiscard]] const TTransport* Raw() const { return &m_transport; }
 
     [[nodiscard]] HttpResponse Send(HttpRequest request) {
+        if (m_unavailable_error != ErrorCode::None) {
+            HttpResponse response{};
+            response.transport_code = static_cast<int>(CURLE_FAILED_INIT);
+            response.transport_error = m_unavailable_error;
+            return response;
+        }
         if (!request.dns_fallback.enabled && !m_default_dns_fallback.strategies.empty()) {
             request.dns_fallback = m_default_dns_fallback;
             request.dns_fallback.enabled = true;
@@ -137,6 +149,12 @@ private:
     TTransport m_transport;
     DnsFallbackPolicy m_default_dns_fallback;
     EncodedPointer<HttpResponse (*)(TTransport*, HttpRequest)> m_dispatch;
+    ErrorCode m_unavailable_error = ErrorCode::None;
+};
+
+enum class ClientProfile {
+    Standard,
+    Hardened
 };
 
 class BURNER_API ClientBuilder {
@@ -146,6 +164,7 @@ public:
     template <SecurityPolicyConcept TPolicy>
     ClientBuilder& WithSecurityPolicy(TPolicy policy) {
         m_security_policy = SecurityPolicy(std::move(policy));
+        m_has_custom_security_policy = true;
         return *this;
     }
 
@@ -190,6 +209,7 @@ public:
     };
 
     ClientBuilder();
+    explicit ClientBuilder(ClientProfile profile);
 
     [[nodiscard]] ClientBuildResult Build();
 
@@ -208,7 +228,13 @@ private:
     TamperActionCallback m_tamper_action;
     DnsFallbackPolicy m_default_dns_fallback;
     EncodedPointer<ClientBuildResult (*)(ClientBuilder*)> m_build;
+    ClientProfile m_profile = ClientProfile::Standard;
     bool m_custom_dns_fallback = false;
+    bool m_system_dns_explicit = false;
+    bool m_has_custom_security_policy = false;
+    bool m_has_transport_check = false;
+    bool m_has_persistent_mtls = false;
+    bool m_has_mtls_provider = false;
 };
 
 } // namespace burner::net

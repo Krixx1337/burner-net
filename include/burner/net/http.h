@@ -199,6 +199,12 @@ struct TransportTelemetry {
     DarkVector<DarkString> tls_chain;
 };
 
+enum class VerificationStatus : std::uint8_t {
+    NotConfigured,
+    Passed,
+    Failed
+};
+
 struct HttpResponse {
     long status_code = 0;
     DarkString body;
@@ -209,6 +215,7 @@ struct HttpResponse {
     ErrorCode transport_error = ErrorCode::None;
 
     bool verified = true;
+    VerificationStatus verification_status = VerificationStatus::NotConfigured;
     ErrorCode verification_error = ErrorCode::None;
     DarkString dns_strategy_used;
     std::size_t streamed_body_bytes = 0;
@@ -216,6 +223,7 @@ struct HttpResponse {
     bool TransportOk() const { return transport_code == 0 && transport_error == ErrorCode::None; }
     bool HttpOk() const { return status_code >= 200 && status_code < 400; }
     bool Ok() const { return TransportOk() && HttpOk() && verified; }
+    bool WasResponseVerified() const { return verification_status == VerificationStatus::Passed; }
     DarkString DnsStrategyDisplayName() const {
         return dns_strategy_used.empty() ? DarkString(BURNER_OBF_LITERAL("Default")) : dns_strategy_used;
     }
@@ -289,6 +297,7 @@ struct ClientConfig {
     detail::CompactCallable<bool(MtlsCredentials& out)> mtls_provider;
     TokenProvider bearer_token_provider;
     ResponseVerifier response_verifier;
+    bool require_response_verification = false;
     SecurityPolicy security_policy;
     std::size_t global_max_body_bytes = 0;
     DarkVector<DarkString> pinned_public_keys;

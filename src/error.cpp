@@ -14,7 +14,7 @@ std::uint32_t ErrorXorKey() noexcept {
 } // namespace detail
 
 const char* ErrorCodeDebugString(ErrorCode code) noexcept {
-#if defined(BURNERNET_HARDEN_ERRORS) && BURNERNET_HARDEN_ERRORS
+#if !BURNERNET_DIAGNOSTIC_STRINGS
     (void)code;
     return "Unknown";
 #else
@@ -53,7 +53,16 @@ const char* ErrorCodeDebugString(ErrorCode code) noexcept {
         "PreFlightAbort",
         "HeartbeatAbort",
         "TransportVerificationFailed",
-        "TlsVerificationFailed"
+        "TlsVerificationFailed",
+        "HardenedSystemProxyForbidden",
+        "HardenedVerifyPeerRequired",
+        "HardenedVerifyHostRequired",
+        "HardenedStackIsolationRequired",
+        "HardenedDohRequired",
+        "HardenedSystemDnsOrder",
+        "HardenedResponseVerifierRequired",
+        "HardenedTrustMountRequired",
+        "HardenedPersistentMtlsForbidden"
     };
 
     const auto index = static_cast<std::size_t>(code);
@@ -62,11 +71,8 @@ const char* ErrorCodeDebugString(ErrorCode code) noexcept {
 }
 
 std::string ErrorCodeToString(ErrorCode code) {
-#if defined(BURNERNET_HARDEN_ERRORS) && BURNERNET_HARDEN_ERRORS
-    const auto encoded = ::burner::net::detail::mba_xor(
-        static_cast<std::uint32_t>(code),
-        detail::ErrorXorKey());
-    return std::to_string(encoded);
+#if !BURNERNET_DIAGNOSTIC_STRINGS
+    return "E" + std::to_string(static_cast<std::uint32_t>(code));
 #else
     return ErrorCodeDebugString(code);
 #endif

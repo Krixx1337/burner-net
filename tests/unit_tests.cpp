@@ -7,10 +7,12 @@
 #include <span>
 #include <string>
 #include <thread>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 #include "burner/net/bootstrap.h"
+#include "burner/net.h"
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
 #include "burner/net/http.h"
@@ -47,6 +49,26 @@ struct RejectHeartbeatPolicy final : burner::net::ISecurityPolicy {
 };
 
 struct AllowAllPolicy final : burner::net::ISecurityPolicy {};
+
+struct NeverCalledTransport final {
+    burner::net::HttpResponse Send(burner::net::HttpRequest) {
+        ++calls;
+        return {};
+    }
+
+    int calls = 0;
+};
+
+void AddHardenedDohAndVerifier(burner::net::ClientBuilder& builder) {
+    builder
+        .WithDnsFallback(burner::net::DnsMode::Doh, "https://resolver.example/dns-query", "Test DoH")
+        .WithResponseVerifier([](
+            const burner::net::HttpRequest&,
+            const burner::net::HttpResponse&,
+            burner::net::ErrorCode*) {
+            return true;
+        });
+}
 
 struct RecordingPolicy final : burner::net::ISecurityPolicy {
 public:
@@ -820,12 +842,10 @@ TEST_CASE("builder tamper action layers on top of wrapped policy tamper handling
 }
 
 TEST_CASE("error codes map to expected output based on hardening") {
-#if BURNERNET_HARDEN_ERRORS
-    CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::DisabledBackend) ==
-          std::to_string(static_cast<uint32_t>(burner::net::ErrorCode::DisabledBackend) ^
-                         burner::net::detail::ErrorXorKey()));
-#else
+#if BURNERNET_DIAGNOSTIC_STRINGS
     CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::DisabledBackend) == "DisabledBackend");
+#else
+    CHECK(burner::net::ErrorCodeToString(burner::net::ErrorCode::DisabledBackend) == "E1");
 #endif
 }
 
@@ -838,10 +858,7 @@ TEST_CASE("selected error code strings are stable") {
     };
 
     for (const auto code : codes) {
-#if BURNERNET_HARDEN_ERRORS
-        CHECK(burner::net::ErrorCodeToString(code) ==
-              std::to_string(static_cast<uint32_t>(code) ^ burner::net::detail::ErrorXorKey()));
-#else
+#if BURNERNET_DIAGNOSTIC_STRINGS
         if (code == burner::net::ErrorCode::PreFlightAbort) {
             CHECK(burner::net::ErrorCodeToString(code) == "PreFlightAbort");
         } else if (code == burner::net::ErrorCode::EnvironmentCompromised) {
@@ -853,8 +870,184 @@ TEST_CASE("selected error code strings are stable") {
         } else {
             FAIL("Unexpected error code in stability test");
         }
+#else
+        CHECK(burner::net::ErrorCodeToString(code) ==
+              "E" + std::to_string(static_cast<std::uint32_t>(code)));
 #endif
     }
+}
+
+TEST_CASE("stack Client is disposable, non-copyable, and supports every fluent method") {
+    using burner::net::Client;
+    using burner::net::ErrorCode;
+
+    static_assert(!std::is_copy_constructible_v<Client>);
+    static_assert(!std::is_copy_assignable_v<Client>);
+    static_assert(!std::is_move_constructible_v<Client>);
+
+    Client client;
+    REQUIRE(client.IsReady());
+    CHECK(client.InitError() == ErrorCode::None);
+
+    const auto expect_local_header_rejection = [](const burner::net::HttpResponse& response) {
+        CHECK(response.transport_error == ErrorCode::InvalidHeader);
+    };
+    expect_local_header_rejection(client.Get("https://example.com").WithHeader("Bad\r\nHeader", "x").Send());
+    expect_local_header_rejection(client.Post("https://example.com").WithHeader("Bad\r\nHeader", "x").Send());
+    expect_local_header_rejection(client.Put("https://example.com").WithHeader("Bad\r\nHeader", "x").Send());
+    expect_local_header_rejection(client.Delete("https://example.com").WithHeader("Bad\r\nHeader", "x").Send());
+    expect_local_header_rejection(client.Patch("https://example.com").WithHeader("Bad\r\nHeader", "x").Send());
+}
+
+TEST_CASE("failed fluent client initialization propagates through Send") {
+    burner::net::FluentClient<NeverCalledTransport> client(
+        NeverCalledTransport{},
+        burner::net::DnsFallbackPolicy{},
+        burner::net::ErrorCode::InitCurl);
+
+    const auto response = client.Get("https://example.com").Send();
+    CHECK_FALSE(response.TransportOk());
+    CHECK(response.transport_error == burner::net::ErrorCode::InitCurl);
+    CHECK(client.Raw()->calls == 0);
+}
+
+TEST_CASE("verification status separates absent, passed, and failed app verification") {
+    burner::net::HttpResponse response{};
+    CHECK(response.verification_status == burner::net::VerificationStatus::NotConfigured);
+    CHECK(response.verified);
+    CHECK_FALSE(response.WasResponseVerified());
+
+    response.verification_status = burner::net::VerificationStatus::Passed;
+    response.verified = true;
+    CHECK(response.WasResponseVerified());
+    CHECK(response.Ok() == (response.TransportOk() && response.HttpOk()));
+
+    response.verification_status = burner::net::VerificationStatus::Failed;
+    response.verified = false;
+    CHECK_FALSE(response.WasResponseVerified());
+    CHECK_FALSE(response.Ok());
+}
+
+TEST_CASE("Hardened profile reports one stable error per missing control") {
+    using namespace burner::net;
+
+    SUBCASE("system proxy") {
+        ClientBuilder builder(ClientProfile::Hardened);
+        AddHardenedDohAndVerifier(builder);
+        const auto result = builder.WithPinnedKey("sha256//test").WithCasualDefaults().Build();
+        CHECK(result.error == ErrorCode::HardenedSystemProxyForbidden);
+    }
+    SUBCASE("peer verification") {
+        ClientBuilder builder(ClientProfile::Hardened);
+        AddHardenedDohAndVerifier(builder);
+        const auto result = builder.WithPinnedKey("sha256//test").WithVerifyPeer(false).Build();
+        CHECK(result.error == ErrorCode::HardenedVerifyPeerRequired);
+    }
+    SUBCASE("hostname verification") {
+        ClientBuilder builder(ClientProfile::Hardened);
+        AddHardenedDohAndVerifier(builder);
+        const auto result = builder.WithPinnedKey("sha256//test").WithVerifyHost(false).Build();
+        CHECK(result.error == ErrorCode::HardenedVerifyHostRequired);
+    }
+    SUBCASE("stack isolation") {
+        ClientBuilder builder(ClientProfile::Hardened);
+        AddHardenedDohAndVerifier(builder);
+        const auto result = builder.WithPinnedKey("sha256//test").WithStackIsolation(false).Build();
+        CHECK(result.error == ErrorCode::HardenedStackIsolationRequired);
+    }
+    SUBCASE("DoH") {
+        ClientBuilder builder(ClientProfile::Hardened);
+        builder.WithPinnedKey("sha256//test").WithResponseVerifier([](
+            const HttpRequest&, const HttpResponse&, ErrorCode*) { return true; });
+        CHECK(builder.Build().error == ErrorCode::HardenedDohRequired);
+    }
+    SUBCASE("system DNS must use explicit fallback API") {
+        ClientBuilder builder(ClientProfile::Hardened);
+        builder
+            .WithDnsFallback(DnsMode::Doh, "https://resolver.example/dns-query", "DoH")
+            .WithDnsFallback(DnsMode::System, "", "System")
+            .WithPinnedKey("sha256//test")
+            .WithResponseVerifier([](const HttpRequest&, const HttpResponse&, ErrorCode*) { return true; });
+        CHECK(builder.Build().error == ErrorCode::HardenedSystemDnsOrder);
+    }
+    SUBCASE("system DNS must follow DoH") {
+        ClientBuilder builder(ClientProfile::Hardened);
+        builder
+            .AllowSystemDns(true)
+            .WithDnsFallback(DnsMode::Doh, "https://resolver.example/dns-query", "DoH")
+            .AllowSystemDns(true)
+            .WithDnsFallback(DnsMode::Doh, "https://backup.example/dns-query", "Backup DoH")
+            .WithPinnedKey("sha256//test")
+            .WithResponseVerifier([](const HttpRequest&, const HttpResponse&, ErrorCode*) { return true; });
+        CHECK(builder.Build().error == ErrorCode::HardenedSystemDnsOrder);
+    }
+    SUBCASE("response verifier") {
+        ClientBuilder builder(ClientProfile::Hardened);
+        builder
+            .WithDnsFallback(DnsMode::Doh, "https://resolver.example/dns-query", "DoH")
+            .WithPinnedKey("sha256//test");
+        CHECK(builder.Build().error == ErrorCode::HardenedResponseVerifierRequired);
+    }
+    SUBCASE("trust mount") {
+        ClientBuilder builder(ClientProfile::Hardened);
+        AddHardenedDohAndVerifier(builder);
+        CHECK(builder.Build().error == ErrorCode::HardenedTrustMountRequired);
+    }
+    SUBCASE("persistent mTLS") {
+        ClientBuilder builder(ClientProfile::Hardened);
+        AddHardenedDohAndVerifier(builder);
+        MtlsCredentials credentials{};
+        credentials.enabled = true;
+        const auto result = builder.WithPinnedKey("sha256//test").WithMtls(std::move(credentials)).Build();
+        CHECK(result.error == ErrorCode::HardenedPersistentMtlsForbidden);
+    }
+}
+
+TEST_CASE("AuthProtocol-style recipe qualifies for Hardened without a pin") {
+    using namespace burner::net;
+
+    const auto result = ClientBuilder(ClientProfile::Hardened)
+        .WithUseNativeCa(true)
+        .WithStackIsolation(true)
+        .WithMtlsProvider([](MtlsCredentials& out) {
+            out.enabled = true;
+            return true;
+        })
+        .WithSecurityPolicy(AllowAllPolicy{})
+        .WithDnsFallback(DnsMode::Doh, "https://cloudflare-dns.com/dns-query", "Cloudflare")
+        .WithDnsFallback(DnsMode::Doh, "https://dns.google/dns-query", "Google")
+        .WithDnsFallback(DnsMode::Doh, "https://dns.quad9.net/dns-query", "Quad9")
+        .AllowSystemDns(true)
+        .WithResponseVerifier([](const HttpRequest&, const HttpResponse&, ErrorCode*) { return true; })
+        .Build();
+
+    CHECK(result.Ok());
+    CHECK(result.error == ErrorCode::None);
+    const auto failed_transport = result.client
+        ->Get("https://example.com")
+        .WithHeader("Bad\r\nHeader", "x")
+        .Send();
+    CHECK(failed_transport.verification_status == VerificationStatus::Failed);
+    CHECK_FALSE(failed_transport.verified);
+    CHECK_FALSE(failed_transport.WasResponseVerified());
+}
+
+TEST_CASE("AuthReporter-style Standard builder remains source compatible") {
+    const auto result = burner::net::ClientBuilder()
+        .WithCasualDefaults()
+        .WithUseNativeCa(true)
+        .WithStackIsolation(true)
+        .WithGlobalMaxBodyLimit(64 * 1024)
+        .WithUserAgent("AuthReporter/1.0")
+        .Build();
+
+    CHECK(result.Ok());
+    const auto failed_transport = result.client
+        ->Get("https://example.com")
+        .WithHeader("Bad\r\nHeader", "x")
+        .Send();
+    CHECK(failed_transport.verification_status == burner::net::VerificationStatus::NotConfigured);
+    CHECK(failed_transport.verified);
 }
 
 TEST_CASE("streamed bodies fail closed for non-post methods") {

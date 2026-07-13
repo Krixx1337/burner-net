@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(BurnerNet VERSION 1.2.0 LANGUAGES CXX)
+project(BurnerNet VERSION 1.3.0 LANGUAGES CXX)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -12,6 +12,7 @@ option(BURNERNET_BUILD_INTEGRATION_TESTS "Build BurnerNet live network integrati
 option(BURNERNET_BUILD_EXAMPLES "Build BurnerNet examples" ${PROJECT_IS_TOP_LEVEL})
 option(BURNERNET_OBFUSCATE_STRINGS "Obfuscate BurnerNet security-anchor string literals" ON)
 option(BURNERNET_HARDEN_IMPORTS "Resolve libcurl dynamically instead of linking it into the import table" OFF)
+option(BURNERNET_DIAGNOSTIC_STRINGS "Include readable ErrorCode names" ON)
 
 if(MSVC)
     add_definitions(-D_HAS_EXCEPTIONS=0)
@@ -44,6 +45,7 @@ set(BURNERNET_RUNTIME_DIR "${CMAKE_BINARY_DIR}/bin")
 
 set(BURNERNET_SOURCES
     src/builder.cpp
+    src/client.cpp
     src/detail/memory_hygiene.cpp
     src/detail/wiping_alloc_engine.cpp
     src/error.cpp
@@ -80,14 +82,11 @@ target_compile_definitions(BurnerNet
         BURNER_ENABLE_CURL=1
         BURNERNET_OBFUSCATE_STRINGS=$<IF:$<BOOL:${BURNERNET_OBFUSCATE_STRINGS}>,1,0>
         BURNERNET_HARDEN_IMPORTS=$<IF:$<BOOL:${BURNERNET_HARDEN_IMPORTS}>,1,0>
+        BURNERNET_DIAGNOSTIC_STRINGS=$<IF:$<BOOL:${BURNERNET_DIAGNOSTIC_STRINGS}>,1,0>
     PRIVATE
         BURNER_BUILDING_LIBRARY
         HOSTILE_CORE_EXPORT=BURNER_API
 )
-
-if(BURNERNET_BUILD_TESTING OR BURNERNET_BUILD_INTEGRATION_TESTS)
-    target_compile_definitions(BurnerNet PRIVATE BURNERNET_LEAK_STRINGS_FOR_DEBUGGING=1)
-endif()
 
 if(BUILD_SHARED_LIBS)
     target_compile_definitions(BurnerNet PUBLIC BURNER_SHARED)
@@ -181,7 +180,6 @@ if(BURNERNET_BUILD_TESTING)
     )
     target_include_directories(BurnerNetTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(BurnerNetTests PRIVATE BurnerNet doctest::doctest)
-    target_compile_definitions(BurnerNetTests PRIVATE BURNERNET_LEAK_STRINGS_FOR_DEBUGGING=1)
     if(MSVC)
         target_compile_options(BurnerNetTests PRIVATE /W4 /permissive-)
     else()
@@ -190,6 +188,39 @@ if(BURNERNET_BUILD_TESTING)
     burnernet_configure_runtime(BurnerNetTests)
     set_target_properties(BurnerNetTests PROPERTIES FOLDER "Tests")
     add_test(NAME BurnerNet.Unit COMMAND BurnerNetTests)
+
+    add_executable(BurnerNetErrorModeTests
+        tests/error_mode_tests.cpp
+        src/error.cpp
+    )
+    target_include_directories(BurnerNetErrorModeTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_features(BurnerNetErrorModeTests PRIVATE cxx_std_20)
+    target_compile_definitions(BurnerNetErrorModeTests PRIVATE
+        BURNERNET_DIAGNOSTIC_STRINGS=0
+        BURNER_BUILDING_LIBRARY
+        HOSTILE_CORE_EXPORT=BURNER_API
+    )
+    if(MSVC)
+        target_compile_options(BurnerNetErrorModeTests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(BurnerNetErrorModeTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    set_target_properties(BurnerNetErrorModeTests PROPERTIES FOLDER "Tests")
+    add_test(NAME BurnerNet.ErrorMode COMMAND BurnerNetErrorModeTests)
+    add_test(
+        NAME BurnerNet.ErrorMode.BinaryStrings
+        COMMAND ${CMAKE_COMMAND}
+            -DBINARY=$<TARGET_FILE:BurnerNetErrorModeTests>
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyNoDiagnosticStrings.cmake
+    )
+    if(NOT BURNERNET_DIAGNOSTIC_STRINGS)
+        add_test(
+            NAME BurnerNet.Library.BinaryStrings
+            COMMAND ${CMAKE_COMMAND}
+                -DBINARY=$<TARGET_FILE:BurnerNet>
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyNoDiagnosticStrings.cmake
+        )
+    endif()
 endif()
 
 if(BURNERNET_BUILD_INTEGRATION_TESTS)
@@ -199,7 +230,6 @@ if(BURNERNET_BUILD_INTEGRATION_TESTS)
     )
     target_include_directories(BurnerNetIntegrationTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(BurnerNetIntegrationTests PRIVATE BurnerNet doctest::doctest)
-    target_compile_definitions(BurnerNetIntegrationTests PRIVATE BURNERNET_LEAK_STRINGS_FOR_DEBUGGING=1)
     if(MSVC)
         target_compile_options(BurnerNetIntegrationTests PRIVATE /W4 /permissive-)
     else()
@@ -240,6 +270,14 @@ install(TARGETS BurnerNet
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
 install(DIRECTORY include/burner DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+# Public builder return types currently expose CurlHttpClient. Install the two
+# transport declarations required by those headers until a future ABI break can
+# hide the transport behind a non-template facade.
+install(FILES
+    src/curl/curl_api.h
+    src/curl/curl_http_client.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/curl
+)
 install(EXPORT BurnerNetTargets
     FILE BurnerNetTargets.cmake
     NAMESPACE BurnerNet::

@@ -139,6 +139,7 @@
     <ClCompile Include="vs-consumer.cpp" />
     <ClCompile Include="..\..\src\bootstrap\bootstrap_windows.cpp" />
     <ClCompile Include="..\..\src\builder.cpp" />
+    <ClCompile Include="..\..\src\client.cpp" />
     <ClCompile Include="..\..\src\curl\curl_http_client.cpp" />
     <ClCompile Include="..\..\src\curl\curl_http_client_callbacks.cpp" />
     <ClCompile Include="..\..\src\curl\curl_http_client_options.cpp" />
