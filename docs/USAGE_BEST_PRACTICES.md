@@ -249,8 +249,10 @@ The `resolver.example` URL and address above are intentionally placeholders. Rep
 The optional fourth argument supplies a libcurl `CURLOPT_RESOLVE` entry for
 bootstrapping the DoH resolver without consulting system DNS. Use an address
 published by the resolver operator and retain TLS peer and hostname
-verification. Without a bootstrap entry, resolving the DoH hostname may still
-depend on the host resolver before the encrypted DNS request begins.
+verification. BurnerNet treats this entry as cache-expiring and uses it only
+for the active transfer; it is not retained when the curl handle is reused.
+Without a bootstrap entry, resolving the DoH hostname may still depend on the
+host resolver before the encrypted DNS request begins.
 
 If an attacker spoofs the API, your app-owned verifier returns a signature verification error and the untrusted payload is rejected instead of being handed to app logic.
 

@@ -34,6 +34,20 @@ bool WouldExceedBodyLimit(std::size_t current_size, std::size_t chunk_size, std:
     return current_size > max_body_bytes || chunk_size > (max_body_bytes - current_size);
 }
 
+DarkString MakeCacheExpiringResolveEntry(std::string_view entry) {
+    DarkString expiring_entry;
+    if (entry.empty()) {
+        return expiring_entry;
+    }
+
+    expiring_entry.reserve(entry.size() + 1);
+    if (entry.front() != '+') {
+        expiring_entry.push_back('+');
+    }
+    expiring_entry.append(entry.data(), entry.size());
+    return expiring_entry;
+}
+
 } // namespace detail
 
 namespace {
@@ -326,8 +340,11 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     if (strategy.has_value() &&
         strategy->mode == DnsMode::Doh &&
         !strategy->bootstrap_resolve_entry.empty()) {
+        DarkString expiring_bootstrap_entry =
+            detail::MakeCacheExpiringResolveEntry(strategy->bootstrap_resolve_entry);
         bootstrap_resolve_entries =
-            curl_api.slist_append(nullptr, strategy->bootstrap_resolve_entry.c_str());
+            curl_api.slist_append(nullptr, expiring_bootstrap_entry.c_str());
+        SecureWipe(expiring_bootstrap_entry);
         if (bootstrap_resolve_entries == nullptr) {
             response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
             response.transport_error = ErrorCode::CurlGeneric;
