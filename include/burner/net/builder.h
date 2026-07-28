@@ -197,7 +197,11 @@ public:
     ClientBuilder& WithCurlModuleName(std::string name);
     ClientBuilder& WithCasualDefaults();
     ClientBuilder& AllowSystemDns(bool fallback_allowed = true);
-    ClientBuilder& WithDnsFallback(DnsMode mode, std::string value, std::string name = {});
+    ClientBuilder& WithDnsFallback(
+        DnsMode mode,
+        std::string value,
+        std::string name = {},
+        std::string bootstrap_resolve_entry = {});
     ClientBuilder& WithPinnedKey(std::string pin);
     ClientBuilder& WithStackIsolation(bool enabled);
 

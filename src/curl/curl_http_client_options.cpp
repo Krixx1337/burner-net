@@ -229,6 +229,7 @@ void CurlHttpClient::ClearDnsStrategy() {
     }
 
     m_session->Api().easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_DOH_URL))), nullptr);
+    m_session->Api().easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_RESOLVE))), nullptr);
 }
 
 void CurlHttpClient::ResetMethodState() {

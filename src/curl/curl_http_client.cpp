@@ -322,6 +322,26 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPHEADER))), headers);
     }
 
+    curl_slist* bootstrap_resolve_entries = nullptr;
+    if (strategy.has_value() &&
+        strategy->mode == DnsMode::Doh &&
+        !strategy->bootstrap_resolve_entry.empty()) {
+        bootstrap_resolve_entries =
+            curl_api.slist_append(nullptr, strategy->bootstrap_resolve_entry.c_str());
+        if (bootstrap_resolve_entries == nullptr) {
+            response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
+            response.transport_error = ErrorCode::CurlGeneric;
+            curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPHEADER))), nullptr);
+            WipeHeaderList(headers);
+            wipe_error_buffer();
+            return response;
+        }
+        curl_api.easy_setopt(
+            easy,
+            static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_RESOLVE))),
+            bootstrap_resolve_entries);
+    }
+
     m_active_url = request.url.c_str();
     curl_api.easy_setopt(
         easy,
@@ -333,6 +353,8 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         this);
     const CURLcode code = curl_api.easy_perform(easy);
     m_active_url = nullptr;
+    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_RESOLVE))), nullptr);
+    WipeHeaderList(bootstrap_resolve_entries);
 
     // Wipe the stack region used by the transport chain (TLS keys, header
     // fragments, session state) before any other logic can read it.

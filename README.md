@@ -123,7 +123,8 @@ auto secure = burner::net::ClientBuilder(burner::net::ClientProfile::Hardened)
     .WithSecurityPolicy(AppSecurityPolicy{})
     .WithDnsFallback(burner::net::DnsMode::Doh,
                      "https://resolver.example/dns-query",
-                     "Primary DoH")
+                     "Primary DoH",
+                     "resolver.example:443:192.0.2.53")
     .AllowSystemDns(true) // explicit fallback, after DoH
     .WithResponseVerifier(VerifySignedResponse)
     .Build();

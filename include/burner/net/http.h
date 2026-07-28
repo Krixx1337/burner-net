@@ -154,6 +154,7 @@ struct DnsStrategy {
     DnsMode mode = DnsMode::System;
     DarkString name;
     DarkString doh_url;
+    DarkString bootstrap_resolve_entry;
 };
 
 struct DnsFallbackPolicy {
