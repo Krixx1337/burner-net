@@ -216,7 +216,11 @@ ClientBuilder& ClientBuilder::AllowSystemDns(bool fallback_allowed) {
     return *this;
 }
 
-ClientBuilder& ClientBuilder::WithDnsFallback(DnsMode mode, std::string value, std::string name) {
+ClientBuilder& ClientBuilder::WithDnsFallback(
+    DnsMode mode,
+    std::string value,
+    std::string name,
+    std::string bootstrap_resolve_entry) {
     if (!m_custom_dns_fallback) {
         m_default_dns_fallback.strategies.clear();
         m_system_dns_explicit = false;
@@ -230,6 +234,8 @@ ClientBuilder& ClientBuilder::WithDnsFallback(DnsMode mode, std::string value, s
     DnsStrategy strategy{};
     strategy.mode = mode;
     strategy.doh_url = DarkString(std::move(value));
+    if (mode == DnsMode::Doh && !bootstrap_resolve_entry.empty())
+        strategy.bootstrap_resolve_entry = DarkString(std::move(bootstrap_resolve_entry));
     if (!name.empty()) {
         strategy.name = DarkString(std::move(name));
     } else if (mode == DnsMode::Doh) {

@@ -34,6 +34,20 @@ bool WouldExceedBodyLimit(std::size_t current_size, std::size_t chunk_size, std:
     return current_size > max_body_bytes || chunk_size > (max_body_bytes - current_size);
 }
 
+DarkString MakeCacheExpiringResolveEntry(std::string_view entry) {
+    DarkString expiring_entry;
+    if (entry.empty()) {
+        return expiring_entry;
+    }
+
+    expiring_entry.reserve(entry.size() + 1);
+    if (entry.front() != '+') {
+        expiring_entry.push_back('+');
+    }
+    expiring_entry.append(entry.data(), entry.size());
+    return expiring_entry;
+}
+
 } // namespace detail
 
 namespace {
@@ -322,6 +336,29 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPHEADER))), headers);
     }
 
+    curl_slist* bootstrap_resolve_entries = nullptr;
+    if (strategy.has_value() &&
+        strategy->mode == DnsMode::Doh &&
+        !strategy->bootstrap_resolve_entry.empty()) {
+        DarkString expiring_bootstrap_entry =
+            detail::MakeCacheExpiringResolveEntry(strategy->bootstrap_resolve_entry);
+        bootstrap_resolve_entries =
+            curl_api.slist_append(nullptr, expiring_bootstrap_entry.c_str());
+        SecureWipe(expiring_bootstrap_entry);
+        if (bootstrap_resolve_entries == nullptr) {
+            response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
+            response.transport_error = ErrorCode::CurlGeneric;
+            curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPHEADER))), nullptr);
+            WipeHeaderList(headers);
+            wipe_error_buffer();
+            return response;
+        }
+        curl_api.easy_setopt(
+            easy,
+            static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_RESOLVE))),
+            bootstrap_resolve_entries);
+    }
+
     m_active_url = request.url.c_str();
     curl_api.easy_setopt(
         easy,
@@ -333,6 +370,8 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         this);
     const CURLcode code = curl_api.easy_perform(easy);
     m_active_url = nullptr;
+    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_RESOLVE))), nullptr);
+    WipeHeaderList(bootstrap_resolve_entries);
 
     // Wipe the stack region used by the transport chain (TLS keys, header
     // fragments, session state) before any other logic can read it.

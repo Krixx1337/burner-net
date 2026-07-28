@@ -2,7 +2,15 @@
 
 #include "burner/net/http.h"
 
+#include <string_view>
+
 namespace burner::net {
+
+namespace detail {
+
+DarkString MakeCacheExpiringResolveEntry(std::string_view entry);
+
+} // namespace detail
 
 struct BodyWriteContext {
     DarkString* body = nullptr;

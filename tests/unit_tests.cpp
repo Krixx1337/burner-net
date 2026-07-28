@@ -28,6 +28,7 @@
 #include "burner/net/detail/pointer_mangling.h"
 #include "burner/net/detail/wiping_alloc_engine.h"
 #include "curl/curl_http_client.h"
+#include "curl/curl_http_client_internal.h"
 #include "internal/header_validation.h"
 
 #ifdef _WIN32
@@ -61,7 +62,11 @@ struct NeverCalledTransport final {
 
 void AddHardenedDohAndVerifier(burner::net::ClientBuilder& builder) {
     builder
-        .WithDnsFallback(burner::net::DnsMode::Doh, "https://resolver.example/dns-query", "Test DoH")
+        .WithDnsFallback(
+            burner::net::DnsMode::Doh,
+            "https://resolver.example/dns-query",
+            "Test DoH",
+            "resolver.example:443:192.0.2.53")
         .WithResponseVerifier([](
             const burner::net::HttpRequest&,
             const burner::net::HttpResponse&,
@@ -395,6 +400,31 @@ TEST_CASE("bootstrap runtime loads packaged redist like the bootstrap example") 
 TEST_CASE("dns strategy defaults to an empty display name") {
     burner::net::DnsStrategy strategy{};
     CHECK(strategy.name.empty());
+    CHECK(strategy.bootstrap_resolve_entry.empty());
+}
+
+TEST_CASE("dns strategy owns its pinned bootstrap resolve entry") {
+    burner::net::DnsStrategy strategy{};
+    strategy.mode = burner::net::DnsMode::Doh;
+    strategy.doh_url = "https://dns.example/dns-query";
+    strategy.bootstrap_resolve_entry = "dns.example:443:192.0.2.1";
+
+    const burner::net::DnsStrategy copy = strategy;
+    strategy.bootstrap_resolve_entry = "changed";
+
+    CHECK(copy.bootstrap_resolve_entry == "dns.example:443:192.0.2.1");
+}
+
+TEST_CASE("bootstrap resolve entries expire with curl's configured DNS timeout") {
+    CHECK(
+        burner::net::detail::MakeCacheExpiringResolveEntry(
+            "dns.example:443:192.0.2.1") ==
+        "+dns.example:443:192.0.2.1");
+    CHECK(
+        burner::net::detail::MakeCacheExpiringResolveEntry(
+            "+dns.example:443:192.0.2.1") ==
+        "+dns.example:443:192.0.2.1");
+    CHECK(burner::net::detail::MakeCacheExpiringResolveEntry("").empty());
 }
 
 TEST_CASE("http response resolves an empty dns strategy name lazily") {
