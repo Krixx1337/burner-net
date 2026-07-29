@@ -83,7 +83,19 @@ enum class ErrorCode : uint32_t {
     InvalidHardenedDoh = 48,
     InvalidBootstrapDependency = 49,
     NetworkingRuntimeUnavailable = 50,
-    OutOfMemory = 51
+    OutOfMemory = 51,
+    InvalidHardenedPin = 52,
+    HardenedRedirectForbidden = 53,
+    RequestGuardRejected = 54,
+    TransferCancelled = 55,
+    CallbackFailed = 56,
+    BootstrapDirectoryRejected = 57,
+    BootstrapBusy = 58,
+    AllocatorHookInstallFailed = 59,
+    DnsResolutionFailed = 60,
+    ConnectFailed = 61,
+    TimedOut = 62,
+    WorkerThreadStartFailed = 63
 };
 
 inline constexpr bool IsSuccessCode(ErrorCode code) {

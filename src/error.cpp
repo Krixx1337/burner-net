@@ -70,11 +70,23 @@ const char* ErrorCodeDebugString(ErrorCode code) noexcept {
         "InvalidHardenedDoh",
         "InvalidBootstrapDependency",
         "NetworkingRuntimeUnavailable",
-        "OutOfMemory"
+        "OutOfMemory",
+        "InvalidHardenedPin",
+        "HardenedRedirectForbidden",
+        "RequestGuardRejected",
+        "TransferCancelled",
+        "CallbackFailed",
+        "BootstrapDirectoryRejected",
+        "BootstrapBusy",
+        "AllocatorHookInstallFailed",
+        "DnsResolutionFailed",
+        "ConnectFailed",
+        "TimedOut",
+        "WorkerThreadStartFailed"
     };
     static_assert(
         (sizeof(kNames) / sizeof(kNames[0])) ==
-        static_cast<std::size_t>(ErrorCode::OutOfMemory) + 1);
+        static_cast<std::size_t>(ErrorCode::WorkerThreadStartFailed) + 1);
 
     const auto index = static_cast<std::size_t>(code);
     return index < (sizeof(kNames) / sizeof(kNames[0])) ? kNames[index] : "Unknown";

@@ -15,8 +15,7 @@ bool ContainsCaseInsensitive(std::string_view haystack, std::string_view needle)
                }) != haystack.end();
 }
 
-struct TelemetryAuditPolicy final : burner::net::ISecurityPolicy {
-    bool OnAuditTelemetry(const burner::net::TransportTelemetry& telemetry) const {
+bool TelemetryLooksExpected(const burner::net::TransportTelemetry& telemetry) {
         if (telemetry.total_time_seconds > 2.0) {
             return false;
         }
@@ -30,8 +29,7 @@ struct TelemetryAuditPolicy final : burner::net::ISecurityPolicy {
         }
 
         return true;
-    }
-};
+}
 
 } // namespace
 
@@ -40,7 +38,6 @@ int RunTelemetryAuditExample() {
 
     auto build_result = ClientBuilder()
         .WithUseNativeCa(true)
-        .WithSecurityPolicy(TelemetryAuditPolicy{})
         .Build();
 
     if (!build_result.Ok()) {
@@ -55,5 +52,9 @@ int RunTelemetryAuditExample() {
               << " total_time=" << response.telemetry.total_time_seconds
               << " tls_lines=" << response.telemetry.tls_chain.size() << '\n';
 
-    return response.Ok() ? 0 : 1;
+    if (!response.Ok() || !TelemetryLooksExpected(response.telemetry)) {
+        std::cerr << "Application telemetry audit rejected response.\n";
+        return 1;
+    }
+    return 0;
 }

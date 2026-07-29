@@ -2,7 +2,6 @@
 
 #include "curl_api.h"
 #include "burner/net/http.h"
-#include "burner/net/policy.h"
 #include "internal/runtime_module_registry.h"
 
 #include <memory>
@@ -36,7 +35,7 @@ private:
 // Calls curl_global_init_mem exactly once per process, injecting the wiping
 // allocator callbacks.  Must be called after the CurlApi is fully populated
 // and before easy_init() is invoked.
-void EnsureCurlGlobalZapped(const CurlApi& api, const SecurityPolicy& policy) noexcept;
+[[nodiscard]] bool EnsureCurlGlobalZapped(const CurlApi& api) noexcept;
 
 std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, ErrorCode* init_error);
 

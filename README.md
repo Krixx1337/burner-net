@@ -49,11 +49,11 @@ BurnerNet fits projects such as:
 | **Client lifetime** | Often shared and long-lived | Designed for disposable clients and burst-scope use |
 | **Sensitive values** | Secrets often sit in config or memory longer than needed | Provider callbacks fetch them close to use |
 | **DNS and trust** | Usually inherits local resolver and host defaults | Supports stricter trust controls including DoH fallback and pinned keys |
-| **Verification** | App-specific integrity checks are often bolted on later | Built to work with pre-flight, transport, and response verification hooks |
+| **Verification** | App-specific integrity checks are often bolted on later | Narrow request, peer, and response enforcement phases |
 
 ## Defensive Outcomes
 
-- **Zero-Ghost Memory Architecture**: BurnerNet uses a custom **Prefix-Size Scrubber** to hook the internal memory allocation paths of `libcurl` and OpenSSL-backed flows. Sensitive transport buffers are wiped as they leave BurnerNet-managed lifetime. **This hygiene is verified on both Windows and Linux within the audited configurations described in the docs.**
+- **Zero-Ghost Memory Architecture**: BurnerNet uses wiping containers and explicit response/credential scrubbing. Optional process-global libcurl/OpenSSL allocator hooks exist for process-lifetime integrations, but default off because unloadable modules cannot safely own permanent callbacks.
 - **Stack-Frame Swiping**: After every request, the library proactively scrubs its own thread stack (High-Water Mark scrubbing). This is intended to destroy ephemeral transport fragments before control returns to your application.
 - **Moving-Target Heap**: The combination of disposable transports and aligned metadata headers creates high address-space dispersion, making the process memory unpredictable and resistant to stable pointer-mapping.
 - **Short-lived request state**: BurnerNet is designed around disposable clients instead of process-wide singleton transports.
@@ -120,7 +120,7 @@ For security-critical traffic, use the Hardened profile. `Build()` rejects missi
 ```cpp
 auto secure = burner::net::ClientBuilder(burner::net::ClientProfile::Hardened)
     .WithMtlsProvider(ProvideMtlsCredentials)
-    .WithSecurityPolicy(AppSecurityPolicy{})
+    .WithConnectedPeerGuard(RejectUnexpectedPeer)
     .WithDnsFallback(burner::net::DnsMode::Doh,
                      "https://resolver.example/dns-query",
                      "Primary DoH",
@@ -130,9 +130,9 @@ auto secure = burner::net::ClientBuilder(burner::net::ClientProfile::Hardened)
     .Build();
 ```
 
-Hardened requires peer and hostname verification, stack isolation, DoH-first routing, an app response verifier, and an app-owned trust mount. Persistent `WithMtls(...)` credentials are rejected; use `WithMtlsProvider(...)`.
+Hardened requires peer and hostname verification, stack isolation, DoH-first routing, and an app response verifier. SPKI pinning is optional and best reserved for endpoints whose key rotation the consumer controls. mTLS is provider-only. Connected-peer guards are optional defense-in-depth, not a replacement for TLS identity.
 
-Provider callbacks are fail-closed: returning `false`, or returning enabled mTLS without both certificate and key material, aborts before transport. Hardened DoH URLs must be non-empty `https://` URLs. A request cannot combine `OnChunkReceived(...)` with a response verifier because streamed bytes would escape before whole-response verification.
+Provider callbacks are fail-closed: returning `false`, throwing, or returning enabled mTLS without both certificate and key material aborts before transport. Hardened DoH URLs must be non-empty `https://` URLs. Hardened redirects are unsupported in v1.3. A request cannot combine `OnChunkReceived(...)` with a response verifier because streamed bytes would escape before whole-response verification.
 
 ## Integration Paths
 
@@ -204,7 +204,7 @@ Documentation:
 BurnerNet is a hardening layer designed to raise the cost of attack to a professional level. We operate on the principle that **stealth should be architectural, not just superficial.**
 
 **Can an attacker bypass BurnerNet if they have the source code?**
-Knowledge of BurnerNet's source code is not, by itself, a master key to every downstream application. BurnerNet follows Kerckhoffs's Principle: the library is designed so that your app-specific trust anchors (HMAC secrets, pinned keys, UI logic, policy hooks) remain application-owned. Knowing the transport layer does not automatically yield a universal bypass of your specific security flow.
+Knowledge of BurnerNet's source code is not, by itself, a master key to every downstream application. BurnerNet follows Kerckhoffs's Principle: app-specific trust anchors, response proof, UI logic, and narrow guards remain application-owned. Knowing transport layer does not automatically yield a universal bypass of a specific security flow.
 
 - **Stealth as a Delay:** Hardening forces attackers out of standard convenience tools and into tedious instruction-level analysis.
 - **Data as the Root:** Use **Functional Dependency** (Principle 6) to ensure your app is literally broken without server-provided data.

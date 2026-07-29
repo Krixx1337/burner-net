@@ -230,27 +230,20 @@ bool ComputeHmacSha256Hex(std::string_view data, std::string_view secret, std::s
 }
 #endif
 
-bool VerifyHmacHeader(
+burner::net::VerificationResult VerifyHmacHeader(
     const burner::net::HttpRequest&,
-    const burner::net::HttpResponse& response,
-    burner::net::ErrorCode* reason) {
+    const burner::net::HttpResponseView& response) {
     const std::string signature_header = "X-Auth-Verify";
     burner::net::SecureString secret = "replace-with-a-real-secret";
 
     if (secret.empty()) {
-        if (reason != nullptr) {
-            *reason = burner::net::ErrorCode::SigEmpty;
-        }
-        return false;
+        return {burner::net::ErrorCode::SigEmpty};
     }
 
     std::string received = Trim(GetHeaderCaseInsensitive(response.headers, signature_header));
     if (received.empty()) {
         burner::net::SecureWipe(secret);
-        if (reason != nullptr) {
-            *reason = burner::net::ErrorCode::SigHeaderMissing;
-        }
-        return false;
+        return {burner::net::ErrorCode::SigHeaderMissing};
     }
 
 #ifdef _WIN32
@@ -258,10 +251,7 @@ bool VerifyHmacHeader(
     if (!ComputeHmacSha256Hex(response.body, secret, &computed)) {
         burner::net::SecureWipe(secret);
         burner::net::SecureWipe(received);
-        if (reason != nullptr) {
-            *reason = burner::net::ErrorCode::SigCompute;
-        }
-        return false;
+        return {burner::net::ErrorCode::SigCompute};
     }
 
     std::string lhs = ToLowerCopy(received);
@@ -272,17 +262,11 @@ bool VerifyHmacHeader(
     burner::net::SecureWipe(computed);
     burner::net::SecureWipe(lhs);
     burner::net::SecureWipe(rhs);
-    if (!ok && reason != nullptr) {
-        *reason = burner::net::ErrorCode::SigMismatch;
-    }
-    return ok;
+    return {ok ? burner::net::ErrorCode::None : burner::net::ErrorCode::SigMismatch};
 #else
     burner::net::SecureWipe(secret);
     burner::net::SecureWipe(received);
-    if (reason != nullptr) {
-        *reason = burner::net::ErrorCode::SigCompute;
-    }
-    return false;
+    return {burner::net::ErrorCode::SigCompute};
 #endif
 }
 
@@ -324,7 +308,7 @@ int RunCustomHmacVerifier() {
         return 2;
     }
 
-    if (!response.verified) {
+    if (!response.WasResponseVerified()) {
         std::cerr << "Custom HMAC verification failed: "
                   << ErrorCodeToString(response.verification_error) << '\n';
         return 3;

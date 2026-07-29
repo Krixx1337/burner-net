@@ -5,30 +5,31 @@
 
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
-#include "burner/net/policy.h"
 
 namespace {
 
-struct ZeroTrustPolicy : burner::net::ISecurityPolicy {
-    bool OnVerifyTransport(const char* url, const char* remote_ip) const {
-        if (url == nullptr || remote_ip == nullptr) {
-            return false;
-        }
+bool RejectLoopback(const burner::net::ConnectedPeer& peer) {
+    const std::string_view ip = peer.remote_ip;
+    return ip != "127.0.0.1" && ip != "::1";
+}
 
-        const std::string_view host(url);
-        const std::string_view ip(remote_ip);
-        if (host.find("license") != std::string_view::npos &&
-            (ip == "127.0.0.1" || ip == "::1")) {
-            return false;
-        }
+burner::net::VerificationResult VerifyExampleResponse(
+    const burner::net::HttpRequest&,
+    const burner::net::HttpResponseView&) {
+    // Replace with an application-owned signature check.
+    return {};
+}
 
-        return true;
-    }
-
-    std::string GetUserAgent() const {
-        return "BurnerNetExamples/ZeroTrust";
-    }
-};
+burner::net::ClientBuilder MakeHardenedBuilder() {
+    return burner::net::ClientBuilder(burner::net::ClientProfile::Hardened)
+        .WithConnectedPeerGuard(&RejectLoopback)
+        .WithDnsFallback(
+            burner::net::DnsMode::Doh,
+            "https://cloudflare-dns.com/dns-query",
+            "Cloudflare")
+        .WithResponseVerifier(&VerifyExampleResponse)
+        .WithUserAgent("BurnerNetExamples/ZeroTrust");
+}
 
 enum class CanaryResult {
     RejectedAsExpected,
@@ -67,19 +68,13 @@ CanaryResult CheckTransportCanaries(
 int RunZeroTrustPipeline() {
     using namespace burner::net;
 
-    constexpr const char* kPinnedKey = "sha256//replace-with-a-real-pin";
     constexpr const char* kEndpoint = "https://example.com/license";
     const std::vector<std::string> kTransportCanaries = {
         "https://replace-with-your-expired-canary.example",
         "https://replace-with-your-hostname-canary.example"
     };
 
-    auto paranoid = ClientBuilder()
-        .WithSecurityPolicy(ZeroTrustPolicy{})
-        .WithUseNativeCa(true)
-        .WithPinnedKey(kPinnedKey)
-        .WithStackIsolation(true) // <-- Enable the Stack Severing
-        .Build();
+    auto paranoid = MakeHardenedBuilder().Build();
 
     if (!paranoid.Ok()) {
         std::cerr << "Failed to build paranoid client: "
@@ -99,8 +94,7 @@ int RunZeroTrustPipeline() {
 
     std::cout << "Paranoid lane: auth, licensing, and high-trust business logic.\n";
     std::cout << "Utility lane: telemetry, metadata, and lower-trust traffic.\n";
-    std::cout << "The paranoid client uses a concrete policy object plus pinning,\n";
-    std::cout << "and transport trust auditing. Add an app-layer verifier when needed.\n";
+    std::cout << "Paranoid lane uses TLS identity, a narrow peer guard, and app verifier.\n";
 
     bool canaries_configured = true;
     for (const auto& url : kTransportCanaries) {
@@ -116,12 +110,10 @@ int RunZeroTrustPipeline() {
     } else {
         const auto audit = CheckTransportCanaries(*paranoid.client, kTransportCanaries);
         if (audit == CanaryResult::UnexpectedAcceptance) {
-            paranoid.client->Raw()->SecurityPolicy()->OnTamper();
             std::cerr << "Transport trust audit detected an unexpected canary success.\n";
             return 3;
         }
         if (audit == CanaryResult::Inconclusive) {
-            paranoid.client->Raw()->SecurityPolicy()->OnTamper();
             std::cerr << "Transport trust audit was inconclusive.\n";
             return 3;
         }
@@ -130,11 +122,10 @@ int RunZeroTrustPipeline() {
     if (canaries_configured) {
         std::cout << "Transport trust audit passed.\n";
     }
-    if (std::string_view(kPinnedKey).find("replace-with-a-real-pin") != std::string_view::npos ||
-        std::string_view(kEndpoint).find("example.com") != std::string_view::npos) {
+    if (std::string_view(kEndpoint).find("example.com") != std::string_view::npos) {
         std::cout << "Hardened request skipped.\n";
-        std::cout << "Replace the sample pin, endpoint, and canary URLs with your own hardened service\n";
-        std::cout << "to exercise the pinned-key and transport-trust-audited path.\n";
+        std::cout << "Replace the sample endpoint and canary URLs with your own hardened service\n";
+        std::cout << "to exercise the transport-trust-audited path.\n";
         return 0;
     }
 

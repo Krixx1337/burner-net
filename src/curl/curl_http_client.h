@@ -29,7 +29,6 @@ public:
     CurlHttpClient& operator=(CurlHttpClient&& other) noexcept;
 
     HttpResponse Send(const HttpRequest& request);
-    const burner::net::SecurityPolicy* SecurityPolicy() const { return &m_config.security_policy; }
 
     bool IsInitialized() const;
     ErrorCode InitError() const { return m_init_error; }
@@ -38,6 +37,7 @@ private:
     friend struct CurlHttpClientTestAccess;
     HttpResponse PerformOnceInternal(const HttpRequest& request, const std::optional<DnsStrategy>& strategy);
     HttpResponse PerformOnce(HttpRequest request, std::optional<DnsStrategy> strategy);
+    bool IsRetryable(ErrorCode error) const noexcept;
     bool ShouldRetry(const HttpRequest& request, const HttpResponse& response, int attempt) const;
 
     static size_t WriteBodyCallback(void* contents, size_t size, size_t nmemb, void* user_data);
@@ -48,9 +48,9 @@ private:
 
     ErrorCode ApplyCommonOptions(
         const HttpRequest& request,
-        HttpResponse& response,
         char* error_buffer,
         void* body_ctx,
+        void* header_ctx,
         DarkString* protocol_scheme,
         DarkString* redirect_protocol_scheme,
         DarkString* user_agent_storage,
@@ -68,9 +68,9 @@ private:
     ClientConfig m_config;
     std::unique_ptr<CurlSession> m_session;
     ErrorCode m_init_error = ErrorCode::None;
-    const char* m_active_url = nullptr;
-    bool m_heartbeat_aborted = false;
-    bool m_transport_verification_aborted = false;
+    bool m_transfer_cancelled = false;
+    bool m_connected_peer_rejected = false;
+    bool m_callback_failed = false;
 };
 
 } // namespace burner::net

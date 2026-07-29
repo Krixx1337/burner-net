@@ -191,35 +191,18 @@ TEST_CASE("successful https requests expose timing and tls telemetry") {
     CHECK_FALSE(response.telemetry.tls_chain.empty());
 }
 
-TEST_CASE("failed response verification wipes data before trusted callbacks") {
+TEST_CASE("failed response verification wipes staged data") {
     using namespace burner::net;
 
-    int verifier_order = 0;
-    int response_callback_calls = 0;
-    int post_verification_order = 0;
     bool verifier_saw_body = false;
 
     auto client = ClientBuilder()
         .WithUseNativeCa(true)
         .WithResponseVerifier([&](
             const HttpRequest&,
-            const HttpResponse& response,
-            ErrorCode* reason) {
-            verifier_order = 1;
+            const HttpResponseView& response) {
             verifier_saw_body = !response.body.empty();
-            if (reason != nullptr) {
-                *reason = ErrorCode::SigMismatch;
-            }
-            return false;
-        })
-        .WithResponseReceived([&](const HttpRequest&, const HttpResponse&) {
-            ++response_callback_calls;
-            return true;
-        })
-        .WithPostVerification([&](bool verified, ErrorCode reason) {
-            CHECK_FALSE(verified);
-            CHECK(reason == ErrorCode::SigMismatch);
-            post_verification_order = 2;
+            return VerificationResult{ErrorCode::SigMismatch};
         })
         .Build();
 
@@ -230,11 +213,46 @@ TEST_CASE("failed response verification wipes data before trusted callbacks") {
     CHECK(response.verification_status == VerificationStatus::Failed);
     CHECK(response.verification_error == ErrorCode::SigMismatch);
     CHECK(verifier_saw_body);
-    CHECK(verifier_order == 1);
-    CHECK(post_verification_order == 2);
-    CHECK(response_callback_calls == 0);
     CHECK(response.body.empty());
     CHECK(response.headers.empty());
     CHECK(response.telemetry.tls_chain.empty());
     CHECK(response.telemetry.total_time_seconds == 0.0);
+}
+
+TEST_CASE("response verifier exception becomes a wiping terminal failure") {
+    using namespace burner::net;
+
+    auto client = ClientBuilder()
+        .WithUseNativeCa(true)
+        .WithResponseVerifier(
+            [](const HttpRequest&, const HttpResponseView&) -> VerificationResult {
+                throw 7;
+            })
+        .Build();
+
+    REQUIRE(client.Ok());
+    const auto response = client.client->Get("https://example.com").Send();
+
+    CHECK(response.TransportOk());
+    CHECK(response.verification_status == VerificationStatus::Failed);
+    CHECK(response.verification_error == ErrorCode::CallbackFailed);
+    CHECK(response.body.empty());
+    CHECK(response.headers.empty());
+    CHECK(response.telemetry.tls_chain.empty());
+}
+
+TEST_CASE("chunk callback exception aborts transfer without publication") {
+    using namespace burner::net;
+
+    auto client = ClientBuilder().WithUseNativeCa(true).Build();
+    REQUIRE(client.Ok());
+
+    const auto response = client.client
+        ->Get("https://example.com")
+        .OnChunkReceived([](const std::uint8_t*, std::size_t) { throw 7; })
+        .Send();
+
+    CHECK(response.transport_error == ErrorCode::CallbackFailed);
+    CHECK(response.body.empty());
+    CHECK(response.headers.empty());
 }

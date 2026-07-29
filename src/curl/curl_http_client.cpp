@@ -13,9 +13,9 @@
 
 #include <algorithm>
 #include <cctype>
-#include <condition_variable>
+#include <cstring>
 #include <limits>
-#include <mutex>
+#include <new>
 #include <thread>
 
 #ifdef _WIN32
@@ -77,9 +77,14 @@ struct IsolatedThreadState {
     std::optional<DnsStrategy> strategy;
     HttpResponse response{};
     CurlHttpClient* client = nullptr;
-    std::mutex mutex;
-    std::condition_variable cv;
-    bool completed = false;
+};
+
+struct PendingResponse {
+    HttpResponse value;
+
+    [[nodiscard]] HttpResponse Publish() noexcept {
+        return std::move(value);
+    }
 };
 
 } // namespace
@@ -100,13 +105,13 @@ CurlHttpClient::CurlHttpClient(CurlHttpClient&& other) noexcept
     : m_config(std::move(other.m_config)),
       m_session(std::move(other.m_session)),
       m_init_error(other.m_init_error),
-      m_active_url(nullptr),
-      m_heartbeat_aborted(other.m_heartbeat_aborted),
-      m_transport_verification_aborted(other.m_transport_verification_aborted) {
+      m_transfer_cancelled(other.m_transfer_cancelled),
+      m_connected_peer_rejected(other.m_connected_peer_rejected),
+      m_callback_failed(other.m_callback_failed) {
     other.m_init_error = ErrorCode::None;
-    other.m_active_url = nullptr;
-    other.m_heartbeat_aborted = false;
-    other.m_transport_verification_aborted = false;
+    other.m_transfer_cancelled = false;
+    other.m_connected_peer_rejected = false;
+    other.m_callback_failed = false;
 }
 
 CurlHttpClient& CurlHttpClient::operator=(CurlHttpClient&& other) noexcept {
@@ -117,14 +122,14 @@ CurlHttpClient& CurlHttpClient::operator=(CurlHttpClient&& other) noexcept {
     m_config = std::move(other.m_config);
     m_session = std::move(other.m_session);
     m_init_error = other.m_init_error;
-    m_active_url = nullptr;
-    m_heartbeat_aborted = other.m_heartbeat_aborted;
-    m_transport_verification_aborted = other.m_transport_verification_aborted;
+    m_transfer_cancelled = other.m_transfer_cancelled;
+    m_connected_peer_rejected = other.m_connected_peer_rejected;
+    m_callback_failed = other.m_callback_failed;
 
     other.m_init_error = ErrorCode::None;
-    other.m_active_url = nullptr;
-    other.m_heartbeat_aborted = false;
-    other.m_transport_verification_aborted = false;
+    other.m_transfer_cancelled = false;
+    other.m_connected_peer_rejected = false;
+    other.m_callback_failed = false;
     return *this;
 }
 
@@ -138,67 +143,81 @@ int CurlHttpClient::PrereqCallback(
     (void)conn_local_port;
 
     auto* self = static_cast<CurlHttpClient*>(clientp);
-    if (self == nullptr || conn_primary_ip == nullptr || self->m_active_url == nullptr) {
+    if (self == nullptr || conn_primary_ip == nullptr || !self->m_config.connected_peer_guard) {
         return CURL_PREREQFUNC_OK;
     }
 
-    if (!self->m_config.security_policy.OnVerifyTransport(self->m_active_url, conn_primary_ip)) {
-        self->m_transport_verification_aborted = true;
+    const ConnectedPeer peer{
+        .remote_ip = conn_primary_ip,
+        .address_family = std::strchr(conn_primary_ip, ':') != nullptr
+            ? ConnectedPeerAddressFamily::IPv6
+            : ConnectedPeerAddressFamily::IPv4,
+        .remote_port = conn_primary_port,
+    };
+    try {
+        if (self->m_config.connected_peer_guard(peer)) {
+            return CURL_PREREQFUNC_OK;
+        }
+        self->m_connected_peer_rejected = true;
+        return CURL_PREREQFUNC_ABORT;
+    } catch (...) {
+        self->m_callback_failed = true;
         return CURL_PREREQFUNC_ABORT;
     }
-
-    (void)conn_primary_port;
-    return CURL_PREREQFUNC_OK;
 }
 
 HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
-    if (request.on_chunk_received && m_config.response_verifier.Enabled()) {
+    try {
+    if (request.on_chunk_received && m_config.response_verifier) {
         HttpResponse response{};
         response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
         response.transport_error = ErrorCode::UnsupportedVerifiedStreaming;
-        response.verified = false;
         response.verification_status = VerificationStatus::Failed;
         response.verification_error = ErrorCode::UnsupportedVerifiedStreaming;
         return response;
     }
 
     TransportOrchestrator orchestrator(*this);
-    HttpResponse response = orchestrator.Execute(request);
+    PendingResponse pending{orchestrator.Execute(request)};
+    HttpResponse& response = pending.value;
 
-    if (response.TransportOk() && m_config.response_verifier.Enabled()) {
-        ErrorCode reason = ErrorCode::None;
-        response.verified = m_config.response_verifier.Verify(request, response, &reason);
-        response.verification_status = response.verified
+    if (response.TransportOk() && m_config.response_verifier) {
+        VerificationResult result{ErrorCode::VerifyGeneric};
+        try {
+            result = m_config.response_verifier(request, HttpResponseView(response));
+        } catch (...) {
+            result.error = ErrorCode::CallbackFailed;
+        }
+        response.verification_status = result.Passed()
             ? VerificationStatus::Passed
             : VerificationStatus::Failed;
-        if (!response.verified && reason == ErrorCode::None) {
-            reason = ErrorCode::VerifyGeneric;
-        }
-        m_config.security_policy.OnSignatureVerified(response.verified, reason);
-        if (!response.verified) {
-            response.verification_error = reason;
+        if (!result.Passed()) {
+            response.verification_error = result.error;
             WipeResponse(response);
-            return response;
+            return pending.Publish();
         }
     }
 
     if (m_config.require_response_verification &&
         response.verification_status == VerificationStatus::NotConfigured) {
-        response.verified = false;
         response.verification_status = VerificationStatus::Failed;
         response.verification_error = ErrorCode::VerifyGeneric;
         WipeResponse(response);
+        return pending.Publish();
+    }
+
+    return pending.Publish();
+    } catch (const std::bad_alloc&) {
+        HttpResponse response{};
+        response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
+        response.transport_error = ErrorCode::OutOfMemory;
+        return response;
+    } catch (...) {
+        HttpResponse response{};
+        response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
+        response.transport_error = ErrorCode::CallbackFailed;
         return response;
     }
-
-    if (response.TransportOk() &&
-        !m_config.security_policy.OnResponseReceived(request, response)) {
-        response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
-        response.transport_error = ErrorCode::HeartbeatAbort;
-        WipeResponse(response);
-    }
-
-    return response;
 }
 
 bool CurlHttpClient::IsInitialized() const {
@@ -258,6 +277,7 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
 
     BodyWriteContext body_ctx{};
     body_ctx.body = &response.body;
+    body_ctx.callback_failed = &m_callback_failed;
     body_ctx.max_body_bytes = request.max_body_bytes;
     if (m_config.global_max_body_bytes != 0) {
         body_ctx.max_body_bytes =
@@ -268,6 +288,10 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     body_ctx.on_chunk_received = request.on_chunk_received;
     BodyReadContext read_ctx{};
     read_ctx.provider = &request.stream_payload_provider;
+    read_ctx.callback_failed = &m_callback_failed;
+    HeaderWriteContext header_ctx{};
+    header_ctx.headers = &response.headers;
+    header_ctx.callback_failed = &m_callback_failed;
 
     DarkString protocol_scheme;
     DarkString redirect_protocol_scheme;
@@ -276,14 +300,15 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     DarkString cert_type;
     DarkString key_type;
 
-    m_heartbeat_aborted = false;
-    m_transport_verification_aborted = false;
+    m_transfer_cancelled = false;
+    m_connected_peer_rejected = false;
+    m_callback_failed = false;
     m_session->Reset();
     ErrorCode option_error = ApplyCommonOptions(
         request,
-        response,
         error_buffer,
         &body_ctx,
+        &header_ctx,
         &protocol_scheme,
         &redirect_protocol_scheme,
         &custom_user_agent,
@@ -348,10 +373,14 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
 
     DarkString active_bearer_token;
     bool token_provider_ok = true;
-    if (request.bearer_token_provider) {
-        token_provider_ok = request.bearer_token_provider(active_bearer_token);
-    } else if (m_config.bearer_token_provider) {
-        token_provider_ok = m_config.bearer_token_provider(active_bearer_token);
+    try {
+        if (request.bearer_token_provider) {
+            token_provider_ok = request.bearer_token_provider(active_bearer_token);
+        } else if (m_config.bearer_token_provider) {
+            token_provider_ok = m_config.bearer_token_provider(active_bearer_token);
+        }
+    } catch (...) {
+        token_provider_ok = false;
     }
 
     const std::string_view active_bearer = active_bearer_token;
@@ -440,7 +469,6 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         }
     }
 
-    m_active_url = request.url.c_str();
     if (curl_api.easy_setopt(
         easy,
         static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PREREQFUNCTION))),
@@ -449,7 +477,6 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         easy,
         static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PREREQDATA))),
         this) != CURLE_OK) {
-        m_active_url = nullptr;
         response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
         response.transport_error = ErrorCode::CurlOptionFailed;
         WipeHeaderList(bootstrap_resolve_entries);
@@ -458,7 +485,6 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         return response;
     }
     const CURLcode code = curl_api.easy_perform(easy);
-    m_active_url = nullptr;
     WipeHeaderList(bootstrap_resolve_entries);
 
     // Wipe the stack region used by the transport chain (TLS keys, header
@@ -482,12 +508,20 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
 #endif
         ) {
             response.transport_error = ErrorCode::TlsVerificationFailed;
-        } else if (code == CURLE_ABORTED_BY_CALLBACK && m_transport_verification_aborted) {
+        } else if (m_callback_failed) {
+            response.transport_error = ErrorCode::CallbackFailed;
+        } else if (code == CURLE_ABORTED_BY_CALLBACK && m_connected_peer_rejected) {
             response.transport_error = ErrorCode::TransportVerificationFailed;
         } else if (code == CURLE_WRITE_ERROR && body_ctx.limit_exceeded) {
             response.transport_error = ErrorCode::BodyTooLarge;
-        } else if (code == CURLE_ABORTED_BY_CALLBACK && m_heartbeat_aborted) {
-            response.transport_error = ErrorCode::HeartbeatAbort;
+        } else if (code == CURLE_ABORTED_BY_CALLBACK && m_transfer_cancelled) {
+            response.transport_error = ErrorCode::TransferCancelled;
+        } else if (code == CURLE_COULDNT_RESOLVE_HOST) {
+            response.transport_error = ErrorCode::DnsResolutionFailed;
+        } else if (code == CURLE_COULDNT_CONNECT) {
+            response.transport_error = ErrorCode::ConnectFailed;
+        } else if (code == CURLE_OPERATION_TIMEDOUT) {
+            response.transport_error = ErrorCode::TimedOut;
         } else {
             response.transport_error = ErrorCode::CurlGeneric;
         }
@@ -518,12 +552,6 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
             }
         }
 
-        if (!m_config.security_policy.OnAuditTelemetry(response.telemetry)) {
-            response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
-            response.transport_error = ErrorCode::EnvironmentCompromised;
-            WipeResponse(response);
-        }
-
     }
 
     response.dns_strategy_used = strategy.has_value() ? strategy->name : DarkString{};
@@ -545,54 +573,40 @@ HttpResponse CurlHttpClient::PerformOnce(HttpRequest request, std::optional<DnsS
         return PerformOnceInternal(request, strategy);
     }
 
-    void* raw_state = detail::alloc::dark_malloc(sizeof(IsolatedThreadState));
-    if (raw_state == nullptr) {
+    std::unique_ptr<IsolatedThreadState> state;
+    try {
+        state = std::make_unique<IsolatedThreadState>(
+            std::move(request), std::move(strategy), this);
+    } catch (...) {
         HttpResponse response{};
         response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
         response.transport_error = ErrorCode::OutOfMemory;
         return response;
     }
 
-    auto* state = new (raw_state) IsolatedThreadState(
-        std::move(request),
-        std::move(strategy),
-        this);
-
-    // Spawn an anonymous, short-lived worker thread to sever the call stack.
-    std::thread worker([state]() {
-        // TRIGGER: Worker Start Hook
-        if (!state->client->m_config.security_policy.OnIsolatedWorkerStart()) {
-            // If the user's anti-debug check fails, we abort immediately.
-            state->response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
-            state->response.transport_error = ErrorCode::PreFlightAbort;
-        } else {
-            // Normal execution path: The internal logic creates its own stack frame.
-            // Phase 4's scrub_stack inside PerformOnceInternal will automatically
-            // wipe this worker's stack right after curl_easy_perform completes!
-            state->response = state->client->PerformOnceInternal(state->request, state->strategy);
-        }
-
-        // TRIGGER: Worker End Hook (After stack scrubbing is done in PerformOnceInternal)
-        state->client->m_config.security_policy.OnIsolatedWorkerEnd();
-        TryInvokeOpenSSLThreadStop();
-
-        {
-            std::lock_guard<std::mutex> lock(state->mutex);
-            state->completed = true;
-        }
-        state->cv.notify_one();
-    });
-
-    // The caller (consumer) thread sleeps here. Its stack halts at this frame.
-    std::unique_lock<std::mutex> lock(state->mutex);
-    state->cv.wait(lock, [state] { return state->completed; });
-    lock.unlock();
+    std::thread worker;
+    try {
+        worker = std::thread([state_ptr = state.get()]() noexcept {
+            try {
+                state_ptr->response = state_ptr->client->PerformOnceInternal(
+                    state_ptr->request, state_ptr->strategy);
+            } catch (...) {
+                state_ptr->response.transport_code =
+                    static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
+                state_ptr->response.transport_error = ErrorCode::CallbackFailed;
+            }
+            TryInvokeOpenSSLThreadStop();
+        });
+    } catch (...) {
+        HttpResponse response{};
+        response.transport_code = static_cast<int>(CURLE_FAILED_INIT);
+        response.transport_error = ErrorCode::WorkerThreadStartFailed;
+        return response;
+    }
 
     worker.join();
 
     HttpResponse response = std::move(state->response);
-    state->~IsolatedThreadState();
-    detail::alloc::dark_free(state);
 
     // Final hygiene: Wipe the caller's stack frame just in case any
     // pointer residue was left during the handoff or thread setup.
@@ -607,7 +621,9 @@ bool CurlHttpClient::ShouldRetry(const HttpRequest& request, const HttpResponse&
         return false;
     }
 
-    if (!response.TransportOk() && request.retry.retry_on_transport_error) {
+    if (!response.TransportOk() &&
+        request.retry.retry_on_transport_error &&
+        IsRetryable(response.transport_error)) {
         return true;
     }
 
@@ -616,6 +632,17 @@ bool CurlHttpClient::ShouldRetry(const HttpRequest& request, const HttpResponse&
     }
 
     return false;
+}
+
+bool CurlHttpClient::IsRetryable(ErrorCode error) const noexcept {
+    switch (error) {
+    case ErrorCode::DnsResolutionFailed:
+    case ErrorCode::ConnectFailed:
+    case ErrorCode::TimedOut:
+        return true;
+    default:
+        return false;
+    }
 }
 
 } // namespace burner::net

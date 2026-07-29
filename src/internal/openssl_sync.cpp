@@ -3,7 +3,6 @@
 
 #include "burner/net/detail/dark_hashing.h"
 #include "burner/net/detail/wiping_alloc_engine.h"
-#include "burner/net/policy.h"
 
 #include <atomic>
 
@@ -52,10 +51,10 @@ static std::atomic<bool> s_hooks_applied{false};
 
 } // namespace
 
-void TryApplyOpenSSLHooks(const SecurityPolicy& policy) noexcept {
+bool TryApplyOpenSSLHooks() noexcept {
     // Fast-path: hooks are already in place; nothing more to do.
     if (s_hooks_applied.load(std::memory_order_acquire)) {
-        return;
+        return true;
     }
 
 #ifdef _WIN32
@@ -80,25 +79,12 @@ void TryApplyOpenSSLHooks(const SecurityPolicy& policy) noexcept {
         if (result != 0) {
             // Success: OpenSSL accepted our hooks.
             s_hooks_applied.store(true, std::memory_order_release);
-        } else {
-            // OpenSSL had already performed an allocation before we could
-            // hook it.  TLS key material written to the default heap before
-            // this point will not be wiped.  Trigger the tamper policy.
-            policy.OnTamper();
+            return true;
         }
-
-        // Whether we succeeded or triggered a tamper, we found libcrypto and
-        // made an attempt.  No need to iterate further variants.
-        return;
+        return false;
     }
-    // libcrypto is not loaded yet; a future call (after bootstrap loads it)
-    // will complete the hook.
+    return false;
 #else
-    // policy is used on Windows only (OnTamper on definitive failure).
-    // On Linux we cannot guarantee early-enough hooking, so we accept the
-    // best-effort result without signalling a tamper event.
-    (void)policy;
-
     // On Linux/Unix, resolve CRYPTO_set_mem_functions from the current process
     // scope. dlsym(RTLD_DEFAULT, ...) finds it if libcrypto.so is already
     // mapped in (which it always is when linked via libcurl with OpenSSL).
@@ -110,25 +96,11 @@ void TryApplyOpenSSLHooks(const SecurityPolicy& policy) noexcept {
         if (set_mem_fn(&openssl_malloc_shim, &openssl_realloc_shim, &openssl_free_shim) != 0) {
             // Success: OpenSSL accepted our hooks.
             s_hooks_applied.store(true, std::memory_order_release);
-        } else {
-            // CRYPTO_set_mem_functions returns 0 if OpenSSL has already
-            // performed an allocation and locked its memory functions.
-            //
-            // On Linux we cannot guarantee that we are called before
-            // libcrypto's own library constructors run, so this is an
-            // initialization-order race, not necessarily a tamper event.
-            // We mark hooks as applied to prevent repeated (always-failing)
-            // retry attempts and continue without aborting.
-            //
-            // On Windows the DLL load-order hook fires early enough that a
-            // 0 return genuinely indicates something ran before us and
-            // warrants a tamper signal.  That stricter check remains in the
-            // #ifdef _WIN32 branch above.
-            s_hooks_applied.store(true, std::memory_order_release);
+            return true;
         }
+        return false;
     }
-    // If symbol is nullptr, libcrypto is not loaded in this process;
-    // no hook is possible or necessary.
+    return false;
 #endif // _WIN32
 }
 

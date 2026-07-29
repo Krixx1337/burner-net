@@ -151,9 +151,10 @@ CurlApi MakeResolvedCurlApi(const ClientConfig& config, detail::RuntimeModuleLea
 
 } // namespace
 
-void EnsureCurlGlobalZapped(const CurlApi& api, const SecurityPolicy& policy) noexcept {
+bool EnsureCurlGlobalZapped(const CurlApi& api) noexcept {
     static std::once_flag s_curl_zapped;
-    std::call_once(s_curl_zapped, [&api, &policy]() {
+    static bool s_result = false;
+    std::call_once(s_curl_zapped, [&api]() {
         if (!api.global_init_mem) {
             return;
         }
@@ -164,10 +165,9 @@ void EnsureCurlGlobalZapped(const CurlApi& api, const SecurityPolicy& policy) no
             reinterpret_cast<CurlReallocCallback>(&::burner::net::detail::alloc::dark_realloc),
             reinterpret_cast<CurlStrdupCallback>(&::burner::net::detail::alloc::dark_strdup),
             reinterpret_cast<CurlCallocCallback>(&::burner::net::detail::alloc::dark_calloc));
-        if (result != CURLE_OK) {
-            const_cast<SecurityPolicy&>(policy).OnTamper();
-        }
+        s_result = result == CURLE_OK;
     });
+    return s_result;
 }
 
 CurlSession::CurlSession(CurlApi api, detail::RuntimeModuleLease module_lease)
@@ -203,8 +203,6 @@ std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, Error
     // Attempt to hook OpenSSL's allocator before any TLS session begins.
     // This handles the case where BURNERNET_HARDEN_IMPORTS=0 and libcrypto
     // was loaded by the OS loader at process startup.
-    if (GlobalAllocatorHooksEnabled()) TryApplyOpenSSLHooks(config.security_policy);
-
     if (init_error == nullptr) {
         return nullptr;
     }
@@ -230,7 +228,11 @@ std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, Error
 #endif
 
     // Inject wiping allocators into libcurl before the first easy_init call.
-    if (GlobalAllocatorHooksEnabled()) EnsureCurlGlobalZapped(curl_api, config.security_policy);
+    if (GlobalAllocatorHooksEnabled() &&
+        (!TryApplyOpenSSLHooks() || !EnsureCurlGlobalZapped(curl_api))) {
+        *init_error = ErrorCode::AllocatorHookInstallFailed;
+        return nullptr;
+    }
 
     auto session = std::unique_ptr<CurlSession>(
         new (std::nothrow) CurlSession(curl_api, std::move(module_lease)));

@@ -44,7 +44,7 @@ A full strings dump of the `.text` and `.rdata` sections was performed via IDA P
 | **Internal Verbs** | `GET`, `POST`, `PUT`, `DELETE` | **Not Found** |
 | **Internal Headers** | `Authorization`, `Bearer`, `Accept` | **Not Found** |
 | **Hardened Errors** | `TlsVerificationFailed`, `SigMismatch` | **Not Found** |
-| **Library Metadata** | `CurlHttpClient`, `SecurityPolicy` | **Not Found** |
+| **Library Metadata** | `CurlHttpClient`, `ConnectedPeerGuard` | **Not Found** |
 
 ### Note on Consumer Literals:
 The test endpoint (`https://example48291.invalid`) was discoverable in the static analysis of the test harness. Because the URL was passed as a raw string literal in the consumer's `main.cpp`, it was correctly placed in the `.rdata` section by the compiler. **Obfuscating consumer-defined strings remains the responsibility of the application developer** (e.g. via `BURNER_OBF_LITERAL`).

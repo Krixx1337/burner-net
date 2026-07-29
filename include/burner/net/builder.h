@@ -7,7 +7,6 @@
 #include <vector>
 
 #include "curl/curl_http_client.h"
-#include "detail/pointer_mangling.h"
 #include "export.h"
 #include "http.h"
 
@@ -95,13 +94,11 @@ class BURNER_API FluentClient {
 public:
     FluentClient(TTransport transport, DnsFallbackPolicy default_dns_fallback)
         : m_transport(std::move(transport)),
-          m_default_dns_fallback(std::move(default_dns_fallback)),
-          m_dispatch(&FluentClient::DispatchThunk) {}
+          m_default_dns_fallback(std::move(default_dns_fallback)) {}
 
     FluentClient(TTransport transport, DnsFallbackPolicy default_dns_fallback, ErrorCode unavailable_error)
         : m_transport(std::move(transport)),
           m_default_dns_fallback(std::move(default_dns_fallback)),
-          m_dispatch(&FluentClient::DispatchThunk),
           m_unavailable_error(unavailable_error) {}
 
     [[nodiscard]] RequestBuilder<TTransport> Get(std::string url) {
@@ -138,17 +135,12 @@ public:
             request.dns_fallback = m_default_dns_fallback;
             request.dns_fallback.enabled = true;
         }
-        return m_dispatch(&m_transport, std::move(request));
+        return m_transport.Send(request);
     }
 
 private:
-    static HttpResponse DispatchThunk(TTransport* transport, HttpRequest req) {
-        return transport->Send(std::move(req));
-    }
-
     TTransport m_transport;
     DnsFallbackPolicy m_default_dns_fallback;
-    EncodedPointer<HttpResponse (*)(TTransport*, HttpRequest)> m_dispatch;
     ErrorCode m_unavailable_error = ErrorCode::None;
 };
 
@@ -161,21 +153,8 @@ class BURNER_API ClientBuilder {
 public:
     using ResponseVerifyFn = burner::net::ResponseVerifyFn;
 
-    template <SecurityPolicyConcept TPolicy>
-    ClientBuilder& WithSecurityPolicy(TPolicy policy) {
-        m_security_policy = SecurityPolicy(std::move(policy));
-        m_has_custom_security_policy = true;
-        return *this;
-    }
-
     ClientBuilder& WithResponseVerifier(ResponseVerifyFn verifier) {
-        m_response_verifier = ResponseVerifier(std::move(verifier));
-        return *this;
-    }
-
-    template <ResponseVerifierConcept TVerifier>
-    ClientBuilder& WithResponseVerifier(TVerifier verifier) {
-        m_response_verifier = ResponseVerifier(std::move(verifier));
+        m_config.response_verifier = std::move(verifier);
         return *this;
     }
 
@@ -183,16 +162,11 @@ public:
     ClientBuilder& WithVerifyPeer(bool enabled);
     ClientBuilder& WithVerifyHost(bool enabled);
     ClientBuilder& WithUseNativeCa(bool enabled);
-    ClientBuilder& WithMtls(MtlsCredentials creds);
     ClientBuilder& WithMtlsProvider(detail::CompactCallable<bool(MtlsCredentials&)> provider);
     ClientBuilder& WithBearerTokenProvider(TokenProvider provider);
-    ClientBuilder& WithPreFlight(PreFlightCallback callback);
-    ClientBuilder& WithEnvironmentCheck(EnvironmentCheckCallback callback);
-    ClientBuilder& WithTransportCheck(TransportCheckCallback callback);
-    ClientBuilder& WithHeartbeat(HeartbeatCallback heartbeat);
-    ClientBuilder& WithResponseReceived(ResponseReceivedCallback callback);
-    ClientBuilder& WithPostVerification(PostVerificationCallback callback);
-    ClientBuilder& WithTamperAction(TamperActionCallback callback);
+    ClientBuilder& WithRequestGuard(RequestGuard guard);
+    ClientBuilder& WithConnectedPeerGuard(ConnectedPeerGuard guard);
+    ClientBuilder& WithTransferCancellation(TransferCancellation cancellation);
     ClientBuilder& WithGlobalMaxBodyLimit(std::size_t max_body_bytes);
     ClientBuilder& WithCurlModuleName(std::string name);
     ClientBuilder& WithCasualDefaults();
@@ -218,26 +192,11 @@ public:
     [[nodiscard]] ClientBuildResult Build();
 
 private:
-    static ClientBuildResult BuildThunk(ClientBuilder* builder);
-
     ClientConfig m_config;
-    SecurityPolicy m_security_policy;
-    ResponseVerifier m_response_verifier;
-    PreFlightCallback m_pre_flight;
-    EnvironmentCheckCallback m_environment_check;
-    TransportCheckCallback m_transport_check;
-    HeartbeatCallback m_heartbeat;
-    ResponseReceivedCallback m_response_received;
-    PostVerificationCallback m_post_verification;
-    TamperActionCallback m_tamper_action;
     DnsFallbackPolicy m_default_dns_fallback;
-    EncodedPointer<ClientBuildResult (*)(ClientBuilder*)> m_build;
     ClientProfile m_profile = ClientProfile::Standard;
     bool m_custom_dns_fallback = false;
     bool m_system_dns_explicit = false;
-    bool m_has_custom_security_policy = false;
-    bool m_has_transport_check = false;
-    bool m_has_persistent_mtls = false;
 };
 
 } // namespace burner::net

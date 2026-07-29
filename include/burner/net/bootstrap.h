@@ -7,7 +7,6 @@
 #include "detail/dark_callables.h"
 #include "export.h"
 #include "error.h"
-#include "policy.h"
 
 namespace burner::net {
 
@@ -17,20 +16,16 @@ enum class LinkMode {
 };
 
 using IntegrityProvider = detail::CompactCallable<bool(const std::filesystem::path& dll_path, const std::wstring& dll_name)>;
-
-struct DependencyIntegrityPolicy {
-    bool enabled = false;
-    bool fail_closed = true;
-    IntegrityProvider integrity_provider;
-};
+using DependencyDirectoryGuard =
+    detail::CompactCallable<bool(const std::filesystem::path& canonical_directory)>;
 
 struct BootstrapConfig {
     LinkMode link_mode = LinkMode::Static;
     bool preload_dependencies = true;
-    bool install_global_allocator_hooks = true;
-    SecurityPolicy security_policy;
+    bool install_global_allocator_hooks = false;
     std::filesystem::path dependency_directory;
-    DependencyIntegrityPolicy integrity_policy;
+    DependencyDirectoryGuard dependency_directory_guard;
+    IntegrityProvider integrity_provider;
     std::vector<std::wstring> dependency_dlls{};
 };
 

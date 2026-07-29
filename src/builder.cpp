@@ -3,89 +3,53 @@
 #include "curl/curl_http_client.h"
 #include "internal/header_validation.h"
 
+#include <array>
+#include <new>
+
 namespace burner::net {
 
 namespace detail {
 
-struct BuilderSecurityPolicy final {
-    SecurityPolicy wrapped_policy;
-    PreFlightCallback pre_flight;
-    EnvironmentCheckCallback environment_check;
-    TransportCheckCallback transport_check;
-    HeartbeatCallback heartbeat;
-    ResponseReceivedCallback response_received;
-    PostVerificationCallback post_verification;
-    TamperActionCallback tamper_action;
+bool IsValidInlineSha256Pin(std::string_view pin) noexcept {
+    constexpr std::string_view prefix = "sha256//";
+    if (!pin.starts_with(prefix)) {
+        return false;
+    }
+    pin.remove_prefix(prefix.size());
+    if (pin.size() != 44 || pin.back() != '=') {
+        return false;
+    }
 
-    bool OnVerifyEnvironment() const {
-        if (environment_check && !environment_check()) {
+    auto base64_value = [](char ch) noexcept -> int {
+        if (ch >= 'A' && ch <= 'Z') return ch - 'A';
+        if (ch >= 'a' && ch <= 'z') return ch - 'a' + 26;
+        if (ch >= '0' && ch <= '9') return ch - '0' + 52;
+        if (ch == '+') return 62;
+        if (ch == '/') return 63;
+        return -1;
+    };
+
+    std::array<unsigned char, 32> decoded{};
+    std::size_t out = 0;
+    unsigned int accumulator = 0;
+    int bits = 0;
+    for (std::size_t i = 0; i + 1 < pin.size(); ++i) {
+        const int value = base64_value(pin[i]);
+        if (value < 0) {
             return false;
         }
-        return wrapped_policy.OnVerifyEnvironment();
-    }
-
-    bool OnPreRequest(HttpRequest& request) const {
-        if (pre_flight && !pre_flight(request)) {
-            return false;
+        accumulator = (accumulator << 6) | static_cast<unsigned int>(value);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            if (out >= decoded.size()) {
+                return false;
+            }
+            decoded[out++] = static_cast<unsigned char>((accumulator >> bits) & 0xffu);
         }
-        return wrapped_policy.OnPreRequest(request);
     }
-
-    bool OnVerifyTransport(const char* url, const char* remote_ip) const {
-        if (transport_check && !transport_check(url, remote_ip)) {
-            return false;
-        }
-        return wrapped_policy.OnVerifyTransport(url, remote_ip);
-    }
-
-    bool OnAuditTelemetry(const TransportTelemetry& telemetry) const {
-        return wrapped_policy.OnAuditTelemetry(telemetry);
-    }
-
-    bool OnHeartbeat(const TransferProgress& progress) const {
-        if (heartbeat && !heartbeat(progress)) {
-            return false;
-        }
-        return wrapped_policy.OnHeartbeat(progress);
-    }
-
-    bool OnResponseReceived(const HttpRequest& request, const HttpResponse& response) const {
-        if (response_received && !response_received(request, response)) {
-            return false;
-        }
-        return wrapped_policy.OnResponseReceived(request, response);
-    }
-
-    void OnSignatureVerified(bool success, ErrorCode reason) const {
-        if (post_verification) {
-            post_verification(success, reason);
-        }
-        wrapped_policy.OnSignatureVerified(success, reason);
-    }
-
-    void OnTamper() const {
-        if (tamper_action) {
-            tamper_action();
-        }
-        wrapped_policy.OnTamper();
-    }
-
-    void OnError(ErrorCode code, const char* url) const {
-        wrapped_policy.OnError(code, url);
-    }
-
-    bool OnIsolatedWorkerStart() const {
-        return wrapped_policy.OnIsolatedWorkerStart();
-    }
-
-    void OnIsolatedWorkerEnd() const {
-        wrapped_policy.OnIsolatedWorkerEnd();
-    }
-
-    DarkString GetUserAgent() const {
-        return wrapped_policy.GetUserAgent();
-    }
-};
+    return out == decoded.size() && bits == 2 && (accumulator & 0x3u) == 0;
+}
 
 } // namespace detail
 
@@ -93,8 +57,7 @@ ClientBuilder::ClientBuilder()
     : ClientBuilder(ClientProfile::Standard) {}
 
 ClientBuilder::ClientBuilder(ClientProfile profile)
-    : m_build(&ClientBuilder::BuildThunk),
-      m_profile(profile) {
+    : m_profile(profile) {
     m_config.use_native_ca = true;
     m_config.verify_peer = true;
     m_config.verify_host = true;
@@ -122,12 +85,6 @@ ClientBuilder& ClientBuilder::WithUseNativeCa(bool enabled) {
     return *this;
 }
 
-ClientBuilder& ClientBuilder::WithMtls(MtlsCredentials creds) {
-    m_config.mtls = std::move(creds);
-    m_has_persistent_mtls = true;
-    return *this;
-}
-
 ClientBuilder& ClientBuilder::WithMtlsProvider(detail::CompactCallable<bool(MtlsCredentials&)> provider) {
     m_config.mtls_provider = std::move(provider);
     return *this;
@@ -138,39 +95,18 @@ ClientBuilder& ClientBuilder::WithBearerTokenProvider(TokenProvider provider) {
     return *this;
 }
 
-ClientBuilder& ClientBuilder::WithPreFlight(PreFlightCallback callback) {
-    m_pre_flight = std::move(callback);
+ClientBuilder& ClientBuilder::WithRequestGuard(RequestGuard guard) {
+    m_config.request_guard = std::move(guard);
     return *this;
 }
 
-ClientBuilder& ClientBuilder::WithEnvironmentCheck(EnvironmentCheckCallback callback) {
-    m_environment_check = std::move(callback);
+ClientBuilder& ClientBuilder::WithConnectedPeerGuard(ConnectedPeerGuard guard) {
+    m_config.connected_peer_guard = std::move(guard);
     return *this;
 }
 
-ClientBuilder& ClientBuilder::WithTransportCheck(TransportCheckCallback callback) {
-    m_transport_check = std::move(callback);
-    m_has_transport_check = static_cast<bool>(m_transport_check);
-    return *this;
-}
-
-ClientBuilder& ClientBuilder::WithHeartbeat(HeartbeatCallback heartbeat) {
-    m_heartbeat = std::move(heartbeat);
-    return *this;
-}
-
-ClientBuilder& ClientBuilder::WithResponseReceived(ResponseReceivedCallback callback) {
-    m_response_received = std::move(callback);
-    return *this;
-}
-
-ClientBuilder& ClientBuilder::WithPostVerification(PostVerificationCallback callback) {
-    m_post_verification = std::move(callback);
-    return *this;
-}
-
-ClientBuilder& ClientBuilder::WithTamperAction(TamperActionCallback callback) {
-    m_tamper_action = std::move(callback);
+ClientBuilder& ClientBuilder::WithTransferCancellation(TransferCancellation cancellation) {
+    m_config.transfer_cancellation = std::move(cancellation);
     return *this;
 }
 
@@ -259,21 +195,18 @@ ClientBuilder& ClientBuilder::WithStackIsolation(bool enabled) {
 }
 
 ClientBuilder::ClientBuildResult ClientBuilder::Build() {
-    return m_build(this);
-}
-
-ClientBuilder::ClientBuildResult ClientBuilder::BuildThunk(ClientBuilder* builder) {
-    if (builder->m_profile == ClientProfile::Hardened) {
-        if (builder->m_config.use_system_proxy) {
+    try {
+    if (m_profile == ClientProfile::Hardened) {
+        if (m_config.use_system_proxy) {
             return {nullptr, ErrorCode::HardenedSystemProxyForbidden};
         }
-        if (!builder->m_config.verify_peer) {
+        if (!m_config.verify_peer) {
             return {nullptr, ErrorCode::HardenedVerifyPeerRequired};
         }
-        if (!builder->m_config.verify_host) {
+        if (!m_config.verify_host) {
             return {nullptr, ErrorCode::HardenedVerifyHostRequired};
         }
-        if (!builder->m_config.enable_stack_isolation) {
+        if (!m_config.enable_stack_isolation) {
             return {nullptr, ErrorCode::HardenedStackIsolationRequired};
         }
 
@@ -281,7 +214,7 @@ ClientBuilder::ClientBuildResult ClientBuilder::BuildThunk(ClientBuilder* builde
         bool has_system_dns = false;
         bool system_dns_seen = false;
         bool invalid_dns_order = false;
-        for (const auto& strategy : builder->m_default_dns_fallback.strategies) {
+        for (const auto& strategy : m_default_dns_fallback.strategies) {
             if (strategy.mode == DnsMode::System) {
                 has_system_dns = true;
                 system_dns_seen = true;
@@ -299,47 +232,34 @@ ClientBuilder::ClientBuildResult ClientBuilder::BuildThunk(ClientBuilder* builde
         if (!has_doh) {
             return {nullptr, ErrorCode::HardenedDohRequired};
         }
-        if (invalid_dns_order || (has_system_dns && !builder->m_system_dns_explicit)) {
+        if (invalid_dns_order || (has_system_dns && !m_system_dns_explicit)) {
             return {nullptr, ErrorCode::HardenedSystemDnsOrder};
         }
-        if (!builder->m_response_verifier.Enabled()) {
+        if (!m_config.response_verifier) {
             return {nullptr, ErrorCode::HardenedResponseVerifierRequired};
         }
-        if (builder->m_has_persistent_mtls) {
-            return {nullptr, ErrorCode::HardenedPersistentMtlsForbidden};
-        }
-        const bool has_trust_mount = !builder->m_config.pinned_public_keys.empty() ||
-            builder->m_has_transport_check ||
-            builder->m_has_custom_security_policy;
-        if (!has_trust_mount) {
-            return {nullptr, ErrorCode::HardenedTrustMountRequired};
+        for (const auto& pin : m_config.pinned_public_keys) {
+            if (!detail::IsValidInlineSha256Pin(pin)) {
+                return {nullptr, ErrorCode::InvalidHardenedPin};
+            }
         }
     }
 
-    ClientConfig config = builder->m_config;
-    config.require_response_verification = builder->m_profile == ClientProfile::Hardened;
-    config.security_policy = SecurityPolicy(detail::BuilderSecurityPolicy{
-        .wrapped_policy = builder->m_security_policy,
-        .pre_flight = builder->m_pre_flight,
-        .environment_check = builder->m_environment_check,
-        .transport_check = builder->m_transport_check,
-        .heartbeat = builder->m_heartbeat,
-        .response_received = builder->m_response_received,
-        .post_verification = builder->m_post_verification,
-        .tamper_action = builder->m_tamper_action,
-    });
-    config.response_verifier = builder->m_response_verifier;
-
-    if (!config.security_policy.OnVerifyEnvironment()) {
-        return {nullptr, ErrorCode::EnvironmentCompromised};
-    }
+    ClientConfig config = m_config;
+    config.require_response_verification = m_profile == ClientProfile::Hardened;
 
     CurlHttpClient transport(config);
     if (!transport.IsInitialized()) {
         return {nullptr, transport.InitError()};
     }
 
-    return {std::make_unique<FluentClient<CurlHttpClient>>(std::move(transport), builder->m_default_dns_fallback), ErrorCode::None};
+    return {std::make_unique<FluentClient<CurlHttpClient>>(
+        std::move(transport), m_default_dns_fallback), ErrorCode::None};
+    } catch (const std::bad_alloc&) {
+        return {nullptr, ErrorCode::OutOfMemory};
+    } catch (...) {
+        return {nullptr, ErrorCode::CallbackFailed};
+    }
 }
 
 } // namespace burner::net

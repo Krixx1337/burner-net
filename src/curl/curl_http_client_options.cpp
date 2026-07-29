@@ -47,9 +47,9 @@ ErrorCode SetPostBody(const CurlApi& curl_api, CURL* easy, const char* body_data
 
 ErrorCode CurlHttpClient::ApplyCommonOptions(
     const HttpRequest& request,
-    HttpResponse& response,
     char* error_buffer,
     void* body_ctx,
+    void* header_ctx,
     DarkString* protocol_scheme,
     DarkString* redirect_protocol_scheme,
     DarkString* user_agent_storage,
@@ -68,7 +68,7 @@ ErrorCode CurlHttpClient::ApplyCommonOptions(
     if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_WRITEFUNCTION))), &CurlHttpClient::WriteBodyCallback) ||
         !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_WRITEDATA))), body_ctx) ||
         !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HEADERFUNCTION))), &CurlHttpClient::WriteHeaderCallback) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HEADERDATA))), &response.headers) ||
+        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HEADERDATA))), header_ctx) ||
         !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_XFERINFOFUNCTION))), &CurlHttpClient::ProgressCallback) ||
         !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_XFERINFODATA))), this) ||
         !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_NOPROGRESS))), 0L) ||
@@ -112,13 +112,9 @@ ErrorCode CurlHttpClient::ApplyCommonOptions(
     }
 
     if (user_agent_storage != nullptr) {
-        *user_agent_storage = m_config.security_policy.GetUserAgent();
+        *user_agent_storage = m_config.user_agent;
     }
     if (user_agent_storage != nullptr && !user_agent_storage->empty()) {
-        if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_USERAGENT))), user_agent_storage->c_str())) {
-            return ErrorCode::CurlOptionFailed;
-        }
-    } else if (!m_config.user_agent.empty()) {
         if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_USERAGENT))), m_config.user_agent.c_str())) {
             return ErrorCode::CurlOptionFailed;
         }
@@ -238,11 +234,13 @@ ErrorCode CurlHttpClient::ApplyTlsOptions(DarkString* cert_type_storage, DarkStr
 
     MtlsCredentials credentials{};
     if (m_config.mtls_provider) {
-        if (!m_config.mtls_provider(credentials)) {
+        try {
+            if (!m_config.mtls_provider(credentials)) {
+                return ErrorCode::CredentialProviderFailed;
+            }
+        } catch (...) {
             return ErrorCode::CredentialProviderFailed;
         }
-    } else {
-        credentials = m_config.mtls;
     }
 
     if (!credentials.enabled) {

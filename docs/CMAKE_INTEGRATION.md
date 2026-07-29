@@ -327,8 +327,10 @@ int main() {
         L"libcrypto-3-x64.dll",
         L"zlibd1.dll",
     };
-    boot.integrity_policy.enabled = true;
-    boot.integrity_policy.fail_closed = true;
+    boot.integrity_provider =
+        [](const std::filesystem::path& path, const std::wstring& basename) {
+            return VerifyPackagedDependency(path, basename);
+        };
 
     auto init = burner::net::InitializeNetworkingRuntime(boot);
     if (!init.success) {

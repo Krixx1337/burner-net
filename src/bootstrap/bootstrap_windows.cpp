@@ -19,6 +19,7 @@
 #include <cwctype>
 #include <memory>
 #include <mutex>
+#include <new>
 #include <system_error>
 #include <vector>
 
@@ -29,7 +30,8 @@ namespace {
 std::mutex g_loader_mutex;
 std::vector<detail::RuntimeModuleLease> g_loaded_modules;
 DLL_DIRECTORY_COOKIE g_dependency_cookie = nullptr;
-std::atomic<bool> g_global_allocator_hooks_enabled{true};
+bool g_bootstrap_in_progress = false;
+std::atomic<bool> g_global_allocator_hooks_enabled{false};
 
 using AddDllDirectoryFn = decltype(&AddDllDirectory);
 using LoadLibraryExWFn = decltype(&LoadLibraryExW);
@@ -186,7 +188,7 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
     ::burner::net::detail::InitializeEncodedPointerKey(
         reinterpret_cast<std::uintptr_t>(&config));
 
-    const SecurityPolicy& security_policy = config.security_policy;
+    try {
     if (config.link_mode == LinkMode::Static || !config.preload_dependencies) {
         g_global_allocator_hooks_enabled.store(
             config.install_global_allocator_hooks,
@@ -200,24 +202,10 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
     if (config.dependency_dlls.empty()) {
         return {false, ErrorCode::InvalidBootstrapDependency};
     }
-    if (config.integrity_policy.enabled &&
-        config.integrity_policy.fail_closed &&
-        !config.integrity_policy.integrity_provider) {
-        return {false, ErrorCode::BootstrapIntegrityCfg};
-    }
     for (const auto& dll_name : config.dependency_dlls) {
         if (!IsValidDependencyName(dll_name)) {
             return {false, ErrorCode::InvalidBootstrapDependency};
         }
-    }
-
-    if (!security_policy.OnVerifyEnvironment()) {
-        return {false, ErrorCode::EnvironmentCompromised};
-    }
-
-    std::lock_guard<std::mutex> lock(g_loader_mutex);
-    if (!g_loaded_modules.empty()) {
-        return {true, ErrorCode::BootstrapSkip};
     }
 
     std::error_code path_error;
@@ -236,6 +224,51 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
         nullptr));
     if (!directory_handle.valid() || IsReparsePoint(directory_handle.get())) {
+        return {false, ErrorCode::InvalidBootstrapDependency};
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(g_loader_mutex);
+        if (!g_loaded_modules.empty()) {
+            return {true, ErrorCode::BootstrapSkip};
+        }
+        if (g_bootstrap_in_progress) {
+            return {false, ErrorCode::BootstrapBusy};
+        }
+        g_bootstrap_in_progress = true;
+    }
+
+    struct TransactionGuard final {
+        bool active = true;
+        ~TransactionGuard() {
+            if (active) {
+                std::lock_guard<std::mutex> lock(g_loader_mutex);
+                g_bootstrap_in_progress = false;
+            }
+        }
+    } transaction_guard;
+
+    if (config.dependency_directory_guard) {
+        try {
+            if (!config.dependency_directory_guard(canonical_directory)) {
+                return {false, ErrorCode::BootstrapDirectoryRejected};
+            }
+        } catch (...) {
+            return {false, ErrorCode::CallbackFailed};
+        }
+    }
+
+    ScopedHandle revalidated_directory(::CreateFileW(
+        canonical_directory.c_str(),
+        FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr));
+    if (!revalidated_directory.valid() ||
+        IsReparsePoint(revalidated_directory.get()) ||
+        !SameFileIdentity(directory_handle.get(), revalidated_directory.get())) {
         return {false, ErrorCode::InvalidBootstrapDependency};
     }
 
@@ -299,13 +332,17 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
             return {false, ErrorCode::InvalidBootstrapDependency};
         }
 
-        if (config.integrity_policy.enabled) {
-            if (config.integrity_policy.integrity_provider) {
-                const bool ok = config.integrity_policy.integrity_provider(full_path, dll_name);
-                if (!ok && config.integrity_policy.fail_closed) {
-                    rollback();
-                    return {false, ErrorCode::BootstrapIntegrityMismatch};
-                }
+        if (config.integrity_provider) {
+            bool ok = false;
+            try {
+                ok = config.integrity_provider(full_path, dll_name);
+            } catch (...) {
+                rollback();
+                return {false, ErrorCode::CallbackFailed};
+            }
+            if (!ok) {
+                rollback();
+                return {false, ErrorCode::BootstrapIntegrityMismatch};
             }
         }
 
@@ -350,7 +387,10 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
     // has passed validation. A failed transaction can then unload all pending
     // modules without leaving one-time hook state bound to an unpublished DLL.
     if (config.install_global_allocator_hooks) {
-        TryApplyOpenSSLHooks(security_policy);
+        if (!TryApplyOpenSSLHooks()) {
+            rollback();
+            return {false, ErrorCode::AllocatorHookInstallFailed};
+        }
 #if BURNERNET_HARDEN_IMPORTS
         for (const auto& runtime_module : pending_modules) {
             const std::uint32_t basename_hash = ::burner::net::detail::fnv1a_ascii_wide_ci(
@@ -363,19 +403,32 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
                     ::burner::net::detail::KernelResolver::ResolveInternalExport(
                         runtime_module->handle,
                         ::burner::net::detail::kCurlGlobalInitMemHash));
-                EnsureCurlGlobalZapped(curl_api, security_policy);
+                if (!EnsureCurlGlobalZapped(curl_api)) {
+                    rollback();
+                    return {false, ErrorCode::AllocatorHookInstallFailed};
+                }
             }
         }
 #endif
     }
 
-    g_dependency_cookie = pending_cookie;
-    pending_cookie = nullptr;
-    g_loaded_modules = std::move(pending_modules);
-    g_global_allocator_hooks_enabled.store(
-        config.install_global_allocator_hooks,
-        std::memory_order_release);
+    {
+        std::lock_guard<std::mutex> lock(g_loader_mutex);
+        g_dependency_cookie = pending_cookie;
+        pending_cookie = nullptr;
+        g_loaded_modules = std::move(pending_modules);
+        g_global_allocator_hooks_enabled.store(
+            config.install_global_allocator_hooks,
+            std::memory_order_release);
+        g_bootstrap_in_progress = false;
+        transaction_guard.active = false;
+    }
     return {true, ErrorCode::BootstrapLoaded};
+    } catch (const std::bad_alloc&) {
+        return {false, ErrorCode::OutOfMemory};
+    } catch (...) {
+        return {false, ErrorCode::CallbackFailed};
+    }
 }
 
 bool GlobalAllocatorHooksEnabled() noexcept {
@@ -387,10 +440,13 @@ void ShutdownNetworkingRuntime() noexcept {
     DLL_DIRECTORY_COOKIE dependency_cookie = nullptr;
     {
         std::lock_guard<std::mutex> lock(g_loader_mutex);
+        if (g_bootstrap_in_progress) {
+            return;
+        }
         modules.swap(g_loaded_modules);
         dependency_cookie = g_dependency_cookie;
         g_dependency_cookie = nullptr;
-        g_global_allocator_hooks_enabled.store(true, std::memory_order_release);
+        g_global_allocator_hooks_enabled.store(false, std::memory_order_release);
     }
 
     // Never execute DLL detach code while registry mutex is held. A module's
@@ -415,7 +471,7 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig&) {
 }
 
 void ShutdownNetworkingRuntime() noexcept {}
-bool GlobalAllocatorHooksEnabled() noexcept { return true; }
+bool GlobalAllocatorHooksEnabled() noexcept { return false; }
 
 } // namespace burner::net
 
