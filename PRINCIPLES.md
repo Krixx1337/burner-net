@@ -37,7 +37,7 @@ Anti-Reverse Engineering (Anti-RE) is a cat-and-mouse game. BurnerNet is a **Pro
 
 *   **No Spaghetti-Code Obfuscation:** We reject techniques like control-flow flattening or MBA that turn source code into an unmaintainable mess. BurnerNet's stealth is structural: clean C++20 design choices that still produce a dark binary.
 *   **Algorithm Agnostic:** We do not hardcode one signature scheme or verification routine. Response verification is mounted through lambda-based hooks so you can inject HMAC, Ed25519, custom checksums, or any application-specific proof you want.
-*   **Parametric Auditing:** We do not ship a default transport canary. You provide your own TLS-failure targets and audit behavior, which keeps each binary's trust checks specific to the application instead of to BurnerNet.
+*   **Consumer-Owned Auditing:** BurnerNet reports exact transport outcomes but does not classify an environment as trusted or compromised. Applications own TLS-failure targets, audit timing, classification, and response policy.
 *   **Zero-Dependency Bootstrap:** Runtime integrity decisions are delegated to user-provided callbacks. BurnerNet loads and validates dependency paths, but the application decides what "trusted" means.
 *   **Woven Logic:** Policy hooks are compiled into the transport path through concrete types, concepts, and hardened dispatch rather than standard virtual inheritance. That keeps the source auditable while making those checks harder to unplug at runtime.
 *   **Respect for the Developer:** We provide the armor: hidden imports, mangled pointers, vtable-free dispatch, and safe mount points. You provide the weapons: debugger detection, VM heuristics, integrity scans, trust anchors, and application-specific enforcement.

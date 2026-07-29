@@ -6,7 +6,6 @@
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
 #include "burner/net/http.h"
-#include "burner/net/security_auditor.h"
 
 TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
     using namespace burner::net;
@@ -56,18 +55,6 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
         CHECK(resp.Ok());
         CHECK(resp.status_code == 200);
     }
-}
-
-TEST_CASE("security auditor reports trusted TLS canary rejection") {
-    auto client = burner::net::ClientBuilder()
-        .WithUseNativeCa(true)
-        .Build();
-
-    REQUIRE(static_cast<bool>(client.client));
-    CHECK(burner::net::SecurityAuditor::AuditTransportTrust(
-        client.client->Raw(),
-        {"https://expired.badssl.com", "https://wrong.host.badssl.com"}) ==
-        burner::net::AuditResult::Trusted);
 }
 
 TEST_CASE("max_body_bytes aborts oversized responses mid-stream") {

@@ -203,11 +203,12 @@ For concrete bootstrap setup, examples, and build-system mechanics, see:
 - Treat missing runtime DLLs or mismatched runtime layouts as a build/deployment failure.
 
 ## 12. Startup canary
-- Prefer `burner::net::SecurityAuditor::AuditTransportTrust(client->Raw(), canary_urls)` during startup or before auth.
-- `burner::net::AuditResult::Trusted` means each app-owned TLS-failure canary was rejected as expected.
-- `burner::net::AuditResult::Compromised` means a canary unexpectedly succeeded or the local environment sanity probe failed.
-- `burner::net::AuditResult::Inconclusive` means connectivity failed in a way that did not prove trust failure.
-- `burner::net::SecurityAuditor::CheckTransportIntegrity(...)` remains as a compatibility wrapper for fail-closed callers and still forwards non-trusted results into `ISecurityPolicy::OnTamper()`.
+- Keep canary endpoints, classification, and response policy in the consumer application.
+- Send each app-owned TLS-failure canary through the normal client before auth.
+- `ErrorCode::TlsVerificationFailed` is direct evidence that the canary was rejected as expected.
+- A successful transport is an unexpected acceptance. Other transport failures are inconclusive.
+- The application decides whether an unexpected or inconclusive result should retry, alert, log out, or call `ISecurityPolicy::OnTamper()`.
+- Do not label a host globally trusted from a canary result; the probe only describes the observed transport outcome.
 
 ## 13. Defeating Local DNS Hijacking & API Spoofing
 

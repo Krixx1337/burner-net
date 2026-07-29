@@ -6,7 +6,6 @@
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
 #include "burner/net/policy.h"
-#include "burner/net/security_auditor.h"
 
 namespace {
 
@@ -30,6 +29,38 @@ struct ZeroTrustPolicy : burner::net::ISecurityPolicy {
         return "BurnerNetExamples/ZeroTrust";
     }
 };
+
+enum class CanaryResult {
+    RejectedAsExpected,
+    UnexpectedAcceptance,
+    Inconclusive
+};
+
+template <typename TClient>
+CanaryResult CheckTransportCanaries(
+    TClient& client,
+    const std::vector<std::string>& canary_urls) {
+    if (canary_urls.empty()) {
+        return CanaryResult::Inconclusive;
+    }
+
+    for (const auto& url : canary_urls) {
+        const auto response = client.Get(url)
+            .WithTimeoutSeconds(10)
+            .WithConnectTimeoutSeconds(5)
+            .FollowRedirects(false)
+            .Send();
+
+        if (response.transport_error == burner::net::ErrorCode::TlsVerificationFailed) {
+            continue;
+        }
+        return response.TransportOk()
+            ? CanaryResult::UnexpectedAcceptance
+            : CanaryResult::Inconclusive;
+    }
+
+    return CanaryResult::RejectedAsExpected;
+}
 
 } // namespace
 
@@ -83,13 +114,13 @@ int RunZeroTrustPipeline() {
         std::cout << "Transport trust audit skipped.\n";
         std::cout << "Replace the sample canary URLs with your own TLS-failure endpoints to exercise the audit path.\n";
     } else {
-        const auto audit = SecurityAuditor::AuditTransportTrust(paranoid.client->Raw(), kTransportCanaries);
-        if (audit == AuditResult::Compromised) {
+        const auto audit = CheckTransportCanaries(*paranoid.client, kTransportCanaries);
+        if (audit == CanaryResult::UnexpectedAcceptance) {
             paranoid.client->Raw()->SecurityPolicy()->OnTamper();
             std::cerr << "Transport trust audit detected an unexpected canary success.\n";
             return 3;
         }
-        if (audit == AuditResult::Inconclusive) {
+        if (audit == CanaryResult::Inconclusive) {
             paranoid.client->Raw()->SecurityPolicy()->OnTamper();
             std::cerr << "Transport trust audit was inconclusive.\n";
             return 3;

@@ -57,7 +57,7 @@ BurnerNet fits projects such as:
 - **Stack-Frame Swiping**: After every request, the library proactively scrubs its own thread stack (High-Water Mark scrubbing). This is intended to destroy ephemeral transport fragments before control returns to your application.
 - **Moving-Target Heap**: The combination of disposable transports and aligned metadata headers creates high address-space dispersion, making the process memory unpredictable and resistant to stable pointer-mapping.
 - **Short-lived request state**: BurnerNet is designed around disposable clients instead of process-wide singleton transports.
-- **Less trust in the host**: DoH support, pinned-key support, and transport auditing help reduce dependence on compromised local defaults.
+- **Less trust in the host**: DoH support, pinned-key support, and exact transport errors help consumer-owned trust checks reduce dependence on compromised local defaults.
 - **Lower plaintext exposure**: Provider callbacks and secure wiping utilities reduce the lifetime of certs, keys, tokens, and other sensitive buffers.
 - **App-owned verification**: Response verification stays in your code through `WithResponseVerifier(...)` instead of being hardcoded into a shared library.
 - **Harder static fingerprinting**: hardened builds can set `BURNERNET_DIAGNOSTIC_STRINGS=0` so `ErrorCodeToString(...)` returns stable `E<number>` values without embedding symbolic error names.

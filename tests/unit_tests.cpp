@@ -19,7 +19,6 @@
 #include "burner/net/http.h"
 #include "burner/net/obfuscation.h"
 #include "burner/net/policy.h"
-#include "burner/net/security_auditor.h"
 #include "burner/net/detail/dark_allocator.h"
 #include "burner/net/detail/dark_arithmetic.h"
 #include "burner/net/detail/dark_callables.h"
@@ -107,43 +106,6 @@ public:
     void OnTamper() const {
         ++(*tamper_count);
     }
-};
-
-class SecurityAuditorStubClient final {
-public:
-    explicit SecurityAuditorStubClient(const burner::net::SecurityPolicy* policy)
-        : m_policy(policy) {}
-
-    SecurityAuditorStubClient(
-        const burner::net::SecurityPolicy* policy,
-        std::vector<burner::net::HttpResponse> responses)
-        : m_policy(policy),
-          m_responses(std::move(responses)) {}
-
-    burner::net::HttpResponse Send(const burner::net::HttpRequest&) {
-        if (!m_responses.empty()) {
-            const std::size_t index = static_cast<std::size_t>(
-                (std::min)(m_call_count++, static_cast<int>(m_responses.size() - 1)));
-            return m_responses[index];
-        }
-
-        burner::net::HttpResponse response{};
-        response.transport_code = 1;
-        response.transport_error =
-            m_call_count++ == 0
-                ? burner::net::ErrorCode::TlsVerificationFailed
-                : burner::net::ErrorCode::CurlGeneric;
-        return response;
-    }
-
-    const burner::net::SecurityPolicy* SecurityPolicy() const {
-        return m_policy;
-    }
-
-private:
-    const burner::net::SecurityPolicy* m_policy = nullptr;
-    std::vector<burner::net::HttpResponse> m_responses;
-    int m_call_count = 0;
 };
 
 class RecordingTransport final {
@@ -857,73 +819,6 @@ TEST_CASE("transport retry budget is honored through the public client API") {
     CHECK_FALSE(single_attempt_response.TransportOk());
     CHECK(single_attempt_response.transport_error == burner::net::ErrorCode::InvalidHeader);
     CHECK(preflight_calls == 1);
-}
-
-TEST_CASE("security auditor triggers tamper callback on transport audit failure") {
-    RecordingPolicy policy{};
-    burner::net::SecurityPolicy erased_policy = policy;
-    SecurityAuditorStubClient client(&erased_policy);
-
-    CHECK_FALSE(burner::net::SecurityAuditor::CheckTransportIntegrity(
-        &client,
-        {"https://canary-one.invalid", "https://canary-two.invalid"}));
-    CHECK(*policy.tamper_count == 1);
-}
-
-TEST_CASE("security auditor exposes trusted and inconclusive audit results") {
-    burner::net::HttpResponse trusted_response{};
-    trusted_response.transport_code = 1;
-    trusted_response.transport_error = burner::net::ErrorCode::TlsVerificationFailed;
-
-    burner::net::HttpResponse inconclusive_response{};
-    inconclusive_response.transport_code = 1;
-    inconclusive_response.transport_error = burner::net::ErrorCode::CurlGeneric;
-
-    SUBCASE("trusted when canaries fail with TLS verification errors") {
-        SecurityAuditorStubClient client(nullptr, {trusted_response, trusted_response});
-        CHECK(
-            burner::net::SecurityAuditor::AuditTransportTrust(
-                &client,
-                {"https://canary-one.invalid", "https://canary-two.invalid"}) ==
-            burner::net::AuditResult::Trusted);
-    }
-
-    SUBCASE("inconclusive when transport fails for unrelated reasons") {
-        SecurityAuditorStubClient client(nullptr, {inconclusive_response});
-        CHECK(
-            burner::net::SecurityAuditor::AuditTransportTrust(
-                &client,
-                {"https://canary-one.invalid"}) == burner::net::AuditResult::Inconclusive);
-    }
-}
-
-TEST_CASE("security auditor flags unexpected success as compromised") {
-    burner::net::HttpResponse success_response{};
-    success_response.status_code = 200;
-
-    SecurityAuditorStubClient client(nullptr, {success_response});
-
-    CHECK(
-        burner::net::SecurityAuditor::AuditTransportTrust(
-            &client,
-            {"https://canary-one.invalid"}) == burner::net::AuditResult::Compromised);
-}
-
-TEST_CASE("security auditor treats an empty canary set as a no-op") {
-    SecurityAuditorStubClient client(nullptr);
-    CHECK(
-        burner::net::SecurityAuditor::AuditTransportTrust(&client, {}) ==
-        burner::net::AuditResult::Inconclusive);
-    CHECK_FALSE(burner::net::SecurityAuditor::CheckTransportIntegrity(&client, {}));
-}
-
-TEST_CASE("security auditor rejects empty canary set when policy is present") {
-    RecordingPolicy policy{};
-    burner::net::SecurityPolicy erased_policy = policy;
-    SecurityAuditorStubClient client(&erased_policy);
-
-    CHECK_FALSE(burner::net::SecurityAuditor::CheckTransportIntegrity(&client, &erased_policy, {}));
-    CHECK(*policy.tamper_count == 1);
 }
 
 TEST_CASE("builder tamper action layers on top of wrapped policy tamper handling") {
