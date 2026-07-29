@@ -62,8 +62,19 @@ const char* ErrorCodeDebugString(ErrorCode code) noexcept {
         "HardenedSystemDnsOrder",
         "HardenedResponseVerifierRequired",
         "HardenedTrustMountRequired",
-        "HardenedPersistentMtlsForbidden"
+        "HardenedPersistentMtlsForbidden",
+        "CurlOptionFailed",
+        "CredentialProviderFailed",
+        "InvalidCredentials",
+        "UnsupportedVerifiedStreaming",
+        "InvalidHardenedDoh",
+        "InvalidBootstrapDependency",
+        "NetworkingRuntimeUnavailable",
+        "OutOfMemory"
     };
+    static_assert(
+        (sizeof(kNames) / sizeof(kNames[0])) ==
+        static_cast<std::size_t>(ErrorCode::OutOfMemory) + 1);
 
     const auto index = static_cast<std::size_t>(code);
     return index < (sizeof(kNames) / sizeof(kNames[0])) ? kNames[index] : "Unknown";

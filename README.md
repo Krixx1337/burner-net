@@ -132,6 +132,8 @@ auto secure = burner::net::ClientBuilder(burner::net::ClientProfile::Hardened)
 
 Hardened requires peer and hostname verification, stack isolation, DoH-first routing, an app response verifier, and an app-owned trust mount. Persistent `WithMtls(...)` credentials are rejected; use `WithMtlsProvider(...)`.
 
+Provider callbacks are fail-closed: returning `false`, or returning enabled mTLS without both certificate and key material, aborts before transport. Hardened DoH URLs must be non-empty `https://` URLs. A request cannot combine `OnChunkReceived(...)` with a response verifier because streamed bytes would escape before whole-response verification.
+
 ## Integration Paths
 
 ### 1. Standard CMake

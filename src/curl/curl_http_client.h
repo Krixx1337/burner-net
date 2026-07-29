@@ -35,6 +35,7 @@ public:
     ErrorCode InitError() const { return m_init_error; }
 
 private:
+    friend struct CurlHttpClientTestAccess;
     HttpResponse PerformOnceInternal(const HttpRequest& request, const std::optional<DnsStrategy>& strategy);
     HttpResponse PerformOnce(HttpRequest request, std::optional<DnsStrategy> strategy);
     bool ShouldRetry(const HttpRequest& request, const HttpResponse& response, int attempt) const;
@@ -45,7 +46,7 @@ private:
     static int ProgressCallback(void* clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal, curl_off_t ulnow);
     static int PrereqCallback(void* clientp, char* conn_primary_ip, char* conn_local_ip, int conn_primary_port, int conn_local_port);
 
-    void ApplyCommonOptions(
+    ErrorCode ApplyCommonOptions(
         const HttpRequest& request,
         HttpResponse& response,
         char* error_buffer,
@@ -54,11 +55,10 @@ private:
         DarkString* redirect_protocol_scheme,
         DarkString* user_agent_storage,
         const std::optional<DnsStrategy>& strategy);
-    void ApplyMethodAndBody(const HttpRequest& request, DarkString* custom_method_storage, BodyReadContext* read_ctx);
-    void ApplyTlsOptions(DarkString* cert_type_storage, DarkString* key_type_storage);
-    void ApplyDnsStrategy(const DnsStrategy& strategy);
-    void ClearDnsStrategy();
-    void ResetMethodState();
+    ErrorCode ApplyMethodAndBody(const HttpRequest& request, DarkString* custom_method_storage, BodyReadContext* read_ctx);
+    ErrorCode ApplyTlsOptions(DarkString* cert_type_storage, DarkString* key_type_storage);
+    ErrorCode ApplyDnsStrategy(const DnsStrategy& strategy);
+    ErrorCode ClearDnsStrategy();
     void WipeResponse(HttpResponse& response) const;
     void WipeHeaderList(curl_slist* headers) const;
 

@@ -12,14 +12,14 @@ Standard uses system CA, DNS, and proxy behavior with TLS peer and hostname veri
 Standard intentionally follows normal host networking behavior for compatibility. Applications facing a hostile host must select `ClientProfile::Hardened`; its builder validation fails closed when required controls are absent.
 
 *   **Proxy Blackholing:** Hardened disables system proxy use. Standard preserves system proxy behavior for ordinary desktop, VPN, and enterprise environments.
-*   **Application-Owned Trust:** Hardened requires at least one mTLS provider, pinned key, explicit transport check, or custom security policy. Pinning remains supported but is not mandatory when another trust design is used.
+*   **Application-Owned Trust:** Hardened requires a pinned key, explicit transport check, or custom security policy that can be validated at build time. An mTLS provider remains fail-closed request authentication, but provider presence alone does not prove a build-time trust mount. Pinning remains supported but is not mandatory when another explicit trust design is used.
 *   **Explicit Secure DNS:** Hardened requires at least one application-selected DoH strategy. System DNS is allowed only as an explicit fallback after DoH. BurnerNet bakes no public resolver endpoints into default state.
 *   **TLS Verification:** Both profiles enable peer and hostname verification. Hardened refuses to build if either is disabled and the transport enforces TLS 1.2+.
 
 ## 2. Ephemeral Memory (Short-Lived Secrets)
 If a secret exists in memory for more than a few milliseconds, it is a target for memory dumpers and scanners.
 
-*   **Provider Pattern:** Provider callbacks fetch tokens, keys, and certificates close to use. Hardened rejects persistent `WithMtls(...)` credentials and requires `WithMtlsProvider(...)`; Standard retains the legacy API for compatibility.
+*   **Provider Pattern:** Provider callbacks fetch tokens, keys, and certificates close to use. Hardened rejects persistent `WithMtls(...)` credentials; Hardened applications using mTLS must use `WithMtlsProvider(...)`. Standard retains the legacy API for compatibility.
 *   **Aggressive Wiping:** Every temporary buffer used for sensitive data is scrubbed using `SecureZeroMemory` immediately after use.
 
 ## 3. Stringless Core (No Plaintext Breadcrumbs or Magic Numbers)

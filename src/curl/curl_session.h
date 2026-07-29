@@ -3,6 +3,7 @@
 #include "curl_api.h"
 #include "burner/net/http.h"
 #include "burner/net/policy.h"
+#include "internal/runtime_module_registry.h"
 
 #include <memory>
 
@@ -10,7 +11,7 @@ namespace burner::net {
 
 class CurlSession {
 public:
-    explicit CurlSession(CurlApi api);
+    explicit CurlSession(CurlApi api, detail::RuntimeModuleLease module_lease = {});
     ~CurlSession();
 
     CurlSession(const CurlSession&) = delete;
@@ -25,7 +26,10 @@ public:
     void Reset() const;
 
 private:
+    friend struct CurlHttpClientTestAccess;
+
     CurlApi m_api;
+    detail::RuntimeModuleLease m_module_lease;
     CURL* m_easy = nullptr;
 };
 

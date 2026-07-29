@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <cstdint>
+#include <limits>
 #include <ostream>
 #include <span>
 #include <string>
@@ -29,13 +30,32 @@
 #include "burner/net/detail/wiping_alloc_engine.h"
 #include "curl/curl_http_client.h"
 #include "curl/curl_http_client_internal.h"
+#include "curl/curl_session.h"
 #include "internal/header_validation.h"
 
 #ifdef _WIN32
 #include <windows.h>
 #endif
 
+namespace burner::net {
+
+struct CurlHttpClientTestAccess final {
+    static CurlApi* MutableApi(CurlHttpClient& client) noexcept {
+        return client.m_session != nullptr ? &client.m_session->m_api : nullptr;
+    }
+};
+
+} // namespace burner::net
+
 namespace {
+
+CURLcode FailEverySetopt(CURL*, CURLoption, ...) {
+    return CURLE_UNKNOWN_OPTION;
+}
+
+curl_slist* FailEverySlistAppend(curl_slist*, const char*) {
+    return nullptr;
+}
 
 struct RejectPreFlightPolicy final : burner::net::ISecurityPolicy {
     bool OnPreRequest(burner::net::HttpRequest&) const {
@@ -182,6 +202,22 @@ TEST_CASE("header validation accepts ordinary header tokens") {
     CHECK(burner::net::internal::IsValidHeaderValue("Bearer abc.def"));
 }
 
+TEST_CASE("header and bearer validation reject controls") {
+    CHECK_FALSE(burner::net::internal::IsValidHeaderValue(std::string_view("abc\0def", 7)));
+    CHECK_FALSE(burner::net::internal::IsValidHeaderValue("abc\x1f"));
+    CHECK_FALSE(burner::net::internal::IsValidBearerToken("token value"));
+    CHECK_FALSE(burner::net::internal::IsValidBearerToken(std::string_view("abc\0def", 7)));
+    CHECK(burner::net::internal::IsValidBearerToken("abc.def-_~+/="));
+}
+
+TEST_CASE("HTTPS URL validation requires a non-empty authority") {
+    CHECK(burner::net::internal::IsValidHttpsUrl("https://resolver.example/dns-query"));
+    CHECK_FALSE(burner::net::internal::IsValidHttpsUrl(""));
+    CHECK_FALSE(burner::net::internal::IsValidHttpsUrl("http://resolver.example/dns-query"));
+    CHECK_FALSE(burner::net::internal::IsValidHttpsUrl("https:///dns-query"));
+    CHECK_FALSE(burner::net::internal::IsValidHttpsUrl("https://user@resolver.example/dns-query"));
+}
+
 TEST_CASE("obfuscation helper returns expected plaintext") {
     const std::string value = BURNER_OBF_LITERAL("test");
     CHECK(value == "test");
@@ -283,6 +319,22 @@ TEST_CASE("dark allocator returns 16-byte-aligned user pointers") {
     burner::net::detail::alloc::dark_free(ptr);
 }
 
+TEST_CASE("wiping allocator rejects arithmetic overflow") {
+    CHECK(
+        burner::net::detail::alloc::dark_malloc(
+            (std::numeric_limits<std::size_t>::max)()) == nullptr);
+    CHECK(
+        burner::net::detail::alloc::dark_calloc(
+            (std::numeric_limits<std::size_t>::max)(),
+            2) == nullptr);
+}
+
+TEST_CASE("generic secure wipe preserves non-trivial object lifetimes") {
+    std::vector<std::string> values{"alpha", "beta"};
+    burner::net::SecureWipe(values);
+    CHECK(values.empty());
+}
+
 TEST_CASE("response verifier accepts lambda callbacks") {
     burner::net::ResponseVerifier verifier(
         [](const burner::net::HttpRequest&, const burner::net::HttpResponse& response, burner::net::ErrorCode* reason) {
@@ -348,6 +400,21 @@ TEST_CASE("bootstrap runtime rejects missing integrity provider in fail-closed m
 #endif
 }
 
+TEST_CASE("bootstrap runtime rejects non-basename dependency entries") {
+#ifdef _WIN32
+    burner::net::BootstrapConfig boot{};
+    boot.link_mode = burner::net::LinkMode::Dynamic;
+    boot.dependency_directory = std::filesystem::current_path();
+    boot.dependency_dlls.push_back(L"..\\untrusted.dll");
+
+    const burner::net::BootstrapResult init = burner::net::InitializeNetworkingRuntime(boot);
+    CHECK_FALSE(init.success);
+    CHECK(init.code == burner::net::ErrorCode::InvalidBootstrapDependency);
+#else
+    CHECK(true);
+#endif
+}
+
 TEST_CASE("bootstrap runtime loads packaged redist like the bootstrap example") {
 #ifdef _WIN32
     const std::filesystem::path executable_path = CurrentExecutablePath();
@@ -385,10 +452,14 @@ TEST_CASE("bootstrap runtime loads packaged redist like the bootstrap example") 
 
     INFO("BURNERNET_HARDEN_IMPORTS=" << BURNERNET_HARDEN_IMPORTS);
     CHECK(init.success);
+#if BURNERNET_HARDEN_IMPORTS
+    CHECK(init.code == burner::net::ErrorCode::BootstrapSkip);
+#else
     CHECK(init.code == burner::net::ErrorCode::BootstrapLoaded);
     CHECK(integrity_called);
     CHECK(seen_path == curl_path);
     CHECK(seen_name == curl_name);
+#endif
 #else
     const burner::net::BootstrapResult init =
         burner::net::InitializeNetworkingRuntime(burner::net::BootstrapConfig{});
@@ -840,16 +911,19 @@ TEST_CASE("security auditor flags unexpected success as compromised") {
 
 TEST_CASE("security auditor treats an empty canary set as a no-op") {
     SecurityAuditorStubClient client(nullptr);
-    CHECK(burner::net::SecurityAuditor::CheckTransportIntegrity(&client, {}));
+    CHECK(
+        burner::net::SecurityAuditor::AuditTransportTrust(&client, {}) ==
+        burner::net::AuditResult::Inconclusive);
+    CHECK_FALSE(burner::net::SecurityAuditor::CheckTransportIntegrity(&client, {}));
 }
 
-TEST_CASE("security auditor accepts empty canary set when policy is present and module health is intact") {
+TEST_CASE("security auditor rejects empty canary set when policy is present") {
     RecordingPolicy policy{};
     burner::net::SecurityPolicy erased_policy = policy;
     SecurityAuditorStubClient client(&erased_policy);
 
-    CHECK(burner::net::SecurityAuditor::CheckTransportIntegrity(&client, &erased_policy, {}));
-    CHECK(*policy.tamper_count == 0);
+    CHECK_FALSE(burner::net::SecurityAuditor::CheckTransportIntegrity(&client, &erased_policy, {}));
+    CHECK(*policy.tamper_count == 1);
 }
 
 TEST_CASE("builder tamper action layers on top of wrapped policy tamper handling") {
@@ -991,6 +1065,17 @@ TEST_CASE("Hardened profile reports one stable error per missing control") {
             const HttpRequest&, const HttpResponse&, ErrorCode*) { return true; });
         CHECK(builder.Build().error == ErrorCode::HardenedDohRequired);
     }
+    SUBCASE("invalid DoH URL") {
+        ClientBuilder builder(ClientProfile::Hardened);
+        builder
+            .WithDnsFallback(DnsMode::Doh, "http://resolver.example/dns-query", "DoH")
+            .WithPinnedKey("sha256//test")
+            .WithResponseVerifier([](
+                const HttpRequest&,
+                const HttpResponse&,
+                ErrorCode*) { return true; });
+        CHECK(builder.Build().error == ErrorCode::InvalidHardenedDoh);
+    }
     SUBCASE("system DNS must use explicit fallback API") {
         ClientBuilder builder(ClientProfile::Hardened);
         builder
@@ -1107,6 +1192,99 @@ TEST_CASE("streamed bodies fail closed for non-post methods") {
     CHECK_FALSE(response.TransportOk());
     CHECK(response.transport_code == static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT));
     CHECK(response.transport_error == burner::net::ErrorCode::UnsupportedStreamedMethod);
+}
+
+TEST_CASE("verified streaming is rejected before preflight and transport") {
+    int preflight_calls = 0;
+    auto build_result = burner::net::ClientBuilder()
+        .WithPreFlight([&](const burner::net::HttpRequest&) {
+            ++preflight_calls;
+            return true;
+        })
+        .WithResponseVerifier([](
+            const burner::net::HttpRequest&,
+            const burner::net::HttpResponse&,
+            burner::net::ErrorCode*) { return true; })
+        .Build();
+    REQUIRE(build_result.Ok());
+
+    const auto response = build_result.client
+        ->Get("https://example.com")
+        .OnChunkReceived([](const std::uint8_t*, std::size_t) {})
+        .Send();
+
+    CHECK(response.transport_error == burner::net::ErrorCode::UnsupportedVerifiedStreaming);
+    CHECK(response.verification_error == burner::net::ErrorCode::UnsupportedVerifiedStreaming);
+    CHECK(preflight_calls == 0);
+}
+
+TEST_CASE("credential providers fail closed before transport") {
+    SUBCASE("mTLS provider failure") {
+        auto result = burner::net::ClientBuilder()
+            .WithMtlsProvider([](burner::net::MtlsCredentials&) { return false; })
+            .Build();
+        REQUIRE(result.Ok());
+        const auto response = result.client->Get("https://example.com").Send();
+        CHECK(response.transport_error == burner::net::ErrorCode::CredentialProviderFailed);
+    }
+    SUBCASE("unvalidated mTLS provider is not a build-time trust mount") {
+        burner::net::ClientBuilder builder(burner::net::ClientProfile::Hardened);
+        AddHardenedDohAndVerifier(builder);
+        builder.WithMtlsProvider([](burner::net::MtlsCredentials& out) {
+            out.enabled = true;
+            out.cert_pem = "certificate";
+            out.key_pem = "key";
+            return true;
+        });
+        CHECK(builder.Build().error == burner::net::ErrorCode::HardenedTrustMountRequired);
+    }
+
+    SUBCASE("empty bearer token") {
+        auto result = burner::net::ClientBuilder()
+            .WithBearerTokenProvider([](burner::net::DarkString& out) {
+                out.clear();
+                return true;
+            })
+            .Build();
+        REQUIRE(result.Ok());
+        const auto response = result.client->Get("https://example.com").Send();
+        CHECK(response.transport_error == burner::net::ErrorCode::InvalidCredentials);
+    }
+}
+
+TEST_CASE("curl option and header allocation failures fail closed") {
+    SUBCASE("setopt failure") {
+        auto result = burner::net::ClientBuilder().Build();
+        REQUIRE(result.Ok());
+        auto* api = burner::net::CurlHttpClientTestAccess::MutableApi(
+            *result.client->Raw());
+        REQUIRE(api != nullptr);
+        const auto original = api->easy_setopt.get();
+        api->easy_setopt = &FailEverySetopt;
+
+        const auto response = result.client->Get("https://example.com").Send();
+        api->easy_setopt = original;
+
+        CHECK(response.transport_error == burner::net::ErrorCode::CurlOptionFailed);
+    }
+
+    SUBCASE("slist append failure") {
+        auto result = burner::net::ClientBuilder().Build();
+        REQUIRE(result.Ok());
+        auto* api = burner::net::CurlHttpClientTestAccess::MutableApi(
+            *result.client->Raw());
+        REQUIRE(api != nullptr);
+        const auto original = api->slist_append.get();
+        api->slist_append = &FailEverySlistAppend;
+
+        const auto response = result.client
+            ->Get("https://example.com")
+            .WithHeader("X-Test", "value")
+            .Send();
+        api->slist_append = original;
+
+        CHECK(response.transport_error == burner::net::ErrorCode::OutOfMemory);
+    }
 }
 
 TEST_CASE("stack isolation executes transport on a distinct thread") {

@@ -27,6 +27,10 @@ size_t CurlHttpClient::WriteBodyCallback(void* contents, size_t size, size_t nme
         return 0;
     }
 
+    if (total > (std::numeric_limits<std::size_t>::max)() - ctx->streamed_body_bytes) {
+        ctx->limit_exceeded = true;
+        return 0;
+    }
     ctx->streamed_body_bytes += total;
 
     if (detail::WouldExceedBodyLimit(ctx->streamed_body_bytes - total, total, ctx->max_body_bytes)) {
@@ -44,6 +48,9 @@ size_t CurlHttpClient::WriteBodyCallback(void* contents, size_t size, size_t nme
 }
 
 size_t CurlHttpClient::WriteHeaderCallback(void* contents, size_t size, size_t nmemb, void* user_data) {
+    if (size > 0 && nmemb > ((std::numeric_limits<size_t>::max)() / size)) {
+        return 0;
+    }
     const size_t total = size * nmemb;
     if (user_data == nullptr || contents == nullptr) {
         return total;

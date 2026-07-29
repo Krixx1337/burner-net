@@ -238,7 +238,6 @@ private:
     bool m_has_custom_security_policy = false;
     bool m_has_transport_check = false;
     bool m_has_persistent_mtls = false;
-    bool m_has_mtls_provider = false;
 };
 
 } // namespace burner::net

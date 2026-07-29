@@ -75,7 +75,15 @@ enum class ErrorCode : uint32_t {
     HardenedSystemDnsOrder = 40,
     HardenedResponseVerifierRequired = 41,
     HardenedTrustMountRequired = 42,
-    HardenedPersistentMtlsForbidden = 43
+    HardenedPersistentMtlsForbidden = 43,
+    CurlOptionFailed = 44,
+    CredentialProviderFailed = 45,
+    InvalidCredentials = 46,
+    UnsupportedVerifiedStreaming = 47,
+    InvalidHardenedDoh = 48,
+    InvalidBootstrapDependency = 49,
+    NetworkingRuntimeUnavailable = 50,
+    OutOfMemory = 51
 };
 
 inline constexpr bool IsSuccessCode(ErrorCode code) {

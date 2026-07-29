@@ -8,6 +8,7 @@
 #include "internal/openssl_sync.h"
 
 #include <mutex>
+#include <new>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -74,8 +75,6 @@ CurlApi MakeWrappedCurlApi() {
 }
 
 #if BURNERNET_HARDEN_IMPORTS && defined(_WIN32)
-constexpr std::uint32_t kLibCurlHash = ::burner::net::detail::fnv1a_ci("libcurl.dll");
-constexpr std::uint32_t kLibCurlDHash = ::burner::net::detail::fnv1a_ci("libcurl-d.dll");
 constexpr std::uint32_t kCurlEasyInitHash = ::burner::net::detail::fnv1a("curl_easy_init");
 constexpr std::uint32_t kCurlEasyCleanupHash = ::burner::net::detail::fnv1a("curl_easy_cleanup");
 constexpr std::uint32_t kCurlEasyResetHash = ::burner::net::detail::fnv1a("curl_easy_reset");
@@ -87,16 +86,15 @@ constexpr std::uint32_t kCurlSlistFreeAllHash = ::burner::net::detail::fnv1a("cu
 constexpr std::uint32_t kCurlEasyStrerrorHash = ::burner::net::detail::fnv1a("curl_easy_strerror");
 constexpr std::uint32_t kCurlGlobalInitMemHash = ::burner::net::detail::kCurlGlobalInitMemHash;
 
-HMODULE ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
+detail::RuntimeModuleLease ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
     if (!config.curl_module_name.empty()) {
-        return static_cast<HMODULE>(::burner::net::detail::KernelResolver::GetSystemModule(
-            ::burner::net::detail::fnv1a_runtime_ci(config.curl_module_name)));
+        return detail::AcquireRuntimeModule(config.curl_module_name);
     }
 
 #if defined(_DEBUG)
-    return static_cast<HMODULE>(::burner::net::detail::KernelResolver::GetSystemModule(kLibCurlDHash));
+    return detail::AcquireRuntimeModule("libcurl-d.dll");
 #else
-    return static_cast<HMODULE>(::burner::net::detail::KernelResolver::GetSystemModule(kLibCurlHash));
+    return detail::AcquireRuntimeModule("libcurl.dll");
 #endif
 }
 
@@ -122,12 +120,18 @@ bool IsCurlApiComplete(const CurlApi& api) {
         static_cast<bool>(api.easy_strerror);
 }
 
-CurlApi MakeResolvedCurlApi(const ClientConfig& config) {
+CurlApi MakeResolvedCurlApi(const ClientConfig& config, detail::RuntimeModuleLease* module_lease) {
     CurlApi api{};
 #ifdef _WIN32
-    const HMODULE curl_module = ResolveConfiguredCurlModule(config);
+    detail::RuntimeModuleLease lease = ResolveConfiguredCurlModule(config);
+    const HMODULE curl_module = lease
+        ? static_cast<HMODULE>(lease->handle)
+        : nullptr;
     if (curl_module == nullptr) {
         return api;
+    }
+    if (module_lease != nullptr) {
+        *module_lease = std::move(lease);
     }
 
     api.easy_init = ResolveCurlExportByHash<CurlEasyInitFn>(curl_module, kCurlEasyInitHash);
@@ -166,8 +170,9 @@ void EnsureCurlGlobalZapped(const CurlApi& api, const SecurityPolicy& policy) no
     });
 }
 
-CurlSession::CurlSession(CurlApi api)
+CurlSession::CurlSession(CurlApi api, detail::RuntimeModuleLease module_lease)
     : m_api(std::move(api)),
+      m_module_lease(std::move(module_lease)),
       m_easy(m_api.easy_init ? m_api.easy_init() : nullptr) {}
 
 CurlSession::~CurlSession() {
@@ -205,11 +210,14 @@ std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, Error
     }
 
     CurlApi curl_api{};
+    detail::RuntimeModuleLease module_lease;
 #if BURNERNET_HARDEN_IMPORTS
 #ifdef _WIN32
-    curl_api = MakeResolvedCurlApi(config);
+    curl_api = MakeResolvedCurlApi(config, &module_lease);
     if (!IsCurlApiComplete(curl_api)) {
-        *init_error = ErrorCode::CurlApiIncomplete;
+        *init_error = module_lease
+            ? ErrorCode::CurlApiIncomplete
+            : ErrorCode::NetworkingRuntimeUnavailable;
         return nullptr;
     }
 #else
@@ -224,7 +232,12 @@ std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, Error
     // Inject wiping allocators into libcurl before the first easy_init call.
     if (GlobalAllocatorHooksEnabled()) EnsureCurlGlobalZapped(curl_api, config.security_policy);
 
-    auto session = std::unique_ptr<CurlSession>(new CurlSession(curl_api));
+    auto session = std::unique_ptr<CurlSession>(
+        new (std::nothrow) CurlSession(curl_api, std::move(module_lease)));
+    if (!session) {
+        *init_error = ErrorCode::OutOfMemory;
+        return nullptr;
+    }
     if (!session->IsInitialized()) {
         *init_error = ErrorCode::InitCurl;
         return nullptr;

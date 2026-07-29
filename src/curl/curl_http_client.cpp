@@ -152,39 +152,33 @@ int CurlHttpClient::PrereqCallback(
 }
 
 HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
+    if (request.on_chunk_received && m_config.response_verifier.Enabled()) {
+        HttpResponse response{};
+        response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
+        response.transport_error = ErrorCode::UnsupportedVerifiedStreaming;
+        response.verified = false;
+        response.verification_status = VerificationStatus::Failed;
+        response.verification_error = ErrorCode::UnsupportedVerifiedStreaming;
+        return response;
+    }
+
     TransportOrchestrator orchestrator(*this);
     HttpResponse response = orchestrator.Execute(request);
 
-    if (response.TransportOk()) {
-        if (!m_config.security_policy.OnResponseReceived(request, response)) {
-            response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
-            response.transport_error = ErrorCode::HeartbeatAbort;
-            if (m_config.require_response_verification) {
-                response.verified = false;
-                response.verification_status = VerificationStatus::Failed;
-                response.verification_error = ErrorCode::VerifyGeneric;
-            }
-            WipeResponse(response);
-            return response;
-        }
-    }
-
     if (response.TransportOk() && m_config.response_verifier.Enabled()) {
-        if (request.on_chunk_received) {
-            response.verified = false;
-            response.verification_status = VerificationStatus::Failed;
-            response.verification_error = ErrorCode::VerifyGeneric;
-            m_config.security_policy.OnSignatureVerified(false, response.verification_error);
-            return response;
-        }
         ErrorCode reason = ErrorCode::None;
         response.verified = m_config.response_verifier.Verify(request, response, &reason);
         response.verification_status = response.verified
             ? VerificationStatus::Passed
             : VerificationStatus::Failed;
+        if (!response.verified && reason == ErrorCode::None) {
+            reason = ErrorCode::VerifyGeneric;
+        }
         m_config.security_policy.OnSignatureVerified(response.verified, reason);
         if (!response.verified) {
-            response.verification_error = (reason == ErrorCode::None) ? ErrorCode::VerifyGeneric : reason;
+            response.verification_error = reason;
+            WipeResponse(response);
+            return response;
         }
     }
 
@@ -193,6 +187,15 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
         response.verified = false;
         response.verification_status = VerificationStatus::Failed;
         response.verification_error = ErrorCode::VerifyGeneric;
+        WipeResponse(response);
+        return response;
+    }
+
+    if (response.TransportOk() &&
+        !m_config.security_policy.OnResponseReceived(request, response)) {
+        response.transport_code = static_cast<int>(CURLE_ABORTED_BY_CALLBACK);
+        response.transport_error = ErrorCode::HeartbeatAbort;
+        WipeResponse(response);
     }
 
     return response;
@@ -211,6 +214,20 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     if (easy == nullptr) {
         response.transport_code = static_cast<int>(CURLE_FAILED_INIT);
         response.transport_error = ErrorCode::NoCurlHandle;
+        return response;
+    }
+    struct EasyResetGuard final {
+        CurlSession* session;
+        ~EasyResetGuard() {
+            if (session != nullptr) {
+                session->Reset();
+            }
+        }
+    } reset_guard{m_session.get()};
+
+    if (request.timeout_seconds < 0 || request.connect_timeout_seconds < 0) {
+        response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
+        response.transport_error = ErrorCode::CurlOptionFailed;
         return response;
     }
     const std::size_t request_body_size = request.stream_payload_provider
@@ -262,7 +279,7 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     m_heartbeat_aborted = false;
     m_transport_verification_aborted = false;
     m_session->Reset();
-    ApplyCommonOptions(
+    ErrorCode option_error = ApplyCommonOptions(
         request,
         response,
         error_buffer,
@@ -271,8 +288,20 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         &redirect_protocol_scheme,
         &custom_user_agent,
         strategy);
-    ApplyMethodAndBody(request, &custom_method, &read_ctx);
-    ApplyTlsOptions(&cert_type, &key_type);
+    if (option_error == ErrorCode::None) {
+        option_error = ApplyMethodAndBody(request, &custom_method, &read_ctx);
+    }
+    if (option_error == ErrorCode::None) {
+        option_error = ApplyTlsOptions(&cert_type, &key_type);
+    }
+    if (option_error != ErrorCode::None) {
+        response.transport_code = option_error == ErrorCode::OutOfMemory
+            ? static_cast<int>(CURLE_OUT_OF_MEMORY)
+            : static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
+        response.transport_error = option_error;
+        wipe_error_buffer();
+        return response;
+    }
 
     const CurlApi& curl_api = m_session->Api();
     curl_slist* headers = nullptr;
@@ -285,8 +314,16 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
             return response;
         }
         DarkString header = BuildHeaderLine(name, value);
-        headers = curl_api.slist_append(headers, header.c_str());
+        curl_slist* const appended = curl_api.slist_append(headers, header.c_str());
         SecureWipe(header);
+        if (appended == nullptr) {
+            response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
+            response.transport_error = ErrorCode::OutOfMemory;
+            WipeHeaderList(headers);
+            wipe_error_buffer();
+            return response;
+        }
+        headers = appended;
     }
     for (const auto& [name, value] : request.headers) {
         if (!internal::IsValidHeaderName(name) || !internal::IsValidHeaderValue(value)) {
@@ -297,20 +334,40 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
             return response;
         }
         DarkString header = BuildHeaderLine(name, value);
-        headers = curl_api.slist_append(headers, header.c_str());
+        curl_slist* const appended = curl_api.slist_append(headers, header.c_str());
         SecureWipe(header);
+        if (appended == nullptr) {
+            response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
+            response.transport_error = ErrorCode::OutOfMemory;
+            WipeHeaderList(headers);
+            wipe_error_buffer();
+            return response;
+        }
+        headers = appended;
     }
 
     DarkString active_bearer_token;
+    bool token_provider_ok = true;
     if (request.bearer_token_provider) {
-        (void)request.bearer_token_provider(active_bearer_token);
+        token_provider_ok = request.bearer_token_provider(active_bearer_token);
     } else if (m_config.bearer_token_provider) {
-        (void)m_config.bearer_token_provider(active_bearer_token);
+        token_provider_ok = m_config.bearer_token_provider(active_bearer_token);
     }
 
     const std::string_view active_bearer = active_bearer_token;
     const bool has_secure_token = static_cast<bool>(request.bearer_token_provider) ||
         static_cast<bool>(m_config.bearer_token_provider);
+    if (has_secure_token &&
+        (!token_provider_ok || !internal::IsValidBearerToken(active_bearer))) {
+        response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
+        response.transport_error = token_provider_ok
+            ? ErrorCode::InvalidCredentials
+            : ErrorCode::CredentialProviderFailed;
+        SecureWipe(active_bearer_token);
+        WipeHeaderList(headers);
+        wipe_error_buffer();
+        return response;
+    }
     if (request.follow_redirects && has_secure_token) {
         response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
         response.transport_error = ErrorCode::RedirectAuth;
@@ -327,13 +384,31 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         auth.append(auth_prefix);
         auth.append(active_bearer.data(), active_bearer.size());
         SecureWipe(auth_prefix);
-        headers = curl_api.slist_append(headers, auth.c_str());
+        curl_slist* const appended = curl_api.slist_append(headers, auth.c_str());
         SecureWipe(auth);
+        if (appended == nullptr) {
+            response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
+            response.transport_error = ErrorCode::OutOfMemory;
+            SecureWipe(active_bearer_token);
+            WipeHeaderList(headers);
+            wipe_error_buffer();
+            return response;
+        }
+        headers = appended;
     }
     SecureWipe(active_bearer_token);
 
     if (headers != nullptr) {
-        curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPHEADER))), headers);
+        if (curl_api.easy_setopt(
+                easy,
+                static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPHEADER))),
+                headers) != CURLE_OK) {
+            response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
+            response.transport_error = ErrorCode::CurlOptionFailed;
+            WipeHeaderList(headers);
+            wipe_error_buffer();
+            return response;
+        }
     }
 
     curl_slist* bootstrap_resolve_entries = nullptr;
@@ -347,30 +422,43 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         SecureWipe(expiring_bootstrap_entry);
         if (bootstrap_resolve_entries == nullptr) {
             response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
-            response.transport_error = ErrorCode::CurlGeneric;
-            curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPHEADER))), nullptr);
+            response.transport_error = ErrorCode::OutOfMemory;
             WipeHeaderList(headers);
             wipe_error_buffer();
             return response;
         }
-        curl_api.easy_setopt(
+        if (curl_api.easy_setopt(
             easy,
             static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_RESOLVE))),
-            bootstrap_resolve_entries);
+            bootstrap_resolve_entries) != CURLE_OK) {
+            response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
+            response.transport_error = ErrorCode::CurlOptionFailed;
+            WipeHeaderList(bootstrap_resolve_entries);
+            WipeHeaderList(headers);
+            wipe_error_buffer();
+            return response;
+        }
     }
 
     m_active_url = request.url.c_str();
-    curl_api.easy_setopt(
+    if (curl_api.easy_setopt(
         easy,
         static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PREREQFUNCTION))),
-        &CurlHttpClient::PrereqCallback);
-    curl_api.easy_setopt(
+        &CurlHttpClient::PrereqCallback) != CURLE_OK ||
+        curl_api.easy_setopt(
         easy,
         static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PREREQDATA))),
-        this);
+        this) != CURLE_OK) {
+        m_active_url = nullptr;
+        response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
+        response.transport_error = ErrorCode::CurlOptionFailed;
+        WipeHeaderList(bootstrap_resolve_entries);
+        WipeHeaderList(headers);
+        wipe_error_buffer();
+        return response;
+    }
     const CURLcode code = curl_api.easy_perform(easy);
     m_active_url = nullptr;
-    curl_api.easy_setopt(easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_RESOLVE))), nullptr);
     WipeHeaderList(bootstrap_resolve_entries);
 
     // Wipe the stack region used by the transport chain (TLS keys, header
@@ -386,7 +474,9 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
 
     response.transport_code = static_cast<int>(code);
     if (code != CURLE_OK) {
-        if (code == CURLE_PEER_FAILED_VERIFICATION
+        if (code == CURLE_OUT_OF_MEMORY) {
+            response.transport_error = ErrorCode::OutOfMemory;
+        } else if (code == CURLE_PEER_FAILED_VERIFICATION
 #ifdef CURLE_SSL_CACERT
             || code == CURLE_SSL_CACERT
 #endif
@@ -445,7 +535,6 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         WipeHeaderList(headers);
     }
 
-    ResetMethodState();
     wipe_error_buffer();
     return response;
 }
@@ -460,7 +549,7 @@ HttpResponse CurlHttpClient::PerformOnce(HttpRequest request, std::optional<DnsS
     if (raw_state == nullptr) {
         HttpResponse response{};
         response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
-        response.transport_error = ErrorCode::CurlGeneric;
+        response.transport_error = ErrorCode::OutOfMemory;
         return response;
     }
 

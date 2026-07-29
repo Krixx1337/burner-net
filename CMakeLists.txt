@@ -213,6 +213,21 @@ if(BURNERNET_BUILD_TESTING)
             -DBINARY=$<TARGET_FILE:BurnerNetErrorModeTests>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyNoDiagnosticStrings.cmake
     )
+
+    add_executable(BurnerNetBootstrapLifecycleTests
+        tests/bootstrap_lifecycle_tests.cpp
+    )
+    target_include_directories(BurnerNetBootstrapLifecycleTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(BurnerNetBootstrapLifecycleTests PRIVATE BurnerNet)
+    if(MSVC)
+        target_compile_options(BurnerNetBootstrapLifecycleTests PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(BurnerNetBootstrapLifecycleTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    burnernet_configure_runtime(BurnerNetBootstrapLifecycleTests)
+    set_target_properties(BurnerNetBootstrapLifecycleTests PROPERTIES FOLDER "Tests")
+    add_test(NAME BurnerNet.BootstrapLifecycle COMMAND BurnerNetBootstrapLifecycleTests)
+
     if(NOT BURNERNET_DIAGNOSTIC_STRINGS)
         add_test(
             NAME BurnerNet.Library.BinaryStrings

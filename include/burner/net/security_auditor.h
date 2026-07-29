@@ -43,7 +43,7 @@ public:
             return AuditResult::Compromised;
         }
         if (canary_urls.empty()) {
-            return AuditResult::Trusted;
+            return AuditResult::Inconclusive;
         }
 
         for (const auto& url : canary_urls) {

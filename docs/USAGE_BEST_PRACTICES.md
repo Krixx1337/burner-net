@@ -80,6 +80,9 @@ auto utility = burner::net::ClientBuilder()
 - Use a `ResponseVerifyFn` lambda or callable to fetch signature material only when verification runs.
 - Use `ClientBuilder::WithPreFlight(...)`, `WithEnvironmentCheck(...)`, `WithTransportCheck(...)`, `WithHeartbeat(...)`, and `WithResponseReceived(...)` for synchronous integrity checks around the transport lifecycle when you do not need a full custom `ISecurityPolicy`.
 - If you do need a full policy, implement `ISecurityPolicy` and pass it with `WithSecurityPolicy(...)`.
+- Provider success is mandatory. Returning `false`, an empty bearer token, or enabled mTLS without certificate and key material aborts the request before network I/O.
+- `WithResponseReceived(...)` runs only after the configured response verifier passes. Verification failure wipes response body, headers, and transport telemetry before returning.
+- Do not combine `OnChunkReceived(...)` with a response verifier. BurnerNet rejects that request before preflight because whole-response verification cannot authenticate bytes already delivered to a streaming callback.
 
 Avoid long-lived plaintext in:
 - global variables
@@ -165,6 +168,8 @@ If you are using `InitializeNetworkingRuntime(...)`, keep the bootstrap policy s
 - list the exact packaged runtime DLLs for the active architecture/configuration
 - keep integrity verification in application code
 - use `fail_closed=true` for sensitive flows
+- pass DLL basenames only; dependency directories and files must not be reparse points
+- destroy clients before shutdown when practical. `ShutdownNetworkingRuntime()` removes global runtime availability immediately, while DLL unload is deferred until the final live client session releases its verified module lease
 - keep the dependency directory non-user-writable when possible
 
 For concrete bootstrap setup, examples, and build-system mechanics, see:

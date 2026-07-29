@@ -1,6 +1,7 @@
 #include "burner/net/builder.h"
 
 #include "curl/curl_http_client.h"
+#include "internal/header_validation.h"
 
 namespace burner::net {
 
@@ -129,7 +130,6 @@ ClientBuilder& ClientBuilder::WithMtls(MtlsCredentials creds) {
 
 ClientBuilder& ClientBuilder::WithMtlsProvider(detail::CompactCallable<bool(MtlsCredentials&)> provider) {
     m_config.mtls_provider = std::move(provider);
-    m_has_mtls_provider = static_cast<bool>(m_config.mtls_provider);
     return *this;
 }
 
@@ -287,6 +287,10 @@ ClientBuilder::ClientBuildResult ClientBuilder::BuildThunk(ClientBuilder* builde
                 system_dns_seen = true;
             } else {
                 has_doh = true;
+                if (strategy.mode != DnsMode::Doh ||
+                    !internal::IsValidHttpsUrl(strategy.doh_url)) {
+                    return {nullptr, ErrorCode::InvalidHardenedDoh};
+                }
                 if (system_dns_seen) {
                     invalid_dns_order = true;
                 }
@@ -304,8 +308,7 @@ ClientBuilder::ClientBuildResult ClientBuilder::BuildThunk(ClientBuilder* builde
         if (builder->m_has_persistent_mtls) {
             return {nullptr, ErrorCode::HardenedPersistentMtlsForbidden};
         }
-        const bool has_trust_mount = builder->m_has_mtls_provider ||
-            !builder->m_config.pinned_public_keys.empty() ||
+        const bool has_trust_mount = !builder->m_config.pinned_public_keys.empty() ||
             builder->m_has_transport_check ||
             builder->m_has_custom_security_policy;
         if (!has_trust_mount) {

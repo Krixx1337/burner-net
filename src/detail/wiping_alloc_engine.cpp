@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 
 #ifdef _WIN32
 #include <malloc.h>
@@ -19,6 +20,9 @@ void* dark_malloc(std::size_t size) noexcept {
         return nullptr;
     }
 
+    if (size > (std::numeric_limits<std::size_t>::max)() - sizeof(AllocHeader)) {
+        return nullptr;
+    }
     const std::size_t total_size = sizeof(AllocHeader) + size;
     void* base = nullptr;
 #ifdef _WIN32
@@ -64,6 +68,9 @@ void dark_free(void* ptr) noexcept {
 // dark_calloc
 // ---------------------------------------------------------------------------
 void* dark_calloc(std::size_t nmemb, std::size_t size) noexcept {
+    if (nmemb != 0 && size > (std::numeric_limits<std::size_t>::max)() / nmemb) {
+        return nullptr;
+    }
     const std::size_t total = nmemb * size;
     void* ptr = dark_malloc(total);
     if (ptr != nullptr) {
@@ -80,7 +87,11 @@ char* dark_strdup(const char* str) noexcept {
         return nullptr;
     }
 
-    const std::size_t len = std::strlen(str) + 1;
+    const std::size_t raw_len = std::strlen(str);
+    if (raw_len == (std::numeric_limits<std::size_t>::max)()) {
+        return nullptr;
+    }
+    const std::size_t len = raw_len + 1;
     void* ptr = dark_malloc(len);
     if (ptr != nullptr) {
         std::memcpy(ptr, str, len);
