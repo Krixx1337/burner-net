@@ -49,6 +49,21 @@ struct CurlHttpClientTestAccess final {
         return CurlHttpClient::WriteHeaderCallback(
             const_cast<char*>(line.data()), 1, line.size(), context);
     }
+
+    static int CheckPeer(CurlHttpClient& client, char* remote_ip) {
+        return CurlHttpClient::PrereqCallback(
+            &client, remote_ip, nullptr, 443, 0);
+    }
+
+    static bool ConnectedPeerRejected(const CurlHttpClient& client) noexcept {
+        return client.m_connected_peer_rejected;
+    }
+
+    static bool IsRetryable(
+        const CurlHttpClient& client,
+        ErrorCode error) noexcept {
+        return client.IsRetryable(error);
+    }
 };
 
 } // namespace burner::net
@@ -728,6 +743,165 @@ TEST_CASE("connected peer guard exception fails closed") {
 
     const auto response = build_result.client->Get("https://example.com").Send();
     CHECK(response.transport_error == burner::net::ErrorCode::CallbackFailed);
+}
+
+TEST_CASE("loopback peer classification handles binary IPv4 and IPv6 forms") {
+    using burner::net::ConnectedPeer;
+    using burner::net::ConnectedPeerAddressFamily;
+    using burner::net::detail::ClassifyConnectedPeerAddress;
+    using burner::net::detail::PeerAddressClassification;
+
+    const auto classify = [](std::string_view address,
+                             ConnectedPeerAddressFamily family) {
+        return ClassifyConnectedPeerAddress(ConnectedPeer{
+            .remote_ip = address,
+            .address_family = family,
+            .remote_port = 443,
+        });
+    };
+
+    CHECK(classify("127.0.0.1", ConnectedPeerAddressFamily::IPv4) ==
+          PeerAddressClassification::Loopback);
+    CHECK(classify("127.255.255.255", ConnectedPeerAddressFamily::IPv4) ==
+          PeerAddressClassification::Loopback);
+    CHECK(classify("::1", ConnectedPeerAddressFamily::IPv6) ==
+          PeerAddressClassification::Loopback);
+    CHECK(classify("0:0:0:0:0:0:0:1", ConnectedPeerAddressFamily::IPv6) ==
+          PeerAddressClassification::Loopback);
+    CHECK(classify("::ffff:127.0.0.1", ConnectedPeerAddressFamily::IPv6) ==
+          PeerAddressClassification::Loopback);
+    CHECK(classify("::ffff:7f00:1", ConnectedPeerAddressFamily::IPv6) ==
+          PeerAddressClassification::Loopback);
+    CHECK(classify("::127.0.0.1", ConnectedPeerAddressFamily::IPv6) ==
+          PeerAddressClassification::Loopback);
+
+    CHECK(classify("126.255.255.255", ConnectedPeerAddressFamily::IPv4) ==
+          PeerAddressClassification::NonLoopback);
+    CHECK(classify("128.0.0.1", ConnectedPeerAddressFamily::IPv4) ==
+          PeerAddressClassification::NonLoopback);
+    CHECK(classify("1.1.1.1", ConnectedPeerAddressFamily::IPv4) ==
+          PeerAddressClassification::NonLoopback);
+    CHECK(classify("2606:4700:4700::1111", ConnectedPeerAddressFamily::IPv6) ==
+          PeerAddressClassification::NonLoopback);
+}
+
+TEST_CASE("loopback peer classification fails closed on invalid identity") {
+    using burner::net::ConnectedPeer;
+    using burner::net::ConnectedPeerAddressFamily;
+    using burner::net::detail::ClassifyConnectedPeerAddress;
+    using burner::net::detail::PeerAddressClassification;
+
+    const auto classify = [](std::string_view address,
+                             ConnectedPeerAddressFamily family) {
+        return ClassifyConnectedPeerAddress(ConnectedPeer{
+            .remote_ip = address,
+            .address_family = family,
+            .remote_port = 443,
+        });
+    };
+
+    const std::string embedded_nul("127.0.0.1\0evil", 14);
+    const std::string oversized(64, '1');
+
+    CHECK(classify("", ConnectedPeerAddressFamily::IPv4) ==
+          PeerAddressClassification::Invalid);
+    CHECK(classify("not-an-ip", ConnectedPeerAddressFamily::IPv4) ==
+          PeerAddressClassification::Invalid);
+    CHECK(classify(embedded_nul, ConnectedPeerAddressFamily::IPv4) ==
+          PeerAddressClassification::Invalid);
+    CHECK(classify(oversized, ConnectedPeerAddressFamily::IPv6) ==
+          PeerAddressClassification::Invalid);
+    CHECK(classify("127.0.0.1", ConnectedPeerAddressFamily::IPv6) ==
+          PeerAddressClassification::Invalid);
+    CHECK(classify("::1", ConnectedPeerAddressFamily::IPv4) ==
+          PeerAddressClassification::Invalid);
+    CHECK(classify("127.0.0.1", ConnectedPeerAddressFamily::Unknown) ==
+          PeerAddressClassification::Invalid);
+}
+
+TEST_CASE("built-in loopback rejection precedes custom peer guard") {
+    int custom_guard_calls = 0;
+    auto build_result = burner::net::ClientBuilder()
+        .WithLoopbackPeerRejection()
+        .WithConnectedPeerGuard(
+            [&](const burner::net::ConnectedPeer&) {
+                ++custom_guard_calls;
+                return true;
+            })
+        .Build();
+    REQUIRE(build_result.Ok());
+
+    std::string loopback = "127.0.0.1";
+    auto& transport = *build_result.client->Raw();
+    CHECK(
+        burner::net::CurlHttpClientTestAccess::CheckPeer(
+            transport, loopback.data()) == CURL_PREREQFUNC_ABORT);
+    CHECK(custom_guard_calls == 0);
+    CHECK(
+        burner::net::CurlHttpClientTestAccess::ConnectedPeerRejected(
+            transport));
+    CHECK_FALSE(
+        burner::net::CurlHttpClientTestAccess::IsRetryable(
+            transport,
+            burner::net::ErrorCode::TransportVerificationFailed));
+}
+
+TEST_CASE("built-in loopback rejection accepts public peer before custom guard") {
+    int custom_guard_calls = 0;
+    auto build_result = burner::net::ClientBuilder()
+        .WithLoopbackPeerRejection()
+        .WithConnectedPeerGuard(
+            [&](const burner::net::ConnectedPeer&) {
+                ++custom_guard_calls;
+                return true;
+            })
+        .Build();
+    REQUIRE(build_result.Ok());
+
+    std::string public_peer = "1.1.1.1";
+    CHECK(
+        burner::net::CurlHttpClientTestAccess::CheckPeer(
+            *build_result.client->Raw(),
+            public_peer.data()) == CURL_PREREQFUNC_OK);
+    CHECK(custom_guard_calls == 1);
+}
+
+TEST_CASE("loopback rejection is opt-in and fails closed on missing peer") {
+    auto default_result = burner::net::ClientBuilder().Build();
+    REQUIRE(default_result.Ok());
+    CHECK(
+        burner::net::CurlHttpClientTestAccess::CheckPeer(
+            *default_result.client->Raw(),
+            nullptr) == CURL_PREREQFUNC_OK);
+
+    int custom_guard_calls = 0;
+    auto disabled_result = burner::net::ClientBuilder()
+        .WithLoopbackPeerRejection(false)
+        .WithConnectedPeerGuard(
+            [&](const burner::net::ConnectedPeer&) {
+                ++custom_guard_calls;
+                return true;
+            })
+        .Build();
+    REQUIRE(disabled_result.Ok());
+    std::string loopback = "::1";
+    CHECK(
+        burner::net::CurlHttpClientTestAccess::CheckPeer(
+            *disabled_result.client->Raw(),
+            loopback.data()) == CURL_PREREQFUNC_OK);
+    CHECK(custom_guard_calls == 1);
+
+    auto enabled_result = burner::net::ClientBuilder()
+        .WithLoopbackPeerRejection()
+        .Build();
+    REQUIRE(enabled_result.Ok());
+    CHECK(
+        burner::net::CurlHttpClientTestAccess::CheckPeer(
+            *enabled_result.client->Raw(),
+            nullptr) == CURL_PREREQFUNC_ABORT);
+    CHECK(
+        burner::net::CurlHttpClientTestAccess::ConnectedPeerRejected(
+            *enabled_result.client->Raw()));
 }
 
 TEST_CASE("transfer cancellation fails closed") {

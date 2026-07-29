@@ -8,7 +8,15 @@ namespace burner::net {
 
 namespace detail {
 
+enum class PeerAddressClassification : std::uint8_t {
+    NonLoopback,
+    Loopback,
+    Invalid,
+};
+
 DarkString MakeCacheExpiringResolveEntry(std::string_view entry);
+PeerAddressClassification ClassifyConnectedPeerAddress(
+    const ConnectedPeer& peer) noexcept;
 
 } // namespace detail
 

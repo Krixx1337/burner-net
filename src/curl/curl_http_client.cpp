@@ -12,14 +12,20 @@
 #include "../internal/header_validation.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <cstdint>
 #include <cstring>
 #include <limits>
 #include <new>
 #include <thread>
 
 #ifdef _WIN32
+#include <WinSock2.h>
+#include <WS2tcpip.h>
 #include <windows.h>
+#else
+#include <arpa/inet.h>
 #endif
 
 namespace burner::net {
@@ -32,6 +38,87 @@ bool WouldExceedBodyLimit(std::size_t current_size, std::size_t chunk_size, std:
     }
 
     return current_size > max_body_bytes || chunk_size > (max_body_bytes - current_size);
+}
+
+namespace {
+
+bool CopyPeerAddress(
+    std::string_view remote_ip,
+    std::array<char, INET6_ADDRSTRLEN>& buffer) noexcept {
+    if (remote_ip.empty() ||
+        remote_ip.size() >= buffer.size() ||
+        remote_ip.find('\0') != std::string_view::npos) {
+        return false;
+    }
+
+    std::memcpy(buffer.data(), remote_ip.data(), remote_ip.size());
+    buffer[remote_ip.size()] = '\0';
+    return true;
+}
+
+bool ParseNumericAddress(int family, const char* text, void* output) noexcept {
+#ifdef _WIN32
+    return InetPtonA(family, text, output) == 1;
+#else
+    return inet_pton(family, text, output) == 1;
+#endif
+}
+
+bool BytesAreZero(const std::uint8_t* bytes, std::size_t count) noexcept {
+    for (std::size_t i = 0; i < count; ++i) {
+        if (bytes[i] != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+PeerAddressClassification ClassifyConnectedPeerAddress(
+    const ConnectedPeer& peer) noexcept {
+    std::array<char, INET6_ADDRSTRLEN> buffer{};
+    if (!CopyPeerAddress(peer.remote_ip, buffer)) {
+        return PeerAddressClassification::Invalid;
+    }
+
+    if (peer.address_family == ConnectedPeerAddressFamily::IPv4) {
+        in_addr address{};
+        if (!ParseNumericAddress(AF_INET, buffer.data(), &address)) {
+            return PeerAddressClassification::Invalid;
+        }
+
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(&address);
+        return bytes[0] == 127
+            ? PeerAddressClassification::Loopback
+            : PeerAddressClassification::NonLoopback;
+    }
+
+    if (peer.address_family == ConnectedPeerAddressFamily::IPv6) {
+        in6_addr address{};
+        if (!ParseNumericAddress(AF_INET6, buffer.data(), &address)) {
+            return PeerAddressClassification::Invalid;
+        }
+
+        const auto* bytes = reinterpret_cast<const std::uint8_t*>(&address);
+        const bool ipv6_loopback =
+            BytesAreZero(bytes, 15) && bytes[15] == 1;
+        const bool ipv4_mapped_loopback =
+            BytesAreZero(bytes, 10) &&
+            bytes[10] == 0xff &&
+            bytes[11] == 0xff &&
+            bytes[12] == 127;
+        const bool ipv4_compatible_loopback =
+            BytesAreZero(bytes, 12) && bytes[12] == 127;
+
+        return ipv6_loopback ||
+                ipv4_mapped_loopback ||
+                ipv4_compatible_loopback
+            ? PeerAddressClassification::Loopback
+            : PeerAddressClassification::NonLoopback;
+    }
+
+    return PeerAddressClassification::Invalid;
 }
 
 DarkString MakeCacheExpiringResolveEntry(std::string_view entry) {
@@ -143,7 +230,18 @@ int CurlHttpClient::PrereqCallback(
     (void)conn_local_port;
 
     auto* self = static_cast<CurlHttpClient*>(clientp);
-    if (self == nullptr || conn_primary_ip == nullptr || !self->m_config.connected_peer_guard) {
+    if (self == nullptr) {
+        return CURL_PREREQFUNC_ABORT;
+    }
+    if (!self->m_config.reject_loopback_peers &&
+        !self->m_config.connected_peer_guard) {
+        return CURL_PREREQFUNC_OK;
+    }
+    if (conn_primary_ip == nullptr) {
+        if (self->m_config.reject_loopback_peers) {
+            self->m_connected_peer_rejected = true;
+            return CURL_PREREQFUNC_ABORT;
+        }
         return CURL_PREREQFUNC_OK;
     }
 
@@ -154,6 +252,18 @@ int CurlHttpClient::PrereqCallback(
             : ConnectedPeerAddressFamily::IPv4,
         .remote_port = conn_primary_port,
     };
+
+    if (self->m_config.reject_loopback_peers &&
+        detail::ClassifyConnectedPeerAddress(peer) !=
+            detail::PeerAddressClassification::NonLoopback) {
+        self->m_connected_peer_rejected = true;
+        return CURL_PREREQFUNC_ABORT;
+    }
+
+    if (!self->m_config.connected_peer_guard) {
+        return CURL_PREREQFUNC_OK;
+    }
+
     try {
         if (self->m_config.connected_peer_guard(peer)) {
             return CURL_PREREQFUNC_OK;

@@ -8,11 +8,6 @@
 
 namespace {
 
-bool RejectLoopback(const burner::net::ConnectedPeer& peer) {
-    const std::string_view ip = peer.remote_ip;
-    return ip != "127.0.0.1" && ip != "::1";
-}
-
 burner::net::VerificationResult VerifyExampleResponse(
     const burner::net::HttpRequest&,
     const burner::net::HttpResponseView&) {
@@ -22,7 +17,7 @@ burner::net::VerificationResult VerifyExampleResponse(
 
 burner::net::ClientBuilder MakeHardenedBuilder() {
     return burner::net::ClientBuilder(burner::net::ClientProfile::Hardened)
-        .WithConnectedPeerGuard(&RejectLoopback)
+        .WithLoopbackPeerRejection()
         .WithDnsFallback(
             burner::net::DnsMode::Doh,
             "https://cloudflare-dns.com/dns-query",
@@ -94,7 +89,7 @@ int RunZeroTrustPipeline() {
 
     std::cout << "Paranoid lane: auth, licensing, and high-trust business logic.\n";
     std::cout << "Utility lane: telemetry, metadata, and lower-trust traffic.\n";
-    std::cout << "Paranoid lane uses TLS identity, a narrow peer guard, and app verifier.\n";
+    std::cout << "Paranoid lane uses TLS identity, loopback rejection, and app verifier.\n";
 
     bool canaries_configured = true;
     for (const auto& url : kTransportCanaries) {

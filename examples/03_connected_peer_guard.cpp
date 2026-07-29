@@ -1,27 +1,13 @@
 #include <iostream>
-#include <string>
-#include <string_view>
-
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
 
 namespace {
 
 bool ExampleConnectedPeerGuard(const burner::net::ConnectedPeer& peer) {
-        const std::string_view ip = peer.remote_ip;
-
-        // Fail closed on obvious local redirection such as a poisoned hosts file.
-        if (ip == "127.0.0.1" || ip == "::1") {
-            return false;
-        }
-
-        // Example of a host-specific rule: never let the API tier resolve back
-        // into RFC1918 space unless your deployment explicitly expects that.
-        if (ip.starts_with("10.") || ip.starts_with("192.168.") || ip.starts_with("172.16.")) {
-            return false;
-        }
-
-        return true;
+    // Example consumer policy layered after BurnerNet's built-in loopback
+    // rejection. Replace with the port/address rules owned by your service.
+    return peer.remote_port == 443;
 }
 
 } // namespace
@@ -29,6 +15,7 @@ bool ExampleConnectedPeerGuard(const burner::net::ConnectedPeer& peer) {
 int RunConnectedPeerGuard() {
     auto build_result = burner::net::ClientBuilder()
         .WithUseNativeCa(true)
+        .WithLoopbackPeerRejection()
         .WithConnectedPeerGuard(&ExampleConnectedPeerGuard)
         .WithUserAgent("BurnerNetExamplePeerGuard/1.0")
         .Build();
@@ -40,9 +27,7 @@ int RunConnectedPeerGuard() {
     }
 
     std::cout << "Connected-peer guard example initialized.\n";
-    std::cout << "It blocks loopback and unexpected private-network\n";
-    std::cout << "IPs for sensitive hosts.\n";
-    std::cout << "If guard rejects connected IP, BurnerNet fails request with\n";
-    std::cout << "request with TransportVerificationFailed.\n";
+    std::cout << "BurnerNet rejects loopback before the custom HTTPS-port guard.\n";
+    std::cout << "Rejection fails the request with TransportVerificationFailed.\n";
     return 0;
 }

@@ -120,6 +120,7 @@ For security-critical traffic, use the Hardened profile. `Build()` rejects missi
 ```cpp
 auto secure = burner::net::ClientBuilder(burner::net::ClientProfile::Hardened)
     .WithMtlsProvider(ProvideMtlsCredentials)
+    .WithLoopbackPeerRejection()
     .WithConnectedPeerGuard(RejectUnexpectedPeer)
     .WithDnsFallback(burner::net::DnsMode::Doh,
                      "https://resolver.example/dns-query",
@@ -130,7 +131,7 @@ auto secure = burner::net::ClientBuilder(burner::net::ClientProfile::Hardened)
     .Build();
 ```
 
-Hardened requires peer and hostname verification, stack isolation, DoH-first routing, and an app response verifier. SPKI pinning is optional and best reserved for endpoints whose key rotation the consumer controls. mTLS is provider-only. Connected-peer guards are optional defense-in-depth, not a replacement for TLS identity.
+Hardened requires peer and hostname verification, stack isolation, DoH-first routing, and an app response verifier. SPKI pinning and loopback-peer rejection are opt-in. Loopback rejection runs after TLS but before HTTP bytes; it does not block the TLS/mTLS handshake. mTLS is provider-only. Connected-peer guards are optional defense-in-depth, not a replacement for TLS identity.
 
 Provider callbacks are fail-closed: returning `false`, throwing, or returning enabled mTLS without both certificate and key material aborts before transport. Hardened DoH URLs must be non-empty `https://` URLs. Hardened redirects are unsupported in v1.3. A request cannot combine `OnChunkReceived(...)` with a response verifier because streamed bytes would escape before whole-response verification.
 

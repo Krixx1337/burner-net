@@ -46,8 +46,9 @@ auto client = burner::net::ClientBuilder()
     .WithRequestGuard([](const burner::net::HttpRequest& request) {
         return request.url.starts_with("https://");
     })
+    .WithLoopbackPeerRejection()
     .WithConnectedPeerGuard([](const burner::net::ConnectedPeer& peer) {
-        return peer.remote_ip != "127.0.0.1" && peer.remote_ip != "::1";
+        return peer.remote_port == 443;
     })
     .WithTransferCancellation([](const burner::net::TransferProgress&) {
         return !ApplicationIsShuttingDown();
@@ -57,6 +58,7 @@ auto client = burner::net::ClientBuilder()
 
 - Request guard runs once on caller thread before any provider or socket effect.
 - Credential providers run once per physical attempt on transport thread.
+- Built-in loopback rejection runs after TLS and before a custom peer guard.
 - Connected-peer guard runs after TLS, before HTTP bytes, on transport thread.
 - Transfer cancellation may run many times on transport thread.
 - Response verifier runs once on caller thread after isolated worker joins.
@@ -64,6 +66,13 @@ auto client = burner::net::ClientBuilder()
 Callbacks are client-owned. Do not retain callback-scoped views. Synchronize
 captured external state. Do not call one client concurrently from multiple
 threads.
+
+`WithLoopbackPeerRejection()` is opt-in in both profiles. It rejects IPv4
+`127.0.0.0/8`, IPv6 `::1`, mapped/compatible loopback forms, and invalid peer
+identity. It does not reject LAN/private ranges. Because libcurl's prereq phase
+runs after TLS, this prevents HTTP credentials, headers, and body from reaching
+loopback; it does not prevent the TCP/TLS or mTLS handshake. True pre-connect
+address enforcement remains deferred to v2.
 
 ## Short-lived secrets
 

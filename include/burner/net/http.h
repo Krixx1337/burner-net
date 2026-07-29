@@ -397,6 +397,7 @@ struct ClientConfig {
     detail::CompactCallable<bool(MtlsCredentials& out)> mtls_provider;
     TokenProvider bearer_token_provider;
     RequestGuard request_guard;
+    bool reject_loopback_peers = false;
     ConnectedPeerGuard connected_peer_guard;
     TransferCancellation transfer_cancellation;
     ResponseVerifyFn response_verifier;

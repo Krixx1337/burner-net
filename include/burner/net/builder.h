@@ -165,6 +165,7 @@ public:
     ClientBuilder& WithMtlsProvider(detail::CompactCallable<bool(MtlsCredentials&)> provider);
     ClientBuilder& WithBearerTokenProvider(TokenProvider provider);
     ClientBuilder& WithRequestGuard(RequestGuard guard);
+    ClientBuilder& WithLoopbackPeerRejection(bool enabled = true);
     ClientBuilder& WithConnectedPeerGuard(ConnectedPeerGuard guard);
     ClientBuilder& WithTransferCancellation(TransferCancellation cancellation);
     ClientBuilder& WithGlobalMaxBodyLimit(std::size_t max_body_bytes);

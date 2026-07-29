@@ -39,6 +39,10 @@ facing a hostile host must explicitly select `ClientProfile::Hardened`.
 - **Peer Guard:** `WithConnectedPeerGuard(...)` may reject a connected address
   after TLS and before HTTP request bytes. It is defense-in-depth, not a
   replacement for TLS identity.
+- **Opt-In Loopback Rejection:** `WithLoopbackPeerRejection()` performs
+  allocation-free binary IPv4/IPv6 classification before the custom peer guard.
+  It blocks HTTP data, not the earlier TLS/mTLS handshake. Pre-connect address
+  enforcement remains a v2 concern.
 - **Redirect Containment:** Hardened forbids redirects. Standard rejects
   redirects when credentials or response verification could cross origin
   without an explicit per-hop trust model.

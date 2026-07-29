@@ -100,6 +100,11 @@ ClientBuilder& ClientBuilder::WithRequestGuard(RequestGuard guard) {
     return *this;
 }
 
+ClientBuilder& ClientBuilder::WithLoopbackPeerRejection(bool enabled) {
+    m_config.reject_loopback_peers = enabled;
+    return *this;
+}
+
 ClientBuilder& ClientBuilder::WithConnectedPeerGuard(ConnectedPeerGuard guard) {
     m_config.connected_peer_guard = std::move(guard);
     return *this;
