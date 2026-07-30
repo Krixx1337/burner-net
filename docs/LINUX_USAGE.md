@@ -1,14 +1,16 @@
 # BurnerNet on Linux
 
-While BurnerNet is a Windows-focused library designed for deep OS-level stealth, it provides **full forensic parity** for Linux environments.
-
-This means that BurnerNet's core "Ghost" engine—**Zero-Ghost Memory** (Heap/Stack wiping) and **Stack Isolation**—works identically on Linux. Your application remains resistant to memory dumpers and tracers in WSL or native Linux environments.
+BurnerNet is Windows-focused but supports its portable owned-memory wiping,
+string obfuscation, and stack-isolation paths on Linux. v1.3 does not claim full
+forensic parity: Maximum Ghost libcurl/OpenSSL allocator interception is
+Windows-only.
 
 ## Feature Support Matrix
 
 | Feature | Linux Status | Benefit |
 | :--- | :--- | :--- |
-| **Zero-Ghost Memory** | ✅ Full Support | Automatically wipes URLs, Headers, and TLS keys from RAM. |
+| **BurnerNet-owned memory wiping** | ✅ Supported | Wipes BurnerNet-owned request, response, credential, and temporary state. |
+| **Maximum Ghost backend allocators** | ❌ Windows Only | Linux v1.3 does not claim control over all libcurl/OpenSSL allocations. |
 | **Stack Isolation** | ✅ Full Support | Severs the call stack to hide your app logic from tracers. |
 | **String Obfuscation** | ✅ Full Support | URLs and security strings are encrypted at compile-time. |
 | **Windows-style Hardened Imports** | N/A | The Windows import-hiding/bootstrap path is Windows-specific. Linux uses the normal platform linker/runtime model. |
@@ -35,9 +37,9 @@ make -j$(nproc)
 
 ## Security Implementation Details
 
-On Linux, BurnerNet uses standard `dlsym` resolution to hijack the internal memory functions of `libcurl` and `OpenSSL`.
-
-**Note on OpenSSL 3.x:** On some Linux distributions, OpenSSL may perform its first internal allocation before BurnerNet can intercept it. BurnerNet still uses best-effort OpenSSL memory-hook registration and worker-thread cleanup, but Linux does not use the Windows bootstrap loader path. For the best results, create BurnerNet clients early in process startup and avoid long-lived transports for sensitive flows.
+Linux v1.3 uses BurnerNet-owned wiping storage and best-effort OpenSSL
+worker-thread cleanup. It does not enable the process-global allocator contract
+used by Windows Maximum Ghost mode.
 
 ## Integration
 
@@ -52,4 +54,5 @@ auto client = burner::net::ClientBuilder()
 Notes:
 
 - `InitializeNetworkingRuntime(...)` is a Windows bootstrap API and is not part of the normal Linux integration path.
+- `BURNERNET_MAXIMUM_GHOST=ON` is rejected on Linux in v1.3.
 - On Linux, focus on early client creation, short-lived transports, and application-owned trust decisions rather than Windows-specific loader controls.

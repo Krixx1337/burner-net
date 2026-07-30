@@ -95,7 +95,8 @@ enum class ErrorCode : uint32_t {
     DnsResolutionFailed = 60,
     ConnectFailed = 61,
     TimedOut = 62,
-    WorkerThreadStartFailed = 63
+    WorkerThreadStartFailed = 63,
+    MaximumGhostRuntimeRequired = 64
 };
 
 inline constexpr bool IsSuccessCode(ErrorCode code) {

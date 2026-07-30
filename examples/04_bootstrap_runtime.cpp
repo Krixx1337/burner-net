@@ -39,6 +39,9 @@ int RunBootstrapRuntime() {
 
     std::cout << "Bootstrap initialization result: "
               << ErrorCodeToString(init.code) << '\n';
+#if BURNERNET_MAXIMUM_GHOST
+    std::cout << "Maximum Ghost active: allocator hooks and runtime are process-lifetime.\n";
+#endif
     std::cout << "Replace example path and integrity callback with packaged runtime checks.\n";
     return 0;
 #endif

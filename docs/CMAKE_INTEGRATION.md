@@ -81,6 +81,37 @@ This guide does **not** replace the Visual Studio `.vcxproj` path. If your downs
 - Want a single `.exe` with no extra DLLs? **Mode 3.**
 - Building something that needs to hide its dependencies? **Mode 2.**
 
+### Optional Maximum Ghost build contract
+
+Windows executables and permanently loaded modules can extend secure wiping
+into libcurl/OpenSSL:
+
+```cmake
+set(BURNERNET_MAXIMUM_GHOST ON CACHE BOOL "" FORCE)
+add_subdirectory(external/burner-net)
+```
+
+Set this before `add_subdirectory(...)`. The option defaults off and is rejected
+on non-Windows targets.
+
+Maximum Ghost requires OpenSSL-backed libcurl and an early
+`InitializeNetworkingRuntime(...)` call, even with normal linked imports:
+
+```cpp
+burner::net::BootstrapConfig boot{};
+boot.link_mode = burner::net::LinkMode::Static;
+
+const auto init = burner::net::InitializeNetworkingRuntime(boot);
+if (!init.success) {
+    return 1;
+}
+```
+
+Hook installation fails closed if another component already initialized the
+backend. Once installation begins, BurnerNet retains its owning module; active
+Maximum Ghost runtimes are not unloaded by `ShutdownNetworkingRuntime()`.
+Do not enable this option in an unloadable DLL or plugin.
+
 ### Mode 1: Local subproject integration with consumer-owned dependencies (Recommended)
 
 Use this when:

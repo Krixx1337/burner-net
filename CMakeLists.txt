@@ -13,6 +13,14 @@ option(BURNERNET_BUILD_EXAMPLES "Build BurnerNet examples" ${PROJECT_IS_TOP_LEVE
 option(BURNERNET_OBFUSCATE_STRINGS "Obfuscate BurnerNet security-anchor string literals" ON)
 option(BURNERNET_HARDEN_IMPORTS "Resolve libcurl dynamically instead of linking it into the import table" OFF)
 option(BURNERNET_DIAGNOSTIC_STRINGS "Include readable ErrorCode names" ON)
+option(BURNERNET_MAXIMUM_GHOST
+    "Install process-lifetime libcurl/OpenSSL wiping allocators (Windows only; prevents safe module unload)"
+    OFF)
+
+if(BURNERNET_MAXIMUM_GHOST AND NOT WIN32)
+    message(FATAL_ERROR
+        "BURNERNET_MAXIMUM_GHOST is supported only on Windows in BurnerNet v1.3.")
+endif()
 
 include(CTest)
 
@@ -79,6 +87,7 @@ target_compile_definitions(BurnerNet
         BURNERNET_OBFUSCATE_STRINGS=$<IF:$<BOOL:${BURNERNET_OBFUSCATE_STRINGS}>,1,0>
         BURNERNET_HARDEN_IMPORTS=$<IF:$<BOOL:${BURNERNET_HARDEN_IMPORTS}>,1,0>
         BURNERNET_DIAGNOSTIC_STRINGS=$<IF:$<BOOL:${BURNERNET_DIAGNOSTIC_STRINGS}>,1,0>
+        BURNERNET_MAXIMUM_GHOST=$<IF:$<BOOL:${BURNERNET_MAXIMUM_GHOST}>,1,0>
     PRIVATE
         BURNER_BUILDING_LIBRARY
         HOSTILE_CORE_EXPORT=BURNER_API
@@ -223,6 +232,64 @@ if(BURNERNET_BUILD_TESTING)
     burnernet_configure_runtime(BurnerNetBootstrapLifecycleTests)
     set_target_properties(BurnerNetBootstrapLifecycleTests PROPERTIES FOLDER "Tests")
     add_test(NAME BurnerNet.BootstrapLifecycle COMMAND BurnerNetBootstrapLifecycleTests)
+
+    if(BURNERNET_MAXIMUM_GHOST AND NOT BURNERNET_HARDEN_IMPORTS)
+        add_executable(BurnerNetMaximumGhostLifecycleTests
+            tests/maximum_ghost_lifecycle_tests.cpp
+        )
+        target_link_libraries(BurnerNetMaximumGhostLifecycleTests PRIVATE BurnerNet)
+        if(MSVC)
+            target_compile_options(BurnerNetMaximumGhostLifecycleTests PRIVATE /W4 /permissive- /EHsc)
+        else()
+            target_compile_options(BurnerNetMaximumGhostLifecycleTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        endif()
+        set_target_properties(BurnerNetMaximumGhostLifecycleTests PROPERTIES FOLDER "Tests")
+        add_test(NAME BurnerNet.MaximumGhostLifecycle COMMAND BurnerNetMaximumGhostLifecycleTests)
+
+        add_executable(BurnerNetMaximumGhostLateFailureTests
+            tests/maximum_ghost_late_failure_tests.cpp
+        )
+        target_link_libraries(BurnerNetMaximumGhostLateFailureTests PRIVATE BurnerNet)
+        if(MSVC)
+            target_compile_options(BurnerNetMaximumGhostLateFailureTests PRIVATE /W4 /permissive- /EHsc)
+        else()
+            target_compile_options(BurnerNetMaximumGhostLateFailureTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        endif()
+        set_target_properties(BurnerNetMaximumGhostLateFailureTests PROPERTIES FOLDER "Tests")
+        add_test(NAME BurnerNet.MaximumGhostLateFailure COMMAND BurnerNetMaximumGhostLateFailureTests)
+
+        if(BUILD_SHARED_LIBS)
+            add_library(BurnerNetMaximumGhostSharedConsumer SHARED
+                tests/maximum_ghost_shared_consumer.cpp
+            )
+            target_link_libraries(BurnerNetMaximumGhostSharedConsumer PRIVATE BurnerNet)
+            set_target_properties(BurnerNetMaximumGhostSharedConsumer PROPERTIES
+                FOLDER "Tests"
+                RUNTIME_OUTPUT_DIRECTORY "${BURNERNET_RUNTIME_DIR}"
+            )
+
+            add_executable(BurnerNetMaximumGhostSharedOwnerTests
+                tests/maximum_ghost_shared_owner_tests.cpp
+            )
+            target_compile_features(BurnerNetMaximumGhostSharedOwnerTests PRIVATE cxx_std_20)
+            add_dependencies(
+                BurnerNetMaximumGhostSharedOwnerTests
+                BurnerNetMaximumGhostSharedConsumer
+            )
+            if(MSVC)
+                target_compile_options(BurnerNetMaximumGhostSharedOwnerTests PRIVATE /W4 /permissive- /EHsc)
+            else()
+                target_compile_options(BurnerNetMaximumGhostSharedOwnerTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+            endif()
+            set_target_properties(BurnerNetMaximumGhostSharedOwnerTests PROPERTIES FOLDER "Tests")
+            add_test(
+                NAME BurnerNet.MaximumGhostSharedOwner
+                COMMAND BurnerNetMaximumGhostSharedOwnerTests
+                    $<TARGET_FILE:BurnerNetMaximumGhostSharedConsumer>
+                    $<TARGET_FILE_NAME:BurnerNet>
+            )
+        endif()
+    endif()
 
     if(NOT BURNERNET_DIAGNOSTIC_STRINGS)
         add_test(

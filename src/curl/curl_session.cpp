@@ -71,6 +71,7 @@ CurlApi MakeWrappedCurlApi() {
     api.slist_free_all = &DefaultCurlSlistFreeAll;
     api.easy_strerror = &DefaultCurlEasyStrerror;
     api.global_init_mem = reinterpret_cast<CurlGlobalInitMemFn>(&curl_global_init_mem);
+    api.global_sslset = reinterpret_cast<CurlGlobalSslSetFn>(&curl_global_sslset);
     return api;
 }
 
@@ -85,6 +86,7 @@ constexpr std::uint32_t kCurlSlistAppendHash = ::burner::net::detail::fnv1a("cur
 constexpr std::uint32_t kCurlSlistFreeAllHash = ::burner::net::detail::fnv1a("curl_slist_free_all");
 constexpr std::uint32_t kCurlEasyStrerrorHash = ::burner::net::detail::fnv1a("curl_easy_strerror");
 constexpr std::uint32_t kCurlGlobalInitMemHash = ::burner::net::detail::kCurlGlobalInitMemHash;
+constexpr std::uint32_t kCurlGlobalSslSetHash = ::burner::net::detail::kCurlGlobalSslSetHash;
 
 detail::RuntimeModuleLease ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
     if (!config.curl_module_name.empty()) {
@@ -144,6 +146,7 @@ CurlApi MakeResolvedCurlApi(const ClientConfig& config, detail::RuntimeModuleLea
     api.slist_free_all = ResolveCurlExportByHash<CurlSlistFreeAllFn>(curl_module, kCurlSlistFreeAllHash);
     api.easy_strerror = ResolveCurlExportByHash<CurlEasyStrerrorFn>(curl_module, kCurlEasyStrerrorHash);
     api.global_init_mem = ResolveCurlExportByHash<CurlGlobalInitMemFn>(curl_module, kCurlGlobalInitMemHash);
+    api.global_sslset = ResolveCurlExportByHash<CurlGlobalSslSetFn>(curl_module, kCurlGlobalSslSetHash);
 #endif
     return api;
 }
@@ -168,6 +171,23 @@ bool EnsureCurlGlobalZapped(const CurlApi& api) noexcept {
         s_result = result == CURLE_OK;
     });
     return s_result;
+}
+
+bool InstallLinkedGlobalAllocatorHooks() noexcept {
+#if BURNERNET_HARDEN_IMPORTS
+    return false;
+#else
+    const CurlApi curl_api = MakeWrappedCurlApi();
+    return InstallGlobalAllocatorHooks(curl_api);
+#endif
+}
+
+bool InstallGlobalAllocatorHooks(const CurlApi& api) noexcept {
+    if (!api.global_sslset ||
+        api.global_sslset(CURLSSLBACKEND_OPENSSL, nullptr, nullptr) != CURLSSLSET_OK) {
+        return false;
+    }
+    return TryApplyOpenSSLHooks() && EnsureCurlGlobalZapped(api);
 }
 
 CurlSession::CurlSession(CurlApi api, detail::RuntimeModuleLease module_lease)
@@ -200,12 +220,19 @@ void CurlSession::Reset() const {
 }
 
 std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, ErrorCode* init_error) {
-    // Attempt to hook OpenSSL's allocator before any TLS session begins.
-    // This handles the case where BURNERNET_HARDEN_IMPORTS=0 and libcrypto
-    // was loaded by the OS loader at process startup.
     if (init_error == nullptr) {
         return nullptr;
     }
+
+#if BURNERNET_MAXIMUM_GHOST
+    // Process-global allocators must be installed during explicit bootstrap,
+    // before any client can create backend state.
+    const ErrorCode runtime_error = detail::MaximumGhostRuntimeError();
+    if (runtime_error != ErrorCode::None) {
+        *init_error = runtime_error;
+        return nullptr;
+    }
+#endif
 
     CurlApi curl_api{};
     detail::RuntimeModuleLease module_lease;
@@ -226,13 +253,6 @@ std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, Error
     (void)config;
     curl_api = MakeWrappedCurlApi();
 #endif
-
-    // Inject wiping allocators into libcurl before the first easy_init call.
-    if (GlobalAllocatorHooksEnabled() &&
-        (!TryApplyOpenSSLHooks() || !EnsureCurlGlobalZapped(curl_api))) {
-        *init_error = ErrorCode::AllocatorHookInstallFailed;
-        return nullptr;
-    }
 
     auto session = std::unique_ptr<CurlSession>(
         new (std::nothrow) CurlSession(curl_api, std::move(module_lease)));

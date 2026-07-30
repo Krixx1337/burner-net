@@ -61,6 +61,44 @@ This guide does **not** replace the CMake integration path. If your downstream p
 - Want a single `.exe` with no extra DLLs? **Mode 3.**
 - Building something that needs to hide its dependencies? **Mode 2.**
 
+### Optional Maximum Ghost build contract
+
+For a Windows executable or permanently loaded module, add:
+
+```xml
+<PreprocessorDefinitions>
+  BURNERNET_MAXIMUM_GHOST=1;
+  %(PreprocessorDefinitions)
+</PreprocessorDefinitions>
+```
+
+The included source-drop example exposes the same choice as one MSBuild
+property:
+
+```powershell
+msbuild examples\vs-consumer\vs-consumer.vcxproj `
+  /p:Configuration=Release /p:Platform=x64 `
+  /p:BurnerNetMaximumGhost=1
+```
+
+Call `InitializeNetworkingRuntime(...)` before creating any BurnerNet client.
+For normal linked imports:
+
+```cpp
+burner::net::BootstrapConfig boot{};
+boot.link_mode = burner::net::LinkMode::Static;
+
+const auto init = burner::net::InitializeNetworkingRuntime(boot);
+if (!init.success) {
+    return 1;
+}
+```
+
+This mode requires OpenSSL-backed libcurl, installs process-global wiping
+allocators, and retains BurnerNet's owning module until process exit. Hook
+failure is terminal. Do not set this definition in an unloadable DLL or plugin.
+When omitted, it defaults to `0`.
+
 ### Mode 1: Standard source-drop (Recommended)
 
 Use this when:

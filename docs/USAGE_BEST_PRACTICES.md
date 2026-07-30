@@ -137,12 +137,16 @@ boot.integrity_provider =
     [](const std::filesystem::path& path, const std::wstring& basename) {
         return VerifyPackagedDependency(path, basename);
     };
-boot.install_global_allocator_hooks = false;
 ```
 
 Provider absence means no application integrity check. Provider presence means
-every dependency must pass; `false` and exceptions fail closed. Allocator hooks
-must remain off for unloadable modules.
+every dependency must pass; `false` and exceptions fail closed.
+
+Process-global allocator hooks are a build contract, not runtime policy. Enable
+`BURNERNET_MAXIMUM_GHOST=1` only when BurnerNet's owning module may remain
+loaded until process exit. In that build, call `InitializeNetworkingRuntime`
+before creating clients; hook failure is terminal and shutdown preserves the
+hooked runtime.
 
 ## v1.3 migration
 
@@ -158,6 +162,7 @@ must remain off for unloadable modules.
 | `HttpResponse::verified` | `WasResponseVerified()` / `verification_status` |
 | bootstrap `SecurityPolicy` | `dependency_directory_guard` |
 | `DependencyIntegrityPolicy` switches | direct `integrity_provider` |
+| `install_global_allocator_hooks` | build with `BURNERNET_MAXIMUM_GHOST=1` |
 
 No deprecated aliases remain. This avoids duplicate authority and makes v2
 migration cleaner.

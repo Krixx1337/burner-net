@@ -8,6 +8,7 @@ int main() {
     static_assert(static_cast<std::uint32_t>(ErrorCode::DisabledBackend) == 1);
     static_assert(static_cast<std::uint32_t>(ErrorCode::HardenedPersistentMtlsForbidden) == 43);
     static_assert(static_cast<std::uint32_t>(ErrorCode::OutOfMemory) == 51);
+    static_assert(static_cast<std::uint32_t>(ErrorCode::MaximumGhostRuntimeRequired) == 64);
 
     if (burner::net::ErrorCodeToString(ErrorCode::DisabledBackend) != "E1") {
         return 1;
@@ -17,6 +18,9 @@ int main() {
     }
     if (burner::net::ErrorCodeToString(ErrorCode::OutOfMemory) != "E51") {
         return 3;
+    }
+    if (burner::net::ErrorCodeToString(ErrorCode::MaximumGhostRuntimeRequired) != "E64") {
+        return 4;
     }
     return 0;
 }

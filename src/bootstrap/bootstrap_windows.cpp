@@ -34,6 +34,7 @@ bool g_bootstrap_in_progress = false;
 std::atomic<bool> g_global_allocator_hooks_enabled{false};
 
 using AddDllDirectoryFn = decltype(&AddDllDirectory);
+using GetModuleHandleExWFn = decltype(&GetModuleHandleExW);
 using LoadLibraryExWFn = decltype(&LoadLibraryExW);
 using SetDefaultDllDirectoriesFn = decltype(&SetDefaultDllDirectories);
 using RemoveDllDirectoryFn = decltype(&RemoveDllDirectory);
@@ -42,10 +43,24 @@ constexpr std::uint32_t kKernel32Hash = ::burner::net::detail::fnv1a_ci("kernel3
 constexpr std::uint32_t kKernelBaseHash = ::burner::net::detail::fnv1a_ci("kernelbase.dll");
 constexpr std::uint32_t kNtDllHash = ::burner::net::detail::fnv1a_ci("ntdll.dll");
 constexpr std::uint32_t kAddDllDirectoryHash = ::burner::net::detail::fnv1a("AddDllDirectory");
+constexpr std::uint32_t kGetModuleHandleExWHash =
+    ::burner::net::detail::fnv1a("GetModuleHandleExW");
 constexpr std::uint32_t kLoadLibraryExWHash = ::burner::net::detail::fnv1a("LoadLibraryExW");
 constexpr std::uint32_t kSetDefaultDllDirectoriesHash =
     ::burner::net::detail::fnv1a("SetDefaultDllDirectories");
 constexpr std::uint32_t kRemoveDllDirectoryHash = ::burner::net::detail::fnv1a("RemoveDllDirectory");
+
+#if BURNERNET_MAXIMUM_GHOST
+enum class MaximumGhostState : std::uint8_t {
+    Uninitialized,
+    Installing,
+    Active,
+    Failed
+};
+
+MaximumGhostState g_maximum_ghost_state = MaximumGhostState::Uninitialized;
+HMODULE g_maximum_ghost_owner_module = nullptr;
+#endif
 
 #if BURNERNET_HARDEN_IMPORTS
 constexpr std::uint32_t kLibCurlBootstrapHash  = ::burner::net::detail::fnv1a_ci("libcurl.dll");
@@ -73,6 +88,34 @@ TFn ResolveSystemPrimitive(std::uint32_t export_hash) noexcept {
 
     return nullptr;
 }
+
+#if BURNERNET_MAXIMUM_GHOST
+bool RetainMaximumGhostOwnerModule() noexcept {
+    if (g_maximum_ghost_owner_module != nullptr) {
+        return true;
+    }
+
+    const GetModuleHandleExWFn get_module_handle_ex_w =
+        ResolveSystemPrimitive<GetModuleHandleExWFn>(kGetModuleHandleExWHash);
+    if (get_module_handle_ex_w == nullptr) {
+        return false;
+    }
+
+    HMODULE owner_module = nullptr;
+    if (!get_module_handle_ex_w(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
+            reinterpret_cast<LPCWSTR>(&RetainMaximumGhostOwnerModule),
+            &owner_module) ||
+        owner_module == nullptr) {
+        return false;
+    }
+
+    // This reference deliberately has no release path. Process-global libcurl
+    // and OpenSSL callbacks may invoke BurnerNet allocators until process exit.
+    g_maximum_ghost_owner_module = owner_module;
+    return true;
+}
+#endif
 
 std::wstring ToLowerWide(const std::wstring& value) {
     std::wstring out = value;
@@ -212,6 +255,25 @@ struct PendingBootstrapResources final {
     }
 };
 
+struct BootstrapTransactionGuard final {
+    bool active = true;
+
+    ~BootstrapTransactionGuard() {
+        if (active) {
+            std::lock_guard<std::mutex> lock(g_loader_mutex);
+            g_bootstrap_in_progress = false;
+        }
+    }
+};
+
+#if BURNERNET_MAXIMUM_GHOST
+void MarkMaximumGhostFailed() noexcept {
+    std::lock_guard<std::mutex> lock(g_loader_mutex);
+    g_maximum_ghost_state = MaximumGhostState::Failed;
+    g_global_allocator_hooks_enabled.store(false, std::memory_order_release);
+}
+#endif
+
 } // namespace
 
 namespace detail {
@@ -239,6 +301,21 @@ RuntimeModuleLease AcquireRuntimeModule(std::string_view basename) noexcept {
     return {};
 }
 
+ErrorCode MaximumGhostRuntimeError() noexcept {
+#if BURNERNET_MAXIMUM_GHOST
+    std::lock_guard<std::mutex> lock(g_loader_mutex);
+    if (g_maximum_ghost_state == MaximumGhostState::Active) {
+        return ErrorCode::None;
+    }
+    if (g_maximum_ghost_state == MaximumGhostState::Failed) {
+        return ErrorCode::AllocatorHookInstallFailed;
+    }
+    return ErrorCode::MaximumGhostRuntimeRequired;
+#else
+    return ErrorCode::None;
+#endif
+}
+
 } // namespace detail
 
 BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
@@ -246,12 +323,58 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         reinterpret_cast<std::uintptr_t>(&config));
 
     try {
+#if BURNERNET_MAXIMUM_GHOST
+    {
+        std::lock_guard<std::mutex> lock(g_loader_mutex);
+        if (g_maximum_ghost_state == MaximumGhostState::Active) {
+            return {true, ErrorCode::BootstrapSkip};
+        }
+        if (g_maximum_ghost_state == MaximumGhostState::Failed) {
+            return {false, ErrorCode::AllocatorHookInstallFailed};
+        }
+        if (g_maximum_ghost_state == MaximumGhostState::Installing) {
+            return {false, ErrorCode::BootstrapBusy};
+        }
+    }
+
+    if (config.link_mode == LinkMode::Static) {
+#if BURNERNET_HARDEN_IMPORTS
+        return {false, ErrorCode::BootstrapConfig};
+#else
+        {
+            std::lock_guard<std::mutex> lock(g_loader_mutex);
+            if (g_bootstrap_in_progress) {
+                return {false, ErrorCode::BootstrapBusy};
+            }
+            g_bootstrap_in_progress = true;
+            g_maximum_ghost_state = MaximumGhostState::Installing;
+        }
+        BootstrapTransactionGuard transaction_guard;
+
+        if (!RetainMaximumGhostOwnerModule() ||
+            !InstallLinkedGlobalAllocatorHooks()) {
+            MarkMaximumGhostFailed();
+            return {false, ErrorCode::AllocatorHookInstallFailed};
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(g_loader_mutex);
+            g_maximum_ghost_state = MaximumGhostState::Active;
+            g_global_allocator_hooks_enabled.store(true, std::memory_order_release);
+            g_bootstrap_in_progress = false;
+            transaction_guard.active = false;
+        }
+        return {true, ErrorCode::BootstrapSkip};
+#endif
+    }
+    if (!config.preload_dependencies) {
+        return {false, ErrorCode::BootstrapConfig};
+    }
+#else
     if (config.link_mode == LinkMode::Static || !config.preload_dependencies) {
-        g_global_allocator_hooks_enabled.store(
-            config.install_global_allocator_hooks,
-            std::memory_order_release);
         return {true, ErrorCode::BootstrapSkip};
     }
+#endif
 
     if (config.dependency_directory.empty()) {
         return {false, ErrorCode::BootstrapConfig};
@@ -286,6 +409,14 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
 
     {
         std::lock_guard<std::mutex> lock(g_loader_mutex);
+#if BURNERNET_MAXIMUM_GHOST
+        if (g_maximum_ghost_state == MaximumGhostState::Active) {
+            return {true, ErrorCode::BootstrapSkip};
+        }
+        if (g_maximum_ghost_state == MaximumGhostState::Failed) {
+            return {false, ErrorCode::AllocatorHookInstallFailed};
+        }
+#endif
         if (!g_loaded_modules.empty()) {
             return {true, ErrorCode::BootstrapSkip};
         }
@@ -295,15 +426,7 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         g_bootstrap_in_progress = true;
     }
 
-    struct TransactionGuard final {
-        bool active = true;
-        ~TransactionGuard() {
-            if (active) {
-                std::lock_guard<std::mutex> lock(g_loader_mutex);
-                g_bootstrap_in_progress = false;
-            }
-        }
-    } transaction_guard;
+    BootstrapTransactionGuard transaction_guard;
 
     if (config.dependency_directory_guard) {
         try {
@@ -420,40 +543,61 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         pending_resources.modules.push_back(MakeModuleLease(module, dll_name));
     }
 
-    // Security-hook side effects are intentionally delayed until every module
-    // has passed validation. A failed transaction can then unload all pending
-    // modules without leaving one-time hook state bound to an unpublished DLL.
-    if (config.install_global_allocator_hooks) {
-        if (!TryApplyOpenSSLHooks()) {
-            return {false, ErrorCode::AllocatorHookInstallFailed};
-        }
-#if BURNERNET_HARDEN_IMPORTS
-        for (const auto& runtime_module : pending_resources.modules) {
-            const std::uint32_t basename_hash = ::burner::net::detail::fnv1a_ascii_wide_ci(
-                runtime_module->basename.c_str(),
-                runtime_module->basename.size());
-            if (basename_hash == kLibCurlBootstrapHash ||
-                basename_hash == kLibCurlDBootstrapHash) {
-                CurlApi curl_api{};
-                curl_api.global_init_mem = reinterpret_cast<CurlGlobalInitMemFn>(
-                    ::burner::net::detail::KernelResolver::ResolveInternalExport(
-                        runtime_module->handle,
-                        ::burner::net::detail::kCurlGlobalInitMemHash));
-                if (!EnsureCurlGlobalZapped(curl_api)) {
-                    return {false, ErrorCode::AllocatorHookInstallFailed};
-                }
-            }
-        }
-#endif
+    // Irreversible process-global hooks begin only after every dependency has
+    // passed validation. Once installation starts, owner code remains resident
+    // and any failure is terminal for this process.
+#if BURNERNET_MAXIMUM_GHOST
+    {
+        std::lock_guard<std::mutex> lock(g_loader_mutex);
+        g_maximum_ghost_state = MaximumGhostState::Installing;
     }
+
+    if (!RetainMaximumGhostOwnerModule()) {
+        MarkMaximumGhostFailed();
+        return {false, ErrorCode::AllocatorHookInstallFailed};
+    }
+
+    bool hooks_installed = false;
+#if BURNERNET_HARDEN_IMPORTS
+    for (const auto& runtime_module : pending_resources.modules) {
+        const std::uint32_t basename_hash = ::burner::net::detail::fnv1a_ascii_wide_ci(
+            runtime_module->basename.c_str(),
+            runtime_module->basename.size());
+        if (basename_hash == kLibCurlBootstrapHash ||
+            basename_hash == kLibCurlDBootstrapHash) {
+            CurlApi curl_api{};
+            curl_api.global_init_mem = reinterpret_cast<CurlGlobalInitMemFn>(
+                ::burner::net::detail::KernelResolver::ResolveInternalExport(
+                    runtime_module->handle,
+                    ::burner::net::detail::kCurlGlobalInitMemHash));
+            curl_api.global_sslset = reinterpret_cast<CurlGlobalSslSetFn>(
+                ::burner::net::detail::KernelResolver::ResolveInternalExport(
+                    runtime_module->handle,
+                    ::burner::net::detail::kCurlGlobalSslSetHash));
+            hooks_installed = InstallGlobalAllocatorHooks(curl_api);
+            break;
+        }
+    }
+#else
+    hooks_installed = InstallLinkedGlobalAllocatorHooks();
+#endif
+
+    if (!hooks_installed) {
+        MarkMaximumGhostFailed();
+        return {false, ErrorCode::AllocatorHookInstallFailed};
+    }
+#endif
 
     {
         std::lock_guard<std::mutex> lock(g_loader_mutex);
         g_loaded_modules.swap(pending_resources.modules);
         g_dependency_cookie = pending_resources.ReleaseDirectoryCookie();
-        g_global_allocator_hooks_enabled.store(
-            config.install_global_allocator_hooks,
-            std::memory_order_release);
+#if BURNERNET_MAXIMUM_GHOST
+        g_maximum_ghost_state = MaximumGhostState::Active;
+        g_global_allocator_hooks_enabled.store(true, std::memory_order_release);
+#else
+        g_global_allocator_hooks_enabled.store(false, std::memory_order_release);
+#endif
         g_bootstrap_in_progress = false;
         transaction_guard.active = false;
     }
@@ -477,6 +621,13 @@ void ShutdownNetworkingRuntime() noexcept {
         if (g_bootstrap_in_progress) {
             return;
         }
+#if BURNERNET_MAXIMUM_GHOST
+        if (g_maximum_ghost_state != MaximumGhostState::Uninitialized) {
+            // Allocator callbacks and their owning module are process-lifetime.
+            // Unloading runtime modules would make later backend reuse ambiguous.
+            return;
+        }
+#endif
         modules.swap(g_loaded_modules);
         dependency_cookie = g_dependency_cookie;
         g_dependency_cookie = nullptr;
@@ -498,6 +649,14 @@ void ShutdownNetworkingRuntime() noexcept {
 #else
 
 namespace burner::net {
+
+namespace detail {
+
+ErrorCode MaximumGhostRuntimeError() noexcept {
+    return ErrorCode::None;
+}
+
+} // namespace detail
 
 BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig&) {
     ::burner::net::detail::InitializeEncodedPointerKey();

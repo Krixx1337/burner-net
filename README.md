@@ -53,7 +53,7 @@ BurnerNet fits projects such as:
 
 ## Defensive Outcomes
 
-- **Zero-Ghost Memory Architecture**: BurnerNet uses wiping containers and explicit response/credential scrubbing. Optional process-global libcurl/OpenSSL allocator hooks exist for process-lifetime integrations, but default off because unloadable modules cannot safely own permanent callbacks.
+- **Zero-Ghost Memory Architecture**: BurnerNet uses wiping containers and explicit response/credential scrubbing. Windows process-lifetime integrations can enable Maximum Ghost mode to extend wiping into libcurl/OpenSSL allocations.
 - **Stack-Frame Swiping**: After every request, the library proactively scrubs its own thread stack (High-Water Mark scrubbing). This is intended to destroy ephemeral transport fragments before control returns to your application.
 - **Moving-Target Heap**: The combination of disposable transports and aligned metadata headers creates high address-space dispersion, making the process memory unpredictable and resistant to stable pointer-mapping.
 - **Short-lived request state**: BurnerNet is designed around disposable clients instead of process-wide singleton transports.
@@ -66,7 +66,9 @@ BurnerNet fits projects such as:
 
 ## Verified Stealth
 
-BurnerNet does not just claim an import-light hardened mode; it also ships with audit notes for specific tested configurations. In a Windows x64 Release audit with `BURNERNET_HARDEN_IMPORTS=ON`:
+BurnerNet ships point-in-time audit notes for specific tested configurations.
+The recorded Windows x64 Release audit covers v1.0 with hardened imports and
+the then-automatic global allocator injection:
 
 - **IAT Blackout**: No entries for `libcurl.dll`, `ws2_32.dll`, `bcrypt.dll`, or `crypt32.dll` were observed in the audited binary.
 - **Memory Dark-out**: Forensic scans (Cheat Engine "All Strings") failed to discover sensitive canary URLs or headers in the process heap or stack.
@@ -75,6 +77,24 @@ BurnerNet does not just claim an import-light hardened mode; it also ships with 
 
 Audit details and methodology:
 - [docs/BINARY_STEALTH_AUDIT.md](docs/BINARY_STEALTH_AUDIT.md)
+
+### Maximum Ghost mode
+
+For a Windows executable or permanently loaded module, enable full backend
+allocator wiping:
+
+```bash
+cmake -DBURNERNET_MAXIMUM_GHOST=ON
+```
+
+Then call `InitializeNetworkingRuntime(...)` before creating any client.
+Initialization fails closed if libcurl/OpenSSL hooks are unavailable or already
+too late. BurnerNet retains its owning module and hooked runtime until process
+exit; `ShutdownNetworkingRuntime()` intentionally does not unload them.
+
+Keep this mode off for unloadable DLLs and plugins. Normal builds still wipe
+BurnerNet-owned request, credential, response, heap, and stack state, but do not
+claim control over every internal libcurl/OpenSSL allocation.
 
 ## Getting Started
 
@@ -166,7 +186,15 @@ Reference:
 - [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
 - [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
 
-> **Linux Support:** BurnerNet provides full forensic parity (Memory Wiping & Stack Isolation) on Linux. See [docs/LINUX_USAGE.md](docs/LINUX_USAGE.md) for build instructions.
+### 4. Maximum Ghost Runtime
+
+Use this Windows-only build mode when backend memory wiping matters more than
+module unload. It is independent from the Hardened client profile and can be
+combined with normal or hardened imports.
+
+> **Linux Support:** BurnerNet supports owned-memory wiping and stack isolation
+> on Linux. Maximum Ghost allocator interception is Windows-only in v1.3. See
+> [docs/LINUX_USAGE.md](docs/LINUX_USAGE.md).
 
 ## Usage Notes
 
@@ -181,7 +209,7 @@ Recommended defaults:
 Examples:
 - [examples/01_basic_usage.cpp](examples/01_basic_usage.cpp)
 - [examples/02_zero_trust_pipeline.cpp](examples/02_zero_trust_pipeline.cpp)
-- [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp)
+- [examples/03_connected_peer_guard.cpp](examples/03_connected_peer_guard.cpp)
 - [examples/04_bootstrap_runtime.cpp](examples/04_bootstrap_runtime.cpp)
 - [examples/05_mtls_usage.cpp](examples/05_mtls_usage.cpp)
 - [examples/06_hmac_custom_verifier.cpp](examples/06_hmac_custom_verifier.cpp)

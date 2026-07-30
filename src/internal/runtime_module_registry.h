@@ -1,5 +1,7 @@
 #pragma once
 
+#include "burner/net/error.h"
+
 #include <memory>
 #include <string>
 #include <string_view>
@@ -14,5 +16,6 @@ struct RuntimeModule final {
 using RuntimeModuleLease = std::shared_ptr<const RuntimeModule>;
 
 RuntimeModuleLease AcquireRuntimeModule(std::string_view basename) noexcept;
+ErrorCode MaximumGhostRuntimeError() noexcept;
 
 } // namespace burner::net::detail

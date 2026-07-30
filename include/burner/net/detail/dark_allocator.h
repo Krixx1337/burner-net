@@ -1,5 +1,7 @@
 #pragma once
 
+#include "burner/net/export.h"
+
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -7,7 +9,7 @@
 #include <vector>
 
 namespace burner::net::obf {
-void secure_wipe(void* ptr, std::size_t size) noexcept;
+BURNER_API void secure_wipe(void* ptr, std::size_t size) noexcept;
 }
 
 namespace burner::net::detail {

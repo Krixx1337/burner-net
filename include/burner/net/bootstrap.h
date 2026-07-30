@@ -8,6 +8,18 @@
 #include "export.h"
 #include "error.h"
 
+#ifndef BURNERNET_MAXIMUM_GHOST
+#define BURNERNET_MAXIMUM_GHOST 0
+#endif
+
+#if BURNERNET_MAXIMUM_GHOST != 0 && BURNERNET_MAXIMUM_GHOST != 1
+#error "BURNERNET_MAXIMUM_GHOST must be defined as 0 or 1"
+#endif
+
+#if BURNERNET_MAXIMUM_GHOST && !defined(_WIN32)
+#error "BURNERNET_MAXIMUM_GHOST is supported only on Windows in BurnerNet v1.3"
+#endif
+
 namespace burner::net {
 
 enum class LinkMode {
@@ -22,7 +34,6 @@ using DependencyDirectoryGuard =
 struct BootstrapConfig {
     LinkMode link_mode = LinkMode::Static;
     bool preload_dependencies = true;
-    bool install_global_allocator_hooks = false;
     std::filesystem::path dependency_directory;
     DependencyDirectoryGuard dependency_directory_guard;
     IntegrityProvider integrity_provider;

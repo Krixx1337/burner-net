@@ -36,6 +36,8 @@ private:
 // allocator callbacks.  Must be called after the CurlApi is fully populated
 // and before easy_init() is invoked.
 [[nodiscard]] bool EnsureCurlGlobalZapped(const CurlApi& api) noexcept;
+[[nodiscard]] bool InstallGlobalAllocatorHooks(const CurlApi& api) noexcept;
+[[nodiscard]] bool InstallLinkedGlobalAllocatorHooks() noexcept;
 
 std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, ErrorCode* init_error);
 

@@ -121,9 +121,10 @@ control-flow tricks and exposes small application-owned enforcement points.
   reparse-point ambiguity, revalidates file identity around loading, and offers
   `dependency_directory_guard` and `integrity_provider` callbacks. Application
   callbacks never run while the global bootstrap mutex is held.
-- **Explicit Global Hooks:** Process-global curl/OpenSSL allocator hooks default
-  off. They require explicit opt-in and process-lifetime ownership because an
-  unloadable module cannot safely revoke permanent allocator callbacks.
+- **Maximum Ghost Build Contract:** Process-global curl/OpenSSL allocator hooks
+  default off. Windows process-lifetime consumers enable
+  `BURNERNET_MAXIMUM_GHOST=1`; BurnerNet then fails closed unless hooks install
+  before backend use and retains their owning code until process exit.
 - **Respect for the Developer:** BurnerNet provides hidden imports, encoded
   pointers, vtable-free callback storage, deterministic sequencing, wiping, and
   safe mount points. The application provides debugger policy, VM heuristics,

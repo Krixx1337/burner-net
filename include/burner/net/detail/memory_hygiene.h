@@ -20,7 +20,7 @@
 
 namespace burner::net::obf {
 
-HOSTILE_CORE_EXPORT void secure_wipe(void* ptr, std::size_t size) noexcept;
+BURNER_API void secure_wipe(void* ptr, std::size_t size) noexcept;
 
 // Wipe a region of the calling thread's stack to destroy ephemeral RAM Ghosts
 // (TLS keys, header fragments) left behind by deep call chains such as

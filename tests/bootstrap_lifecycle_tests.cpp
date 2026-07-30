@@ -32,6 +32,19 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+#if BURNERNET_MAXIMUM_GHOST
+    const auto before_bootstrap = burner::net::ClientBuilder().Build();
+    if (before_bootstrap.Ok() ||
+        before_bootstrap.error !=
+            burner::net::ErrorCode::MaximumGhostRuntimeRequired) {
+        return 13;
+    }
+#else
+    if (burner::net::GlobalAllocatorHooksEnabled()) {
+        return 15;
+    }
+#endif
+
     burner::net::BootstrapConfig invalid{};
     invalid.link_mode = burner::net::LinkMode::Dynamic;
     invalid.dependency_directory = redist;
@@ -94,6 +107,18 @@ int main(int argc, char** argv) {
     if (!valid_result.success) {
         return 6;
     }
+#if BURNERNET_MAXIMUM_GHOST
+    const auto repeated_result =
+        burner::net::InitializeNetworkingRuntime(valid);
+    if (!repeated_result.success ||
+        repeated_result.code != burner::net::ErrorCode::BootstrapSkip) {
+        return 14;
+    }
+#else
+    if (burner::net::GlobalAllocatorHooksEnabled()) {
+        return 16;
+    }
+#endif
 
     auto lease = burner::net::detail::AcquireRuntimeModule(curl_name_ascii);
     if (!lease || lease->handle == nullptr) {
@@ -106,15 +131,28 @@ int main(int argc, char** argv) {
     }
 
     burner::net::ShutdownNetworkingRuntime();
+#if BURNERNET_MAXIMUM_GHOST
+    if (!burner::net::detail::AcquireRuntimeModule(curl_name_ascii) ||
+        !burner::net::GlobalAllocatorHooksEnabled()) {
+        return 9;
+    }
+#else
     if (burner::net::detail::AcquireRuntimeModule(curl_name_ascii)) {
         return 9;
     }
+#endif
 #if BURNERNET_HARDEN_IMPORTS
     const auto unavailable = burner::net::ClientBuilder().Build();
+#if BURNERNET_MAXIMUM_GHOST
+    if (!unavailable.Ok()) {
+        return 10;
+    }
+#else
     if (unavailable.Ok() ||
         unavailable.error != burner::net::ErrorCode::NetworkingRuntimeUnavailable) {
         return 10;
     }
+#endif
 #endif
     if (!client.client->Raw()->IsInitialized()) {
         return 11;
