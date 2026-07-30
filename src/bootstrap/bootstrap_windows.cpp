@@ -114,6 +114,29 @@ private:
     HANDLE m_handle;
 };
 
+class ScopedModule final {
+public:
+    explicit ScopedModule(HMODULE module = nullptr) noexcept
+        : m_module(module) {}
+    ~ScopedModule() {
+        if (m_module != nullptr) {
+            ::FreeLibrary(m_module);
+        }
+    }
+    ScopedModule(const ScopedModule&) = delete;
+    ScopedModule& operator=(const ScopedModule&) = delete;
+    [[nodiscard]] HMODULE get() const noexcept { return m_module; }
+    [[nodiscard]] bool valid() const noexcept { return m_module != nullptr; }
+    [[nodiscard]] HMODULE release() noexcept {
+        HMODULE module = m_module;
+        m_module = nullptr;
+        return module;
+    }
+
+private:
+    HMODULE m_module;
+};
+
 bool IsReparsePoint(HANDLE handle) {
     FILE_ATTRIBUTE_TAG_INFO tag_info{};
     return !::GetFileInformationByHandleEx(
@@ -136,9 +159,10 @@ bool SameFileIdentity(HANDLE lhs, HANDLE rhs) {
         lhs_info.nFileIndexLow == rhs_info.nFileIndexLow;
 }
 
-detail::RuntimeModuleLease MakeModuleLease(HMODULE module, const std::wstring& basename) {
-    return detail::RuntimeModuleLease(
-        new detail::RuntimeModule{module, basename},
+detail::RuntimeModuleLease MakeModuleLease(ScopedModule& module, const std::wstring& basename) {
+    auto* runtime_module = new detail::RuntimeModule{nullptr, basename};
+    detail::RuntimeModuleLease lease(
+        runtime_module,
         [](const detail::RuntimeModule* runtime_module) {
             if (runtime_module != nullptr) {
                 if (runtime_module->handle != nullptr) {
@@ -147,6 +171,8 @@ detail::RuntimeModuleLease MakeModuleLease(HMODULE module, const std::wstring& b
                 delete runtime_module;
             }
         });
+    runtime_module->handle = module.release();
+    return lease;
 }
 
 void ReleaseModulesReverse(std::vector<detail::RuntimeModuleLease>& modules) noexcept {
@@ -154,6 +180,37 @@ void ReleaseModulesReverse(std::vector<detail::RuntimeModuleLease>& modules) noe
         modules.pop_back();
     }
 }
+
+struct PendingBootstrapResources final {
+    std::vector<detail::RuntimeModuleLease> modules;
+    DLL_DIRECTORY_COOKIE directory_cookie = nullptr;
+
+    PendingBootstrapResources() = default;
+    ~PendingBootstrapResources() {
+        Reset();
+    }
+
+    PendingBootstrapResources(const PendingBootstrapResources&) = delete;
+    PendingBootstrapResources& operator=(const PendingBootstrapResources&) = delete;
+
+    void Reset() noexcept {
+        ReleaseModulesReverse(modules);
+        if (directory_cookie != nullptr) {
+            const RemoveDllDirectoryFn remove_directory =
+                ResolveSystemPrimitive<RemoveDllDirectoryFn>(kRemoveDllDirectoryHash);
+            if (remove_directory != nullptr) {
+                (void)remove_directory(directory_cookie);
+            }
+            directory_cookie = nullptr;
+        }
+    }
+
+    [[nodiscard]] DLL_DIRECTORY_COOKIE ReleaseDirectoryCookie() noexcept {
+        DLL_DIRECTORY_COOKIE cookie = directory_cookie;
+        directory_cookie = nullptr;
+        return cookie;
+    }
+};
 
 } // namespace
 
@@ -272,19 +329,7 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         return {false, ErrorCode::InvalidBootstrapDependency};
     }
 
-    std::vector<detail::RuntimeModuleLease> pending_modules;
-    DLL_DIRECTORY_COOKIE pending_cookie = nullptr;
-    auto rollback = [&]() noexcept {
-        ReleaseModulesReverse(pending_modules);
-        if (pending_cookie != nullptr) {
-            const RemoveDllDirectoryFn remove_directory =
-                ResolveSystemPrimitive<RemoveDllDirectoryFn>(kRemoveDllDirectoryHash);
-            if (remove_directory != nullptr) {
-                (void)remove_directory(pending_cookie);
-            }
-            pending_cookie = nullptr;
-        }
-    };
+    PendingBootstrapResources pending_resources;
 
     if (g_dependency_cookie == nullptr) {
         // Keep loader-search-path mutation on the provenance-checked resolver path.
@@ -304,8 +349,8 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
             return {false, ErrorCode::BootstrapAddDir};
         }
 
-        pending_cookie = add_dll_directory(canonical_directory.c_str());
-        if (pending_cookie == nullptr) {
+        pending_resources.directory_cookie = add_dll_directory(canonical_directory.c_str());
+        if (pending_resources.directory_cookie == nullptr) {
             return {false, ErrorCode::BootstrapAddDir};
         }
     }
@@ -313,7 +358,6 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
     const LoadLibraryExWFn load_library_ex_w =
         ResolveSystemPrimitive<LoadLibraryExWFn>(kLoadLibraryExWHash);
     if (load_library_ex_w == nullptr) {
-        rollback();
         return {false, ErrorCode::BootstrapLoad};
     }
 
@@ -328,7 +372,6 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
             FILE_ATTRIBUTE_NORMAL | FILE_FLAG_OPEN_REPARSE_POINT,
             nullptr));
         if (!locked_file.valid() || IsReparsePoint(locked_file.get())) {
-            rollback();
             return {false, ErrorCode::InvalidBootstrapDependency};
         }
 
@@ -337,11 +380,9 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
             try {
                 ok = config.integrity_provider(full_path, dll_name);
             } catch (...) {
-                rollback();
                 return {false, ErrorCode::CallbackFailed};
             }
             if (!ok) {
-                rollback();
                 return {false, ErrorCode::BootstrapIntegrityMismatch};
             }
         }
@@ -349,17 +390,16 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         // Resolve the actual loader entrypoint from the system images, then use it
         // directly for dependency loading. Path verification stays on the Win32 APIs
         // after the module is loaded because those checks are not the bootstrap trust root.
-        HMODULE module = load_library_ex_w(
+        ScopedModule module(load_library_ex_w(
             full_path.c_str(),
             nullptr,
-            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS);
-        if (module == nullptr) {
-            rollback();
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS));
+        if (!module.valid()) {
             return {false, ErrorCode::BootstrapLoad};
         }
 
         wchar_t loaded_path[MAX_PATH] = {};
-        const DWORD n = ::GetModuleFileNameW(module, loaded_path, MAX_PATH);
+        const DWORD n = ::GetModuleFileNameW(module.get(), loaded_path, MAX_PATH);
         ScopedHandle loaded_file(
             (n > 0 && n < MAX_PATH)
                 ? ::CreateFileW(
@@ -374,13 +414,10 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         if (n == 0 || n == MAX_PATH || !loaded_file.valid() ||
             !PathsEqualCaseInsensitive(std::filesystem::path(loaded_path), full_path) ||
             !SameFileIdentity(locked_file.get(), loaded_file.get())) {
-            ::FreeLibrary(module);
-            rollback();
             return {false, ErrorCode::BootstrapModulePath};
         }
 
-        pending_modules.push_back(MakeModuleLease(module, dll_name));
-
+        pending_resources.modules.push_back(MakeModuleLease(module, dll_name));
     }
 
     // Security-hook side effects are intentionally delayed until every module
@@ -388,11 +425,10 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
     // modules without leaving one-time hook state bound to an unpublished DLL.
     if (config.install_global_allocator_hooks) {
         if (!TryApplyOpenSSLHooks()) {
-            rollback();
             return {false, ErrorCode::AllocatorHookInstallFailed};
         }
 #if BURNERNET_HARDEN_IMPORTS
-        for (const auto& runtime_module : pending_modules) {
+        for (const auto& runtime_module : pending_resources.modules) {
             const std::uint32_t basename_hash = ::burner::net::detail::fnv1a_ascii_wide_ci(
                 runtime_module->basename.c_str(),
                 runtime_module->basename.size());
@@ -404,7 +440,6 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
                         runtime_module->handle,
                         ::burner::net::detail::kCurlGlobalInitMemHash));
                 if (!EnsureCurlGlobalZapped(curl_api)) {
-                    rollback();
                     return {false, ErrorCode::AllocatorHookInstallFailed};
                 }
             }
@@ -414,9 +449,8 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
 
     {
         std::lock_guard<std::mutex> lock(g_loader_mutex);
-        g_dependency_cookie = pending_cookie;
-        pending_cookie = nullptr;
-        g_loaded_modules = std::move(pending_modules);
+        g_loaded_modules.swap(pending_resources.modules);
+        g_dependency_cookie = pending_resources.ReleaseDirectoryCookie();
         g_global_allocator_hooks_enabled.store(
             config.install_global_allocator_hooks,
             std::memory_order_release);
