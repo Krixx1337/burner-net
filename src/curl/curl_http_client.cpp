@@ -4,6 +4,9 @@
 #include "curl_session.h"
 #include "transport_orchestrator.h"
 #include "burner/net/detail/dark_arithmetic.h"
+#if defined(_WIN32) && BURNERNET_HARDEN_IMPORTS
+#include "burner/net/detail/kernel_resolver.h"
+#endif
 #include "burner/net/detail/wiping_alloc_engine.h"
 #include "burner/net/obfuscation.h"
 #include "internal/openssl_sync.h"
@@ -56,7 +59,16 @@ bool CopyPeerAddress(
 
 bool ParseNumericAddress(int family, const char* text, void* output) noexcept {
 #ifdef _WIN32
+#if BURNERNET_HARDEN_IMPORTS
+    using InetPtonAFn = INT(WSAAPI*)(INT, PCSTR, PVOID);
+    void* const ws2_32 = KernelResolver::GetSystemModule(kWs2_32DllHash);
+    const auto inet_pton_a = reinterpret_cast<InetPtonAFn>(
+        KernelResolver::ResolveInternalExport(ws2_32, kInetPtonHash));
+    return inet_pton_a != nullptr &&
+        inet_pton_a(family, text, output) == 1;
+#else
     return InetPtonA(family, text, output) == 1;
+#endif
 #else
     return inet_pton(family, text, output) == 1;
 #endif

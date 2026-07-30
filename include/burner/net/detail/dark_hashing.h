@@ -57,4 +57,8 @@ inline constexpr std::uint32_t kCryptoSetMemFunctionsHash = fnv1a("CRYPTO_set_me
 inline constexpr std::uint32_t kCurlGlobalInitMemHash = fnv1a("curl_global_init_mem");
 inline constexpr std::uint32_t kCurlGlobalSslSetHash = fnv1a("curl_global_sslset");
 
+// Windows address parsing used by opt-in connected-peer classification.
+inline constexpr std::uint32_t kWs2_32DllHash = fnv1a_ci("ws2_32.dll");
+inline constexpr std::uint32_t kInetPtonHash = fnv1a("inet_pton");
+
 } // namespace burner::net::detail
