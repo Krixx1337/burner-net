@@ -1,0 +1,61 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 21,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-x64-release",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/${presetName}",
+      "installDir": "${sourceDir}/out/install/${presetName}",
+      "architecture": {
+        "value": "x64",
+        "strategy": "external"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      },
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_CXX_STANDARD": "20",
+        "CMAKE_C_COMPILER": "cl.exe",
+        "CMAKE_CXX_COMPILER": "cl.exe",
+        "CMAKE_TOOLCHAIN_FILE": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_FEATURE_FLAGS": "manifests",
+        "VCPKG_TARGET_TRIPLET": "x64-windows"
+      }
+    },
+    {
+      "name": "maximum-ghost",
+      "displayName": "Maximum Ghost",
+      "inherits": "windows-x64-release",
+      "cacheVariables": {
+        "BURNERNET_MEMORY_AUDIT_MAXIMUM_GHOST": "ON"
+      }
+    },
+    {
+      "name": "no-ghost",
+      "displayName": "No Maximum Ghost (Control)",
+      "inherits": "windows-x64-release",
+      "cacheVariables": {
+        "BURNERNET_MEMORY_AUDIT_MAXIMUM_GHOST": "OFF"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "maximum-ghost",
+      "configurePreset": "maximum-ghost"
+    },
+    {
+      "name": "no-ghost",
+      "configurePreset": "no-ghost"
+    }
+  ]
+}
