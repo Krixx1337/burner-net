@@ -194,28 +194,31 @@ if(BURNERNET_BUILD_TESTING)
     set_target_properties(BurnerNetTests PROPERTIES FOLDER "Tests")
     add_test(NAME BurnerNet.Unit COMMAND BurnerNetTests)
 
-    add_executable(BurnerNetErrorModeTests
-        tests/error_mode_tests.cpp
+    add_executable(BurnerNetDiagnosticOffContractTest
+        tests/diagnostic_off_contract_test.cpp
         src/error.cpp
     )
-    target_include_directories(BurnerNetErrorModeTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    target_compile_features(BurnerNetErrorModeTests PRIVATE cxx_std_20)
-    target_compile_definitions(BurnerNetErrorModeTests PRIVATE
+    target_include_directories(BurnerNetDiagnosticOffContractTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_features(BurnerNetDiagnosticOffContractTest PRIVATE cxx_std_20)
+    target_compile_definitions(BurnerNetDiagnosticOffContractTest PRIVATE
         BURNERNET_DIAGNOSTIC_STRINGS=0
         BURNER_BUILDING_LIBRARY
         HOSTILE_CORE_EXPORT=BURNER_API
     )
     if(MSVC)
-        target_compile_options(BurnerNetErrorModeTests PRIVATE /W4 /permissive- /EHsc)
+        target_compile_options(BurnerNetDiagnosticOffContractTest PRIVATE /W4 /permissive- /EHsc)
     else()
-        target_compile_options(BurnerNetErrorModeTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        target_compile_options(BurnerNetDiagnosticOffContractTest PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
-    set_target_properties(BurnerNetErrorModeTests PROPERTIES FOLDER "Tests")
-    add_test(NAME BurnerNet.ErrorMode COMMAND BurnerNetErrorModeTests)
+    set_target_properties(BurnerNetDiagnosticOffContractTest PROPERTIES FOLDER "Tests")
     add_test(
-        NAME BurnerNet.ErrorMode.BinaryStrings
+        NAME BurnerNet.DiagnosticOffContract
+        COMMAND BurnerNetDiagnosticOffContractTest
+    )
+    add_test(
+        NAME BurnerNet.DiagnosticOffContract.BinaryStrings
         COMMAND ${CMAKE_COMMAND}
-            -DBINARY=$<TARGET_FILE:BurnerNetErrorModeTests>
+            -DBINARY=$<TARGET_FILE:BurnerNetDiagnosticOffContractTest>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyNoDiagnosticStrings.cmake
     )
 
@@ -223,7 +226,7 @@ if(BURNERNET_BUILD_TESTING)
         tests/bootstrap_lifecycle_tests.cpp
     )
     target_include_directories(BurnerNetBootstrapLifecycleTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_link_libraries(BurnerNetBootstrapLifecycleTests PRIVATE BurnerNet)
+    target_link_libraries(BurnerNetBootstrapLifecycleTests PRIVATE BurnerNet doctest::doctest)
     if(MSVC)
         target_compile_options(BurnerNetBootstrapLifecycleTests PRIVATE /W4 /permissive- /EHsc)
     else()
@@ -237,7 +240,7 @@ if(BURNERNET_BUILD_TESTING)
         add_executable(BurnerNetMaximumGhostLifecycleTests
             tests/maximum_ghost_lifecycle_tests.cpp
         )
-        target_link_libraries(BurnerNetMaximumGhostLifecycleTests PRIVATE BurnerNet)
+        target_link_libraries(BurnerNetMaximumGhostLifecycleTests PRIVATE BurnerNet doctest::doctest)
         if(MSVC)
             target_compile_options(BurnerNetMaximumGhostLifecycleTests PRIVATE /W4 /permissive- /EHsc)
         else()
@@ -249,7 +252,7 @@ if(BURNERNET_BUILD_TESTING)
         add_executable(BurnerNetMaximumGhostLateFailureTests
             tests/maximum_ghost_late_failure_tests.cpp
         )
-        target_link_libraries(BurnerNetMaximumGhostLateFailureTests PRIVATE BurnerNet)
+        target_link_libraries(BurnerNetMaximumGhostLateFailureTests PRIVATE BurnerNet doctest::doctest)
         if(MSVC)
             target_compile_options(BurnerNetMaximumGhostLateFailureTests PRIVATE /W4 /permissive- /EHsc)
         else()

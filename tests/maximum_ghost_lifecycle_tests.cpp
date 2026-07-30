@@ -1,53 +1,40 @@
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include <doctest/doctest.h>
+
 #include "burner/net/bootstrap.h"
 #include "burner/net/builder.h"
 
-int main() {
+TEST_CASE("Maximum Ghost requires bootstrap and remains active until process exit") {
 #if !defined(_WIN32) || !BURNERNET_MAXIMUM_GHOST
-    return 0;
+    MESSAGE("Maximum Ghost lifecycle is Windows-only and requires the build option");
 #else
     using namespace burner::net;
 
-    if (GlobalAllocatorHooksEnabled()) {
-        return 1;
-    }
+    REQUIRE_FALSE(GlobalAllocatorHooksEnabled());
 
     const auto unavailable = ClientBuilder().Build();
-    if (unavailable.Ok() ||
-        unavailable.error != ErrorCode::MaximumGhostRuntimeRequired) {
-        return 2;
-    }
+    REQUIRE_FALSE(unavailable.Ok());
+    REQUIRE(unavailable.error == ErrorCode::MaximumGhostRuntimeRequired);
 
     BootstrapConfig boot{};
     boot.link_mode = LinkMode::Static;
     const auto initialized = InitializeNetworkingRuntime(boot);
-    if (!initialized.success ||
-        initialized.code != ErrorCode::BootstrapSkip ||
-        !GlobalAllocatorHooksEnabled()) {
-        return 3;
-    }
+    REQUIRE(initialized.success);
+    REQUIRE(initialized.code == ErrorCode::BootstrapSkip);
+    REQUIRE(GlobalAllocatorHooksEnabled());
 
     const auto repeated = InitializeNetworkingRuntime(boot);
-    if (!repeated.success ||
-        repeated.code != ErrorCode::BootstrapSkip ||
-        !GlobalAllocatorHooksEnabled()) {
-        return 4;
-    }
+    REQUIRE(repeated.success);
+    REQUIRE(repeated.code == ErrorCode::BootstrapSkip);
+    REQUIRE(GlobalAllocatorHooksEnabled());
 
     auto client = ClientBuilder().Build();
-    if (!client.Ok()) {
-        return 5;
-    }
+    REQUIRE(client.Ok());
 
     ShutdownNetworkingRuntime();
-    if (!GlobalAllocatorHooksEnabled()) {
-        return 6;
-    }
+    REQUIRE(GlobalAllocatorHooksEnabled());
 
     auto after_shutdown = ClientBuilder().Build();
-    if (!after_shutdown.Ok()) {
-        return 7;
-    }
-
-    return 0;
+    REQUIRE(after_shutdown.Ok());
 #endif
 }

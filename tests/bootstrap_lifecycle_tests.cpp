@@ -1,25 +1,37 @@
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include <doctest/doctest.h>
+
 #include "burner/net/bootstrap.h"
 #include "burner/net/builder.h"
 #include "internal/runtime_module_registry.h"
 
+#include <array>
 #include <filesystem>
 
 #if defined(_WIN32)
 #include <windows.h>
 #endif
 
-int main(int argc, char** argv) {
+TEST_CASE("Windows bootstrap validates, publishes, and releases one runtime transaction") {
 #if !defined(_WIN32)
-    (void)argc;
-    (void)argv;
-    return 0;
+    MESSAGE("Bootstrap lifecycle is Windows-only");
 #else
-    if (argc < 1) {
-        return 1;
-    }
+    using burner::net::BootstrapConfig;
+    using burner::net::ErrorCode;
+    using burner::net::InitializeNetworkingRuntime;
+    using burner::net::LinkMode;
 
-    const std::filesystem::path executable =
-        std::filesystem::absolute(std::filesystem::path(argv[0]));
+    std::array<wchar_t, 32768> executable_buffer{};
+    const DWORD executable_length = ::GetModuleFileNameW(
+        nullptr,
+        executable_buffer.data(),
+        static_cast<DWORD>(executable_buffer.size()));
+    REQUIRE(executable_length > 0);
+    REQUIRE(executable_length < executable_buffer.size());
+
+    const std::filesystem::path executable(
+        executable_buffer.data(),
+        executable_buffer.data() + executable_length);
     const std::filesystem::path redist = executable.parent_path() / "redist";
 #if defined(_DEBUG)
     constexpr wchar_t curl_name[] = L"libcurl-d.dll";
@@ -29,142 +41,107 @@ int main(int argc, char** argv) {
     constexpr char curl_name_ascii[] = "libcurl.dll";
 #endif
     if (!std::filesystem::exists(redist / curl_name)) {
-        return 0;
+        MESSAGE("Runtime redist absent; lifecycle test has no packaged DLL to exercise");
+        return;
     }
 
 #if BURNERNET_MAXIMUM_GHOST
     const auto before_bootstrap = burner::net::ClientBuilder().Build();
-    if (before_bootstrap.Ok() ||
-        before_bootstrap.error !=
-            burner::net::ErrorCode::MaximumGhostRuntimeRequired) {
-        return 13;
-    }
+    REQUIRE_FALSE(before_bootstrap.Ok());
+    REQUIRE(before_bootstrap.error == ErrorCode::MaximumGhostRuntimeRequired);
 #else
-    if (burner::net::GlobalAllocatorHooksEnabled()) {
-        return 15;
-    }
+    REQUIRE_FALSE(burner::net::GlobalAllocatorHooksEnabled());
 #endif
 
-    burner::net::BootstrapConfig invalid{};
-    invalid.link_mode = burner::net::LinkMode::Dynamic;
+    BootstrapConfig invalid{};
+    invalid.link_mode = LinkMode::Dynamic;
     invalid.dependency_directory = redist;
     invalid.dependency_dlls = {L"..\\untrusted.dll"};
-    const auto invalid_result = burner::net::InitializeNetworkingRuntime(invalid);
-    if (invalid_result.success ||
-        invalid_result.code != burner::net::ErrorCode::InvalidBootstrapDependency) {
-        return 2;
-    }
+    const auto invalid_result = InitializeNetworkingRuntime(invalid);
+    REQUIRE_FALSE(invalid_result.success);
+    REQUIRE(invalid_result.code == ErrorCode::InvalidBootstrapDependency);
 
-    burner::net::BootstrapConfig throwing{};
-    throwing.link_mode = burner::net::LinkMode::Dynamic;
+    BootstrapConfig throwing{};
+    throwing.link_mode = LinkMode::Dynamic;
     throwing.dependency_directory = redist;
     throwing.dependency_dlls = {curl_name};
     throwing.dependency_directory_guard =
         [](const std::filesystem::path&) -> bool { throw 7; };
-    const auto throwing_result =
-        burner::net::InitializeNetworkingRuntime(throwing);
-    if (throwing_result.success ||
-        throwing_result.code != burner::net::ErrorCode::CallbackFailed) {
-        return 3;
-    }
+    const auto throwing_result = InitializeNetworkingRuntime(throwing);
+    REQUIRE_FALSE(throwing_result.success);
+    REQUIRE(throwing_result.code == ErrorCode::CallbackFailed);
 
-    burner::net::ErrorCode reentry_code = burner::net::ErrorCode::None;
-    burner::net::BootstrapConfig reentrant{};
-    reentrant.link_mode = burner::net::LinkMode::Dynamic;
+    ErrorCode reentry_code = ErrorCode::None;
+    BootstrapConfig reentrant{};
+    reentrant.link_mode = LinkMode::Dynamic;
     reentrant.dependency_directory = redist;
     reentrant.dependency_dlls = {curl_name};
     reentrant.dependency_directory_guard =
         [&](const std::filesystem::path&) {
-            burner::net::BootstrapConfig nested = reentrant;
+            BootstrapConfig nested = reentrant;
             nested.dependency_directory_guard = {};
-            reentry_code =
-                burner::net::InitializeNetworkingRuntime(nested).code;
+            reentry_code = InitializeNetworkingRuntime(nested).code;
             return false;
         };
-    const auto reentrant_result =
-        burner::net::InitializeNetworkingRuntime(reentrant);
-    if (reentrant_result.success ||
-        reentrant_result.code != burner::net::ErrorCode::BootstrapDirectoryRejected ||
-        reentry_code != burner::net::ErrorCode::BootstrapBusy) {
-        return 4;
-    }
+    const auto reentrant_result = InitializeNetworkingRuntime(reentrant);
+    REQUIRE_FALSE(reentrant_result.success);
+    REQUIRE(reentrant_result.code == ErrorCode::BootstrapDirectoryRejected);
+    REQUIRE(reentry_code == ErrorCode::BootstrapBusy);
 
-    burner::net::BootstrapConfig partial{};
-    partial.link_mode = burner::net::LinkMode::Dynamic;
+    BootstrapConfig partial{};
+    partial.link_mode = LinkMode::Dynamic;
     partial.dependency_directory = redist;
     partial.dependency_dlls = {curl_name, L"missing-runtime.dll"};
-    const auto partial_result = burner::net::InitializeNetworkingRuntime(partial);
-    if (partial_result.success ||
-        burner::net::detail::AcquireRuntimeModule(curl_name_ascii)) {
-        return 5;
-    }
+    const auto partial_result = InitializeNetworkingRuntime(partial);
+    REQUIRE_FALSE(partial_result.success);
+    REQUIRE_FALSE(burner::net::detail::AcquireRuntimeModule(curl_name_ascii));
 
-    burner::net::BootstrapConfig valid{};
-    valid.link_mode = burner::net::LinkMode::Dynamic;
+    BootstrapConfig valid{};
+    valid.link_mode = LinkMode::Dynamic;
     valid.dependency_directory = redist;
     valid.dependency_dlls = {curl_name};
-    const auto valid_result = burner::net::InitializeNetworkingRuntime(valid);
-    if (!valid_result.success) {
-        return 6;
-    }
+    const auto valid_result = InitializeNetworkingRuntime(valid);
+    REQUIRE(valid_result.success);
 #if BURNERNET_MAXIMUM_GHOST
-    const auto repeated_result =
-        burner::net::InitializeNetworkingRuntime(valid);
-    if (!repeated_result.success ||
-        repeated_result.code != burner::net::ErrorCode::BootstrapSkip) {
-        return 14;
-    }
+    const auto repeated_result = InitializeNetworkingRuntime(valid);
+    REQUIRE(repeated_result.success);
+    REQUIRE(repeated_result.code == ErrorCode::BootstrapSkip);
 #else
-    if (burner::net::GlobalAllocatorHooksEnabled()) {
-        return 16;
-    }
+    REQUIRE_FALSE(burner::net::GlobalAllocatorHooksEnabled());
 #endif
 
     auto lease = burner::net::detail::AcquireRuntimeModule(curl_name_ascii);
-    if (!lease || lease->handle == nullptr) {
-        return 7;
-    }
+    REQUIRE(lease);
+    REQUIRE(lease->handle != nullptr);
 
     auto client = burner::net::ClientBuilder().Build();
-    if (!client.Ok()) {
-        return 8;
-    }
+    REQUIRE(client.Ok());
 
     burner::net::ShutdownNetworkingRuntime();
 #if BURNERNET_MAXIMUM_GHOST
-    if (!burner::net::detail::AcquireRuntimeModule(curl_name_ascii) ||
-        !burner::net::GlobalAllocatorHooksEnabled()) {
-        return 9;
-    }
+    REQUIRE(burner::net::detail::AcquireRuntimeModule(curl_name_ascii));
+    REQUIRE(burner::net::GlobalAllocatorHooksEnabled());
 #else
-    if (burner::net::detail::AcquireRuntimeModule(curl_name_ascii)) {
-        return 9;
-    }
+    REQUIRE_FALSE(burner::net::detail::AcquireRuntimeModule(curl_name_ascii));
 #endif
+
 #if BURNERNET_HARDEN_IMPORTS
     const auto unavailable = burner::net::ClientBuilder().Build();
 #if BURNERNET_MAXIMUM_GHOST
-    if (!unavailable.Ok()) {
-        return 10;
-    }
+    REQUIRE(unavailable.Ok());
 #else
-    if (unavailable.Ok() ||
-        unavailable.error != burner::net::ErrorCode::NetworkingRuntimeUnavailable) {
-        return 10;
-    }
+    REQUIRE_FALSE(unavailable.Ok());
+    REQUIRE(unavailable.error == ErrorCode::NetworkingRuntimeUnavailable);
 #endif
 #endif
-    if (!client.client->Raw()->IsInitialized()) {
-        return 11;
-    }
-    if (::GetProcAddress(
+
+    REQUIRE(client.client->Raw()->IsInitialized());
+    REQUIRE(
+        ::GetProcAddress(
             static_cast<HMODULE>(lease->handle),
-            "curl_easy_init") == nullptr) {
-        return 12;
-    }
+            "curl_easy_init") != nullptr);
 
     client.client.reset();
     lease.reset();
-    return 0;
 #endif
 }

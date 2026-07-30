@@ -1,44 +1,45 @@
+#define DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN
+#include <doctest/doctest.h>
+
 #include "burner/net/bootstrap.h"
 #include "burner/net/builder.h"
 
 #include <curl/curl.h>
 
-int main() {
+namespace {
+
+struct CurlGlobalCleanupGuard final {
+    ~CurlGlobalCleanupGuard() {
+        curl_global_cleanup();
+    }
+};
+
+} // namespace
+
+TEST_CASE("Maximum Ghost rejects late allocator installation permanently") {
 #if !defined(_WIN32) || !BURNERNET_MAXIMUM_GHOST || BURNERNET_HARDEN_IMPORTS
-    return 0;
+    MESSAGE("Late linked-hook test requires Windows Maximum Ghost without hardened imports");
 #else
     using namespace burner::net;
 
-    if (curl_global_init(CURL_GLOBAL_ALL) != CURLE_OK) {
-        return 1;
-    }
+    REQUIRE(curl_global_init(CURL_GLOBAL_ALL) == CURLE_OK);
+    const CurlGlobalCleanupGuard cleanup_guard;
 
     BootstrapConfig boot{};
     boot.link_mode = LinkMode::Static;
     const auto late = InitializeNetworkingRuntime(boot);
-    if (late.success ||
-        late.code != ErrorCode::AllocatorHookInstallFailed ||
-        GlobalAllocatorHooksEnabled()) {
-        curl_global_cleanup();
-        return 2;
-    }
+    REQUIRE_FALSE(late.success);
+    REQUIRE(late.code == ErrorCode::AllocatorHookInstallFailed);
+    REQUIRE_FALSE(GlobalAllocatorHooksEnabled());
 
     const auto repeated = InitializeNetworkingRuntime(boot);
-    if (repeated.success ||
-        repeated.code != ErrorCode::AllocatorHookInstallFailed) {
-        curl_global_cleanup();
-        return 3;
-    }
+    REQUIRE_FALSE(repeated.success);
+    REQUIRE(repeated.code == ErrorCode::AllocatorHookInstallFailed);
 
     const auto unavailable = ClientBuilder().Build();
-    if (unavailable.Ok() ||
-        unavailable.error != ErrorCode::AllocatorHookInstallFailed) {
-        curl_global_cleanup();
-        return 4;
-    }
+    REQUIRE_FALSE(unavailable.Ok());
+    REQUIRE(unavailable.error == ErrorCode::AllocatorHookInstallFailed);
 
     ShutdownNetworkingRuntime();
-    curl_global_cleanup();
-    return 0;
 #endif
 }
