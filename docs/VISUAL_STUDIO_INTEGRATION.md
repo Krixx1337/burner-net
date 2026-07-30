@@ -215,14 +215,9 @@ This is the lower-friction Visual Studio path.
 
 ### Preprocessor definitions
 
-Recommended minimum:
-
-- `BURNER_ENABLE_CURL=1`
-- `BURNERNET_HARDEN_IMPORTS=0`
-
-Optional:
-
-- `BURNERNET_OBFUSCATE_STRINGS=1`
+No BurnerNet security definitions are required for the standard source-drop
+setup. Normal imports, readable diagnostics, Maximum Ghost off, and string
+obfuscation on are the defaults.
 
 ### Windows system libraries
 
@@ -278,7 +273,6 @@ Use this only when you intentionally want to control where curl/OpenSSL/zlib DLL
 
 Required:
 
-- `BURNER_ENABLE_CURL=1`
 - `BURNERNET_HARDEN_IMPORTS=1`
 
 Often required:
@@ -353,7 +347,6 @@ Use this mode when you have a static curl build and want BurnerNet source-drop i
 
 Required:
 
-- `BURNER_ENABLE_CURL=1`
 - `BURNERNET_HARDEN_IMPORTS=0`
 - `CURL_STATICLIB`
 

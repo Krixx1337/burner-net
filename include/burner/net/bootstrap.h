@@ -4,21 +4,10 @@
 #include <string>
 #include <vector>
 
+#include "detail/build_config.h"
 #include "detail/dark_callables.h"
 #include "export.h"
 #include "error.h"
-
-#ifndef BURNERNET_MAXIMUM_GHOST
-#define BURNERNET_MAXIMUM_GHOST 0
-#endif
-
-#if BURNERNET_MAXIMUM_GHOST != 0 && BURNERNET_MAXIMUM_GHOST != 1
-#error "BURNERNET_MAXIMUM_GHOST must be defined as 0 or 1"
-#endif
-
-#if BURNERNET_MAXIMUM_GHOST && !defined(_WIN32)
-#error "BURNERNET_MAXIMUM_GHOST is supported only on Windows in BurnerNet v1.3"
-#endif
 
 namespace burner::net {
 

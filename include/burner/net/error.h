@@ -1,5 +1,6 @@
 #pragma once
 
+#include "burner/net/detail/build_config.h"
 #include "burner/net/export.h"
 #include "burner/net/detail/polymorphic_error.h"
 
@@ -16,19 +17,7 @@ BURNER_API std::uint32_t ErrorXorKey() noexcept;
 } // namespace detail
 
 #ifndef BURNERNET_DIAGNOSTIC_STRINGS
-#if defined(BURNERNET_HARDEN_ERRORS)
-#define BURNERNET_DIAGNOSTIC_STRINGS (!(BURNERNET_HARDEN_ERRORS))
-#elif defined(BURNER_HARDEN_ERRORS)
-#define BURNERNET_DIAGNOSTIC_STRINGS (!(BURNER_HARDEN_ERRORS))
-#else
 #define BURNERNET_DIAGNOSTIC_STRINGS 1
-#endif
-#endif
-
-// Compatibility alias for 1.2 consumers. New code should configure
-// BURNERNET_DIAGNOSTIC_STRINGS directly.
-#ifndef BURNERNET_HARDEN_ERRORS
-#define BURNERNET_HARDEN_ERRORS (!(BURNERNET_DIAGNOSTIC_STRINGS))
 #endif
 
 enum class ErrorCode : uint32_t {

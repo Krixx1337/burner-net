@@ -1,5 +1,3 @@
-#if BURNER_ENABLE_CURL
-
 #include "curl_http_client.h"
 
 #include "curl_http_client_internal.h"
@@ -194,5 +192,3 @@ void CurlHttpClient::WipeHeaderList(curl_slist* headers) const {
 }
 
 } // namespace burner::net
-
-#endif

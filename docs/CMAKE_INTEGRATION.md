@@ -81,6 +81,27 @@ This guide does **not** replace the Visual Studio `.vcxproj` path. If your downs
 - Want a single `.exe` with no extra DLLs? **Mode 3.**
 - Building something that needs to hide its dependencies? **Mode 2.**
 
+For Mode 1, no BurnerNet security flags are required:
+
+```cmake
+add_subdirectory(external/burner-net)
+target_link_libraries(MyApp PRIVATE BurnerNet::BurnerNet)
+```
+
+The test, integration-test, and example targets default off when BurnerNet is a
+subproject. String obfuscation defaults on. Normal curl linking, readable error
+names, and unload-safe runtime ownership are the mass-adoption defaults.
+
+The independently selectable advanced options are:
+
+- `BURNERNET_DIAGNOSTIC_STRINGS=OFF` to omit symbolic error names
+- `BURNERNET_HARDEN_IMPORTS=ON` for explicit Windows bootstrap loading
+- `BURNERNET_MAXIMUM_GHOST=ON` for process-lifetime backend allocator wiping
+
+`BURNERNET_OBFUSCATE_STRINGS` is intentionally hidden from normal CMake GUI
+configuration. It remains available for specialized build and diagnostic work,
+but consumers should normally keep its default.
+
 ### Optional Maximum Ghost build contract
 
 Windows executables and permanently loaded modules can extend secure wiping
@@ -230,10 +251,6 @@ set(BURNERNET_DEP_PREFIX
     CACHE PATH "")
 
 list(PREPEND CMAKE_PREFIX_PATH "${BURNERNET_DEP_PREFIX}")
-
-set(BURNERNET_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(BURNERNET_BUILD_INTEGRATION_TESTS OFF CACHE BOOL "" FORCE)
-set(BURNERNET_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 add_subdirectory("${BURNERNET_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/_deps/burner-net")
 

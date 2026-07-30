@@ -77,7 +77,7 @@
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\include;$(ProjectDir)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;BURNER_ENABLE_CURL=1;BURNERNET_HARDEN_IMPORTS=0;BURNERNET_MAXIMUM_GHOST=$(BurnerNetMaximumGhost);BURNER_BUILDING_LIBRARY;HOSTILE_CORE_EXPORT=BURNER_API;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;BURNERNET_MAXIMUM_GHOST=$(BurnerNetMaximumGhost);BURNER_BUILDING_LIBRARY;HOSTILE_CORE_EXPORT=BURNER_API;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
@@ -95,7 +95,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\include;$(ProjectDir)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;BURNER_ENABLE_CURL=1;BURNERNET_HARDEN_IMPORTS=0;BURNERNET_MAXIMUM_GHOST=$(BurnerNetMaximumGhost);BURNER_BUILDING_LIBRARY;HOSTILE_CORE_EXPORT=BURNER_API;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_CONSOLE;BURNERNET_MAXIMUM_GHOST=$(BurnerNetMaximumGhost);BURNER_BUILDING_LIBRARY;HOSTILE_CORE_EXPORT=BURNER_API;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
@@ -111,7 +111,7 @@
       <WarningLevel>Level3</WarningLevel>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\include;$(ProjectDir)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>_DEBUG;_CONSOLE;BURNER_ENABLE_CURL=1;BURNERNET_HARDEN_IMPORTS=0;BURNERNET_MAXIMUM_GHOST=$(BurnerNetMaximumGhost);BURNER_BUILDING_LIBRARY;HOSTILE_CORE_EXPORT=BURNER_API;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;BURNERNET_MAXIMUM_GHOST=$(BurnerNetMaximumGhost);BURNER_BUILDING_LIBRARY;HOSTILE_CORE_EXPORT=BURNER_API;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
@@ -129,7 +129,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <AdditionalIncludeDirectories>$(ProjectDir)..\..\include;$(ProjectDir)..\..\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>NDEBUG;_CONSOLE;BURNER_ENABLE_CURL=1;BURNERNET_HARDEN_IMPORTS=0;BURNERNET_MAXIMUM_GHOST=$(BurnerNetMaximumGhost);BURNER_BUILDING_LIBRARY;HOSTILE_CORE_EXPORT=BURNER_API;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;BURNERNET_MAXIMUM_GHOST=$(BurnerNetMaximumGhost);BURNER_BUILDING_LIBRARY;HOSTILE_CORE_EXPORT=BURNER_API;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ExceptionHandling>Sync</ExceptionHandling>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>

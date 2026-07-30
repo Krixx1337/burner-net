@@ -4,6 +4,7 @@
 #define HOSTILE_CORE_EXPORT BURNER_API
 #endif
 
+#include "burner/net/detail/build_config.h"
 #include "burner/net/detail/constexpr_obfuscation.h"
 #include "burner/net/detail/memory_hygiene.h"
 
@@ -11,18 +12,6 @@
 #include <span>
 #include <string>
 #include <vector>
-
-#ifndef BURNERNET_OBFUSCATE_STRINGS
-#if defined(BURNER_OBFUSCATE_STRINGS)
-#define BURNERNET_OBFUSCATE_STRINGS BURNER_OBFUSCATE_STRINGS
-#else
-#define BURNERNET_OBFUSCATE_STRINGS 1
-#endif
-#endif
-
-#ifndef BURNERNET_HARDEN_IMPORTS
-#define BURNERNET_HARDEN_IMPORTS 0
-#endif
 
 namespace burner::net {
 

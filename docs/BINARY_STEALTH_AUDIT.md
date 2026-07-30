@@ -16,7 +16,7 @@ This report is a point-in-time audit snapshot for BurnerNet `v1.0.0` under the c
 *   **Hardening Flags:** 
     *   `BURNERNET_HARDEN_IMPORTS=ON`
     *   `BURNERNET_OBFUSCATE_STRINGS=ON`
-    *   `BURNERNET_HARDEN_ERRORS=1`
+    *   `BURNERNET_DIAGNOSTIC_STRINGS=OFF`
     *   RTTI Disabled (`/GR-`)
 *   **Integration:** Bootstrap Runtime Loading (Mode 2)
 

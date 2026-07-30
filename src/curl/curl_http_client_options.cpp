@@ -1,5 +1,3 @@
-#if BURNER_ENABLE_CURL
-
 #include "curl_http_client.h"
 
 #include "curl_session.h"
@@ -313,5 +311,3 @@ ErrorCode CurlHttpClient::ClearDnsStrategy() {
 }
 
 } // namespace burner::net
-
-#endif

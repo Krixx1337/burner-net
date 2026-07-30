@@ -157,6 +157,26 @@ Provider callbacks are fail-closed: returning `false`, throwing, or returning en
 
 ## Integration Paths
 
+Normal consumers do not need to select security build flags:
+
+```cmake
+add_subdirectory(external/burner-net)
+target_link_libraries(MyApp PRIVATE BurnerNet::BurnerNet)
+```
+
+BurnerNet defaults to string obfuscation with readable diagnostics, normal curl
+linking, and unload-safe runtime ownership. Only set an advanced option when its
+trade-off is required:
+
+| Option | Use it when | Cost |
+| :--- | :--- | :--- |
+| `BURNERNET_DIAGNOSTIC_STRINGS=OFF` | Release binaries should omit readable error names | Logs contain stable numeric codes |
+| `BURNERNET_HARDEN_IMPORTS=ON` | Windows dependency imports should be resolved through bootstrap | Explicit early runtime loading |
+| `BURNERNET_MAXIMUM_GHOST=ON` | A process-lifetime Windows integration needs libcurl/OpenSSL allocator wiping | BurnerNet and hooked runtimes cannot unload |
+
+`BURNERNET_OBFUSCATE_STRINGS` is an advanced build/debug control. It defaults
+on and ordinary consumers should leave it unchanged.
+
 ### 1. Standard CMake
 
 Use this when your downstream project already uses CMake and you want the cleanest dependency-managed path.

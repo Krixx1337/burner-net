@@ -1,5 +1,3 @@
-#if BURNER_ENABLE_CURL
-
 #include "curl_http_client.h"
 
 #include "curl_http_client_internal.h"
@@ -756,5 +754,3 @@ bool CurlHttpClient::IsRetryable(ErrorCode error) const noexcept {
 }
 
 } // namespace burner::net
-
-#endif

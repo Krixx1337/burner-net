@@ -16,6 +16,7 @@ option(BURNERNET_DIAGNOSTIC_STRINGS "Include readable ErrorCode names" ON)
 option(BURNERNET_MAXIMUM_GHOST
     "Install process-lifetime libcurl/OpenSSL wiping allocators (Windows only; prevents safe module unload)"
     OFF)
+mark_as_advanced(BURNERNET_OBFUSCATE_STRINGS)
 
 if(BURNERNET_MAXIMUM_GHOST AND NOT WIN32)
     message(FATAL_ERROR
@@ -83,7 +84,6 @@ set_target_properties(BurnerNet PROPERTIES
 
 target_compile_definitions(BurnerNet
     PUBLIC
-        BURNER_ENABLE_CURL=1
         BURNERNET_OBFUSCATE_STRINGS=$<IF:$<BOOL:${BURNERNET_OBFUSCATE_STRINGS}>,1,0>
         BURNERNET_HARDEN_IMPORTS=$<IF:$<BOOL:${BURNERNET_HARDEN_IMPORTS}>,1,0>
         BURNERNET_DIAGNOSTIC_STRINGS=$<IF:$<BOOL:${BURNERNET_DIAGNOSTIC_STRINGS}>,1,0>
