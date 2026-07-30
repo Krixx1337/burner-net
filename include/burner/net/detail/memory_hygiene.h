@@ -22,33 +22,11 @@ namespace burner::net::obf {
 
 BURNER_API void secure_wipe(void* ptr, std::size_t size) noexcept;
 
-// Wipe a region of the calling thread's stack to destroy ephemeral RAM Ghosts
-// (TLS keys, header fragments) left behind by deep call chains such as
-// curl_easy_perform / OpenSSL record processing.
-//
-// The function is marked noinline so the compiler emits a real call and places
-// the volatile buffer *below* the caller's frame – directly on top of the
-// memory that was occupied by the transport call chain.  volatile prevents
-// Dead Store Elimination from discarding the writes.
-//
-// A single 32 KiB fixed-size buffer is used internally; depth_bytes controls
-// how many bytes of that buffer are zeroed, capped at 32768.
-#if defined(_MSC_VER)
-__declspec(noinline)
-#elif defined(__GNUC__) || defined(__clang__)
-__attribute__((noinline))
-#endif
-inline void scrub_stack(std::size_t depth_bytes) noexcept {
-    constexpr std::size_t kMaxScrubBytes = 32768;
-    volatile char buffer[kMaxScrubBytes];
-    const std::size_t n = (depth_bytes < kMaxScrubBytes) ? depth_bytes : kMaxScrubBytes;
-    for (std::size_t i = 0; i < n; ++i) {
-        buffer[i] = '\0';
-    }
-    // Volatile read: suppresses unused-but-set-variable warnings while
-    // guaranteeing the writes above cannot be hoisted or elided.
-    (void)buffer[0];
-}
+// Deliberately wipe only storage whose address and size are known. A future
+// opt-in stack-churn pass may reduce residue from recently returned calls, but
+// it cannot cover registers, other threads, deeper frames, or library heaps.
+// Treat such a pass as forensic friction only; never require it for request
+// success or describe it as proof that process memory is clean.
 
 template <typename Traits, typename Alloc>
 inline void secure_wipe(std::basic_string<char, Traits, Alloc>& value) noexcept {

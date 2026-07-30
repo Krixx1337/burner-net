@@ -199,15 +199,10 @@ TEST_CASE("dark hashing supports case-sensitive and case-insensitive FNV-1a") {
     CHECK(content_type_cs == burner::net::detail::fnv1a_runtime("Content-Type"));
 }
 
-TEST_CASE("dark arithmetic restores masked constants through MBA identities") {
+TEST_CASE("legacy dark arithmetic remains valid for unsigned inputs") {
     static_assert(burner::net::detail::DarkIntegral<std::uint64_t>);
     static_assert(!burner::net::detail::DarkIntegral<bool>);
 
-    const auto curlopt_url = BURNER_MASK_INT(10002L);
-    const auto http_ok = BURNER_MASK_INT(200);
-
-    CHECK(curlopt_url == 10002L);
-    CHECK(http_ok == 200);
     CHECK(burner::net::detail::add_deep(17u, 25u) == 42u);
     CHECK(burner::net::detail::add_deep_alt(17u, 25u) == 42u);
     CHECK(burner::net::detail::sub_deep(100u, 58u) == 42u);

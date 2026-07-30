@@ -191,12 +191,7 @@ CurlHttpClient::CurlHttpClient(const ClientConfig& config)
     m_session = CreateCurlSession(m_config, &m_init_error);
 }
 
-CurlHttpClient::~CurlHttpClient() {
-    // Final "burst-and-burn" scrub: wipe a deep region of the stack as the
-    // client is torn down, giving a clean slate before the thread returns to
-    // the application's general pool.
-    ::burner::net::obf::scrub_stack(32768);
-}
+CurlHttpClient::~CurlHttpClient() = default;
 
 CurlHttpClient::CurlHttpClient(CurlHttpClient&& other) noexcept
     : m_config(std::move(other.m_config)),
@@ -550,7 +545,7 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     if (headers != nullptr) {
         if (curl_api.easy_setopt(
                 easy,
-                static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPHEADER))),
+                CURLOPT_HTTPHEADER,
                 headers) != CURLE_OK) {
             response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
             response.transport_error = ErrorCode::CurlOptionFailed;
@@ -578,7 +573,7 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         }
         if (curl_api.easy_setopt(
             easy,
-            static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_RESOLVE))),
+            CURLOPT_RESOLVE,
             bootstrap_resolve_entries) != CURLE_OK) {
             response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
             response.transport_error = ErrorCode::CurlOptionFailed;
@@ -591,11 +586,11 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
 
     if (curl_api.easy_setopt(
         easy,
-        static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PREREQFUNCTION))),
+        CURLOPT_PREREQFUNCTION,
         &CurlHttpClient::PrereqCallback) != CURLE_OK ||
         curl_api.easy_setopt(
         easy,
-        static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PREREQDATA))),
+        CURLOPT_PREREQDATA,
         this) != CURLE_OK) {
         response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
         response.transport_error = ErrorCode::CurlOptionFailed;
@@ -606,10 +601,6 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     }
     const CURLcode code = curl_api.easy_perform(easy);
     WipeHeaderList(bootstrap_resolve_entries);
-
-    // Wipe the stack region used by the transport chain (TLS keys, header
-    // fragments, session state) before any other logic can read it.
-    ::burner::net::obf::scrub_stack(16384);
 
     SecureWipe(protocol_scheme);
     SecureWipe(redirect_protocol_scheme);
@@ -652,7 +643,7 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         double total_time = 0.0;
         if (curl_api.easy_getinfo(
                 easy,
-                static_cast<CURLINFO>(BURNER_MASK_INT(static_cast<long>(CURLINFO_TOTAL_TIME))),
+                CURLINFO_TOTAL_TIME,
                 &total_time) == CURLE_OK) {
             response.telemetry.total_time_seconds = total_time;
         }
@@ -660,7 +651,7 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         curl_certinfo* cert_info = nullptr;
         if (curl_api.easy_getinfo(
                 easy,
-                static_cast<CURLINFO>(BURNER_MASK_INT(static_cast<long>(CURLINFO_CERTINFO))),
+                CURLINFO_CERTINFO,
                 &cert_info) == CURLE_OK &&
             cert_info != nullptr) {
             for (int cert_index = 0; cert_index < cert_info->num_of_certs; ++cert_index) {
@@ -677,7 +668,7 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     response.dns_strategy_used = strategy.has_value() ? strategy->name : DarkString{};
     response.streamed_body_bytes = body_ctx.streamed_body_bytes;
 
-    curl_api.easy_getinfo(easy, static_cast<CURLINFO>(BURNER_MASK_INT(static_cast<long>(CURLINFO_RESPONSE_CODE))), &response.status_code);
+    curl_api.easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &response.status_code);
 
     if (headers != nullptr) {
         WipeHeaderList(headers);
@@ -727,10 +718,6 @@ HttpResponse CurlHttpClient::PerformOnce(HttpRequest request, std::optional<DnsS
     worker.join();
 
     HttpResponse response = std::move(state->response);
-
-    // Final hygiene: Wipe the caller's stack frame just in case any
-    // pointer residue was left during the handoff or thread setup.
-    ::burner::net::obf::scrub_stack(1024);
 
     return response;
 }

@@ -11,8 +11,8 @@ Windows-only.
 | :--- | :--- | :--- |
 | **BurnerNet-owned memory wiping** | ✅ Supported | Wipes BurnerNet-owned request, response, credential, and temporary state. |
 | **Maximum Ghost backend allocators** | ❌ Windows Only | Linux v1.3 does not claim control over all libcurl/OpenSSL allocations. |
-| **Stack Isolation** | ✅ Full Support | Severs the call stack to hide your app logic from tracers. |
-| **String Obfuscation** | ✅ Full Support | URLs and security strings are encrypted at compile-time. |
+| **Stack Isolation** | ✅ Supported | Moves transport execution to a worker; this is analysis friction, not stack erasure. |
+| **String Obfuscation** | ✅ Supported | Reversible compile-time encoding reduces obvious plaintext literals; it is not encryption. |
 | **Windows-style Hardened Imports** | N/A | The Windows import-hiding/bootstrap path is Windows-specific. Linux uses the normal platform linker/runtime model. |
 | **Deep Stealth** | ❌ Windows Only | Manual PEB/PE parsing is exclusive to the Windows path. |
 

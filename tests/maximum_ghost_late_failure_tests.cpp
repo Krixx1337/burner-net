@@ -16,7 +16,7 @@ struct CurlGlobalCleanupGuard final {
 
 } // namespace
 
-TEST_CASE("Maximum Ghost rejects late allocator installation permanently") {
+TEST_CASE("Maximum Ghost tolerates host-owned curl initialization") {
 #if !defined(_WIN32) || !BURNERNET_MAXIMUM_GHOST || BURNERNET_HARDEN_IMPORTS
     MESSAGE("Late linked-hook test requires Windows Maximum Ghost without hardened imports");
 #else
@@ -28,17 +28,16 @@ TEST_CASE("Maximum Ghost rejects late allocator installation permanently") {
     BootstrapConfig boot{};
     boot.link_mode = LinkMode::Static;
     const auto late = InitializeNetworkingRuntime(boot);
-    REQUIRE_FALSE(late.success);
-    REQUIRE(late.code == ErrorCode::AllocatorHookInstallFailed);
+    REQUIRE(late.success);
+    REQUIRE(late.code == ErrorCode::BootstrapSkip);
     REQUIRE_FALSE(GlobalAllocatorHooksEnabled());
 
     const auto repeated = InitializeNetworkingRuntime(boot);
-    REQUIRE_FALSE(repeated.success);
-    REQUIRE(repeated.code == ErrorCode::AllocatorHookInstallFailed);
+    REQUIRE(repeated.success);
+    REQUIRE(repeated.code == ErrorCode::BootstrapSkip);
 
-    const auto unavailable = ClientBuilder().Build();
-    REQUIRE_FALSE(unavailable.Ok());
-    REQUIRE(unavailable.error == ErrorCode::AllocatorHookInstallFailed);
+    const auto available = ClientBuilder().Build();
+    REQUIRE(available.Ok());
 
     ShutdownNetworkingRuntime();
 #endif

@@ -128,7 +128,12 @@ because streamed bytes are published immediately.
 burner::net::BootstrapConfig boot{};
 boot.link_mode = burner::net::LinkMode::Dynamic;
 boot.dependency_directory = runtime_dir;
-boot.dependency_dlls = {L"libcurl.dll", L"libcrypto-3-x64.dll"};
+boot.dependency_dlls = {
+    L"libcurl.dll",
+    L"libssl-3-x64.dll",
+    L"libcrypto-3-x64.dll",
+    L"zlib1.dll",
+};
 boot.dependency_directory_guard =
     [](const std::filesystem::path& canonical_dir) {
         return IsApprovedRuntimeDirectory(canonical_dir);
@@ -139,14 +144,16 @@ boot.integrity_provider =
     };
 ```
 
-Provider absence means no application integrity check. Provider presence means
-every dependency must pass; `false` and exceptions fail closed.
+With hardened imports, use a dedicated directory containing no unlisted DLLs.
+The integrity provider and complete DLL manifest are mandatory. BurnerNet locks
+and verifies every listed DLL before loading any one of them. Lookup is limited
+to the package directory and System32. In normal-import builds the provider
+remains optional; when present, `false` and exceptions fail closed.
 
-Process-global allocator hooks are a build contract, not runtime policy. Enable
-`BURNERNET_MAXIMUM_GHOST=1` only when BurnerNet's owning module may remain
-loaded until process exit. In that build, call `InitializeNetworkingRuntime`
-before creating clients; hook failure is terminal and shutdown preserves the
-hooked runtime.
+Process-global allocator hooks are an optional build capability. Enable
+`BURNERNET_MAXIMUM_GHOST=1` only when callback owners may remain loaded until
+process exit. Call `InitializeNetworkingRuntime` early to attempt installation.
+Prior host initialization leaves hooks disabled but does not block clients.
 
 ## v1.3 migration
 

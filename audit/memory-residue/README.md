@@ -55,6 +55,6 @@ Both searches should return no matches.
 | Canary appears in both builds | Investigate hook coverage and the address owning the match |
 | Token is absent but URL remains | Credential cleanup succeeded; URL handling needs investigation |
 
-This is not a production bootstrap recipe. The harness only checks that its
-staged DLL is a regular file; production applications must authenticate their
-own dependencies.
+This is not a production bootstrap recipe. The harness lists every staged DLL
+but only checks that each is a regular file; production applications must
+cryptographically authenticate their own dependencies.

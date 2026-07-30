@@ -20,7 +20,9 @@
 #include <memory>
 #include <mutex>
 #include <new>
+#include <string_view>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 namespace burner::net {
@@ -29,33 +31,26 @@ namespace {
 
 std::mutex g_loader_mutex;
 std::vector<detail::RuntimeModuleLease> g_loaded_modules;
-DLL_DIRECTORY_COOKIE g_dependency_cookie = nullptr;
 bool g_bootstrap_in_progress = false;
 std::atomic<bool> g_global_allocator_hooks_enabled{false};
 
-using AddDllDirectoryFn = decltype(&AddDllDirectory);
 using GetModuleHandleExWFn = decltype(&GetModuleHandleExW);
 using LoadLibraryExWFn = decltype(&LoadLibraryExW);
-using SetDefaultDllDirectoriesFn = decltype(&SetDefaultDllDirectories);
-using RemoveDllDirectoryFn = decltype(&RemoveDllDirectory);
 
 constexpr std::uint32_t kKernel32Hash = ::burner::net::detail::fnv1a_ci("kernel32.dll");
 constexpr std::uint32_t kKernelBaseHash = ::burner::net::detail::fnv1a_ci("kernelbase.dll");
 constexpr std::uint32_t kNtDllHash = ::burner::net::detail::fnv1a_ci("ntdll.dll");
-constexpr std::uint32_t kAddDllDirectoryHash = ::burner::net::detail::fnv1a("AddDllDirectory");
 constexpr std::uint32_t kGetModuleHandleExWHash =
     ::burner::net::detail::fnv1a("GetModuleHandleExW");
 constexpr std::uint32_t kLoadLibraryExWHash = ::burner::net::detail::fnv1a("LoadLibraryExW");
-constexpr std::uint32_t kSetDefaultDllDirectoriesHash =
-    ::burner::net::detail::fnv1a("SetDefaultDllDirectories");
-constexpr std::uint32_t kRemoveDllDirectoryHash = ::burner::net::detail::fnv1a("RemoveDllDirectory");
 
 #if BURNERNET_MAXIMUM_GHOST
 enum class MaximumGhostState : std::uint8_t {
     Uninitialized,
     Installing,
     Active,
-    Failed
+    Partial,
+    Unavailable
 };
 
 MaximumGhostState g_maximum_ghost_state = MaximumGhostState::Uninitialized;
@@ -90,30 +85,27 @@ TFn ResolveSystemPrimitive(std::uint32_t export_hash) noexcept {
 }
 
 #if BURNERNET_MAXIMUM_GHOST
-bool RetainMaximumGhostOwnerModule() noexcept {
+HMODULE AcquireMaximumGhostOwnerModule() noexcept {
     if (g_maximum_ghost_owner_module != nullptr) {
-        return true;
+        return g_maximum_ghost_owner_module;
     }
 
     const GetModuleHandleExWFn get_module_handle_ex_w =
         ResolveSystemPrimitive<GetModuleHandleExWFn>(kGetModuleHandleExWHash);
     if (get_module_handle_ex_w == nullptr) {
-        return false;
+        return nullptr;
     }
 
     HMODULE owner_module = nullptr;
     if (!get_module_handle_ex_w(
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS,
-            reinterpret_cast<LPCWSTR>(&RetainMaximumGhostOwnerModule),
+            reinterpret_cast<LPCWSTR>(&AcquireMaximumGhostOwnerModule),
             &owner_module) ||
         owner_module == nullptr) {
-        return false;
+        return nullptr;
     }
 
-    // This reference deliberately has no release path. Process-global libcurl
-    // and OpenSSL callbacks may invoke BurnerNet allocators until process exit.
-    g_maximum_ghost_owner_module = owner_module;
-    return true;
+    return owner_module;
 }
 #endif
 
@@ -150,6 +142,17 @@ public:
     }
     ScopedHandle(const ScopedHandle&) = delete;
     ScopedHandle& operator=(const ScopedHandle&) = delete;
+    ScopedHandle(ScopedHandle&& other) noexcept
+        : m_handle(std::exchange(other.m_handle, INVALID_HANDLE_VALUE)) {}
+    ScopedHandle& operator=(ScopedHandle&& other) noexcept {
+        if (this != &other) {
+            if (m_handle != INVALID_HANDLE_VALUE) {
+                ::CloseHandle(m_handle);
+            }
+            m_handle = std::exchange(other.m_handle, INVALID_HANDLE_VALUE);
+        }
+        return *this;
+    }
     [[nodiscard]] HANDLE get() const noexcept { return m_handle; }
     [[nodiscard]] bool valid() const noexcept { return m_handle != INVALID_HANDLE_VALUE; }
 
@@ -226,7 +229,6 @@ void ReleaseModulesReverse(std::vector<detail::RuntimeModuleLease>& modules) noe
 
 struct PendingBootstrapResources final {
     std::vector<detail::RuntimeModuleLease> modules;
-    DLL_DIRECTORY_COOKIE directory_cookie = nullptr;
 
     PendingBootstrapResources() = default;
     ~PendingBootstrapResources() {
@@ -238,21 +240,13 @@ struct PendingBootstrapResources final {
 
     void Reset() noexcept {
         ReleaseModulesReverse(modules);
-        if (directory_cookie != nullptr) {
-            const RemoveDllDirectoryFn remove_directory =
-                ResolveSystemPrimitive<RemoveDllDirectoryFn>(kRemoveDllDirectoryHash);
-            if (remove_directory != nullptr) {
-                (void)remove_directory(directory_cookie);
-            }
-            directory_cookie = nullptr;
-        }
     }
+};
 
-    [[nodiscard]] DLL_DIRECTORY_COOKIE ReleaseDirectoryCookie() noexcept {
-        DLL_DIRECTORY_COOKIE cookie = directory_cookie;
-        directory_cookie = nullptr;
-        return cookie;
-    }
+struct LockedDependency final {
+    std::wstring basename;
+    std::filesystem::path full_path;
+    ScopedHandle file;
 };
 
 struct BootstrapTransactionGuard final {
@@ -266,11 +260,56 @@ struct BootstrapTransactionGuard final {
     }
 };
 
+bool DependencyNameMatches(std::wstring_view lhs, std::wstring_view rhs) {
+    if (lhs.size() != rhs.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < lhs.size(); ++i) {
+        if (towlower(lhs[i]) != towlower(rhs[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool IsListedDependency(
+    const std::vector<std::wstring>& dependency_dlls,
+    std::wstring_view basename) {
+    return std::any_of(
+        dependency_dlls.begin(),
+        dependency_dlls.end(),
+        [&](const std::wstring& candidate) {
+            return DependencyNameMatches(candidate, basename);
+        });
+}
+
 #if BURNERNET_MAXIMUM_GHOST
-void MarkMaximumGhostFailed() noexcept {
+void PublishMaximumGhostResult(
+    GlobalAllocatorHookInstallResult result,
+    HMODULE owner_candidate) noexcept {
     std::lock_guard<std::mutex> lock(g_loader_mutex);
-    g_maximum_ghost_state = MaximumGhostState::Failed;
-    g_global_allocator_hooks_enabled.store(false, std::memory_order_release);
+    if (result == GlobalAllocatorHookInstallResult::Active) {
+        g_maximum_ghost_state = MaximumGhostState::Active;
+        g_global_allocator_hooks_enabled.store(true, std::memory_order_release);
+    } else if (result == GlobalAllocatorHookInstallResult::Partial) {
+        g_maximum_ghost_state = MaximumGhostState::Partial;
+        g_global_allocator_hooks_enabled.store(false, std::memory_order_release);
+    } else {
+        g_maximum_ghost_state = MaximumGhostState::Unavailable;
+        g_global_allocator_hooks_enabled.store(false, std::memory_order_release);
+    }
+
+    if (result != GlobalAllocatorHookInstallResult::Unavailable &&
+        g_maximum_ghost_owner_module == nullptr) {
+        // Installed callbacks can execute until process exit. Keep their owner
+        // resident even when only one backend accepted the callbacks.
+        g_maximum_ghost_owner_module = owner_candidate;
+        owner_candidate = nullptr;
+    }
+    if (owner_candidate != nullptr &&
+        owner_candidate != g_maximum_ghost_owner_module) {
+        ::FreeLibrary(owner_candidate);
+    }
 }
 #endif
 
@@ -302,18 +341,7 @@ RuntimeModuleLease AcquireRuntimeModule(std::string_view basename) noexcept {
 }
 
 ErrorCode MaximumGhostRuntimeError() noexcept {
-#if BURNERNET_MAXIMUM_GHOST
-    std::lock_guard<std::mutex> lock(g_loader_mutex);
-    if (g_maximum_ghost_state == MaximumGhostState::Active) {
-        return ErrorCode::None;
-    }
-    if (g_maximum_ghost_state == MaximumGhostState::Failed) {
-        return ErrorCode::AllocatorHookInstallFailed;
-    }
-    return ErrorCode::MaximumGhostRuntimeRequired;
-#else
     return ErrorCode::None;
-#endif
 }
 
 } // namespace detail
@@ -326,11 +354,15 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
 #if BURNERNET_MAXIMUM_GHOST
     {
         std::lock_guard<std::mutex> lock(g_loader_mutex);
-        if (g_maximum_ghost_state == MaximumGhostState::Active) {
-            return {true, ErrorCode::BootstrapSkip};
-        }
-        if (g_maximum_ghost_state == MaximumGhostState::Failed) {
-            return {false, ErrorCode::AllocatorHookInstallFailed};
+        if (g_maximum_ghost_state == MaximumGhostState::Active ||
+            g_maximum_ghost_state == MaximumGhostState::Partial ||
+            g_maximum_ghost_state == MaximumGhostState::Unavailable) {
+            if (config.link_mode != LinkMode::Static && g_loaded_modules.empty()) {
+                // Hook outcome is process-global, but dynamic runtime loading
+                // may still be needed after an earlier linked-mode attempt.
+            } else {
+                return {true, ErrorCode::BootstrapSkip};
+            }
         }
         if (g_maximum_ghost_state == MaximumGhostState::Installing) {
             return {false, ErrorCode::BootstrapBusy};
@@ -351,16 +383,16 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         }
         BootstrapTransactionGuard transaction_guard;
 
-        if (!RetainMaximumGhostOwnerModule() ||
-            !InstallLinkedGlobalAllocatorHooks()) {
-            MarkMaximumGhostFailed();
-            return {false, ErrorCode::AllocatorHookInstallFailed};
+        HMODULE owner_candidate = AcquireMaximumGhostOwnerModule();
+        GlobalAllocatorHookInstallResult hook_result =
+            GlobalAllocatorHookInstallResult::Unavailable;
+        if (owner_candidate != nullptr) {
+            hook_result = InstallLinkedGlobalAllocatorHooks();
         }
+        PublishMaximumGhostResult(hook_result, owner_candidate);
 
         {
             std::lock_guard<std::mutex> lock(g_loader_mutex);
-            g_maximum_ghost_state = MaximumGhostState::Active;
-            g_global_allocator_hooks_enabled.store(true, std::memory_order_release);
             g_bootstrap_in_progress = false;
             transaction_guard.active = false;
         }
@@ -382,10 +414,33 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
     if (config.dependency_dlls.empty()) {
         return {false, ErrorCode::InvalidBootstrapDependency};
     }
-    for (const auto& dll_name : config.dependency_dlls) {
+    for (std::size_t i = 0; i < config.dependency_dlls.size(); ++i) {
+        const auto& dll_name = config.dependency_dlls[i];
         if (!IsValidDependencyName(dll_name)) {
             return {false, ErrorCode::InvalidBootstrapDependency};
         }
+        for (std::size_t j = 0; j < i; ++j) {
+            if (DependencyNameMatches(dll_name, config.dependency_dlls[j])) {
+                return {false, ErrorCode::InvalidBootstrapDependency};
+            }
+        }
+    }
+#if BURNERNET_HARDEN_IMPORTS
+    if (!config.integrity_provider) {
+        return {false, ErrorCode::BootstrapIntegrityCfg};
+    }
+#endif
+
+    ScopedHandle configured_directory(::CreateFileW(
+        config.dependency_directory.c_str(),
+        FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+        nullptr));
+    if (!configured_directory.valid() || IsReparsePoint(configured_directory.get())) {
+        return {false, ErrorCode::InvalidBootstrapDependency};
     }
 
     std::error_code path_error;
@@ -403,20 +458,14 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         OPEN_EXISTING,
         FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
         nullptr));
-    if (!directory_handle.valid() || IsReparsePoint(directory_handle.get())) {
+    if (!directory_handle.valid() ||
+        IsReparsePoint(directory_handle.get()) ||
+        !SameFileIdentity(configured_directory.get(), directory_handle.get())) {
         return {false, ErrorCode::InvalidBootstrapDependency};
     }
 
     {
         std::lock_guard<std::mutex> lock(g_loader_mutex);
-#if BURNERNET_MAXIMUM_GHOST
-        if (g_maximum_ghost_state == MaximumGhostState::Active) {
-            return {true, ErrorCode::BootstrapSkip};
-        }
-        if (g_maximum_ghost_state == MaximumGhostState::Failed) {
-            return {false, ErrorCode::AllocatorHookInstallFailed};
-        }
-#endif
         if (!g_loaded_modules.empty()) {
             return {true, ErrorCode::BootstrapSkip};
         }
@@ -453,37 +502,28 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
     }
 
     PendingBootstrapResources pending_resources;
+    std::vector<LockedDependency> locked_dependencies;
+    locked_dependencies.reserve(config.dependency_dlls.size());
 
-    if (g_dependency_cookie == nullptr) {
-        // Keep loader-search-path mutation on the provenance-checked resolver path.
-        // Bootstrap needs to anchor these calls to the genuine backing module
-        // before loading redist DLLs.
-        const SetDefaultDllDirectoriesFn set_default_dll_directories =
-            ResolveSystemPrimitive<SetDefaultDllDirectoriesFn>(kSetDefaultDllDirectoriesHash);
-        if (set_default_dll_directories == nullptr ||
-            !set_default_dll_directories(
-                LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS)) {
-            return {false, ErrorCode::BootstrapDllDirs};
-        }
-
-        const AddDllDirectoryFn add_dll_directory =
-            ResolveSystemPrimitive<AddDllDirectoryFn>(kAddDllDirectoryHash);
-        if (add_dll_directory == nullptr) {
-            return {false, ErrorCode::BootstrapAddDir};
-        }
-
-        pending_resources.directory_cookie = add_dll_directory(canonical_directory.c_str());
-        if (pending_resources.directory_cookie == nullptr) {
-            return {false, ErrorCode::BootstrapAddDir};
+#if BURNERNET_HARDEN_IMPORTS
+    std::error_code enumeration_error;
+    for (std::filesystem::directory_iterator it(canonical_directory, enumeration_error), end;
+         !enumeration_error && it != end;
+         it.increment(enumeration_error)) {
+        const std::filesystem::path entry_path = it->path();
+        if (ToLowerWide(entry_path.extension().wstring()) == L".dll" &&
+            !IsListedDependency(config.dependency_dlls, entry_path.filename().wstring())) {
+            return {false, ErrorCode::InvalidBootstrapDependency};
         }
     }
-
-    const LoadLibraryExWFn load_library_ex_w =
-        ResolveSystemPrimitive<LoadLibraryExWFn>(kLoadLibraryExWHash);
-    if (load_library_ex_w == nullptr) {
-        return {false, ErrorCode::BootstrapLoad};
+    if (enumeration_error) {
+        return {false, ErrorCode::InvalidBootstrapDependency};
     }
+#endif
 
+    // Lock and validate every packaged DLL before the first LoadLibrary call.
+    // This prevents one dependency from executing while a later dependency is
+    // still unverified or replaceable.
     for (const auto& dll_name : config.dependency_dlls) {
         const std::filesystem::path full_path = canonical_directory / dll_name;
         ScopedHandle locked_file(::CreateFileW(
@@ -497,11 +537,17 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
         if (!locked_file.valid() || IsReparsePoint(locked_file.get())) {
             return {false, ErrorCode::InvalidBootstrapDependency};
         }
+        locked_dependencies.push_back(
+            LockedDependency{dll_name, full_path, std::move(locked_file)});
+    }
 
-        if (config.integrity_provider) {
+    if (config.integrity_provider) {
+        for (const auto& dependency : locked_dependencies) {
             bool ok = false;
             try {
-                ok = config.integrity_provider(full_path, dll_name);
+                ok = config.integrity_provider(
+                    dependency.full_path,
+                    dependency.basename);
             } catch (...) {
                 return {false, ErrorCode::CallbackFailed};
             }
@@ -509,14 +555,19 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
                 return {false, ErrorCode::BootstrapIntegrityMismatch};
             }
         }
+    }
 
-        // Resolve the actual loader entrypoint from the system images, then use it
-        // directly for dependency loading. Path verification stays on the Win32 APIs
-        // after the module is loaded because those checks are not the bootstrap trust root.
+    const LoadLibraryExWFn load_library_ex_w =
+        ResolveSystemPrimitive<LoadLibraryExWFn>(kLoadLibraryExWHash);
+    if (load_library_ex_w == nullptr) {
+        return {false, ErrorCode::BootstrapLoad};
+    }
+
+    for (const auto& dependency : locked_dependencies) {
         ScopedModule module(load_library_ex_w(
-            full_path.c_str(),
+            dependency.full_path.c_str(),
             nullptr,
-            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS | LOAD_LIBRARY_SEARCH_USER_DIRS));
+            LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_SYSTEM32));
         if (!module.valid()) {
             return {false, ErrorCode::BootstrapLoad};
         }
@@ -535,67 +586,69 @@ BootstrapResult InitializeNetworkingRuntime(const BootstrapConfig& config) {
                       nullptr)
                 : INVALID_HANDLE_VALUE);
         if (n == 0 || n == MAX_PATH || !loaded_file.valid() ||
-            !PathsEqualCaseInsensitive(std::filesystem::path(loaded_path), full_path) ||
-            !SameFileIdentity(locked_file.get(), loaded_file.get())) {
+            !PathsEqualCaseInsensitive(
+                std::filesystem::path(loaded_path),
+                dependency.full_path) ||
+            !SameFileIdentity(dependency.file.get(), loaded_file.get())) {
             return {false, ErrorCode::BootstrapModulePath};
         }
 
-        pending_resources.modules.push_back(MakeModuleLease(module, dll_name));
+        pending_resources.modules.push_back(
+            MakeModuleLease(module, dependency.basename));
     }
 
-    // Irreversible process-global hooks begin only after every dependency has
-    // passed validation. Once installation starts, owner code remains resident
-    // and any failure is terminal for this process.
+    // Process-global hooks are optional. Existing host initialization can make
+    // them unavailable; transport remains usable and reports hooks as disabled.
 #if BURNERNET_MAXIMUM_GHOST
+    bool should_attempt_hooks = false;
     {
         std::lock_guard<std::mutex> lock(g_loader_mutex);
-        g_maximum_ghost_state = MaximumGhostState::Installing;
-    }
-
-    if (!RetainMaximumGhostOwnerModule()) {
-        MarkMaximumGhostFailed();
-        return {false, ErrorCode::AllocatorHookInstallFailed};
-    }
-
-    bool hooks_installed = false;
-#if BURNERNET_HARDEN_IMPORTS
-    for (const auto& runtime_module : pending_resources.modules) {
-        const std::uint32_t basename_hash = ::burner::net::detail::fnv1a_ascii_wide_ci(
-            runtime_module->basename.c_str(),
-            runtime_module->basename.size());
-        if (basename_hash == kLibCurlBootstrapHash ||
-            basename_hash == kLibCurlDBootstrapHash) {
-            CurlApi curl_api{};
-            curl_api.global_init_mem = reinterpret_cast<CurlGlobalInitMemFn>(
-                ::burner::net::detail::KernelResolver::ResolveInternalExport(
-                    runtime_module->handle,
-                    ::burner::net::detail::kCurlGlobalInitMemHash));
-            curl_api.global_sslset = reinterpret_cast<CurlGlobalSslSetFn>(
-                ::burner::net::detail::KernelResolver::ResolveInternalExport(
-                    runtime_module->handle,
-                    ::burner::net::detail::kCurlGlobalSslSetHash));
-            hooks_installed = InstallGlobalAllocatorHooks(curl_api);
-            break;
+        if (g_maximum_ghost_state == MaximumGhostState::Uninitialized) {
+            g_maximum_ghost_state = MaximumGhostState::Installing;
+            should_attempt_hooks = true;
         }
     }
-#else
-    hooks_installed = InstallLinkedGlobalAllocatorHooks();
-#endif
 
-    if (!hooks_installed) {
-        MarkMaximumGhostFailed();
-        return {false, ErrorCode::AllocatorHookInstallFailed};
+    if (should_attempt_hooks) {
+        HMODULE owner_candidate = AcquireMaximumGhostOwnerModule();
+        GlobalAllocatorHookInstallResult hook_result =
+            GlobalAllocatorHookInstallResult::Unavailable;
+        if (owner_candidate != nullptr) {
+#if BURNERNET_HARDEN_IMPORTS
+            for (const auto& runtime_module : pending_resources.modules) {
+                const std::uint32_t basename_hash =
+                    ::burner::net::detail::fnv1a_ascii_wide_ci(
+                        runtime_module->basename.c_str(),
+                        runtime_module->basename.size());
+                if (basename_hash == kLibCurlBootstrapHash ||
+                    basename_hash == kLibCurlDBootstrapHash) {
+                    CurlApi curl_api{};
+                    curl_api.global_init_mem =
+                        reinterpret_cast<CurlGlobalInitMemFn>(
+                            ::burner::net::detail::KernelResolver::ResolveInternalExport(
+                                runtime_module->handle,
+                                ::burner::net::detail::kCurlGlobalInitMemHash));
+                    curl_api.global_sslset =
+                        reinterpret_cast<CurlGlobalSslSetFn>(
+                            ::burner::net::detail::KernelResolver::ResolveInternalExport(
+                                runtime_module->handle,
+                                ::burner::net::detail::kCurlGlobalSslSetHash));
+                    hook_result = InstallGlobalAllocatorHooks(curl_api);
+                    break;
+                }
+            }
+#else
+            hook_result = InstallLinkedGlobalAllocatorHooks();
+#endif
+        }
+        PublishMaximumGhostResult(hook_result, owner_candidate);
     }
 #endif
 
     {
         std::lock_guard<std::mutex> lock(g_loader_mutex);
         g_loaded_modules.swap(pending_resources.modules);
-        g_dependency_cookie = pending_resources.ReleaseDirectoryCookie();
-#if BURNERNET_MAXIMUM_GHOST
-        g_maximum_ghost_state = MaximumGhostState::Active;
-        g_global_allocator_hooks_enabled.store(true, std::memory_order_release);
-#else
+#if !BURNERNET_MAXIMUM_GHOST
         g_global_allocator_hooks_enabled.store(false, std::memory_order_release);
 #endif
         g_bootstrap_in_progress = false;
@@ -615,33 +668,26 @@ bool GlobalAllocatorHooksEnabled() noexcept {
 
 void ShutdownNetworkingRuntime() noexcept {
     std::vector<detail::RuntimeModuleLease> modules;
-    DLL_DIRECTORY_COOKIE dependency_cookie = nullptr;
     {
         std::lock_guard<std::mutex> lock(g_loader_mutex);
         if (g_bootstrap_in_progress) {
             return;
         }
 #if BURNERNET_MAXIMUM_GHOST
-        if (g_maximum_ghost_state != MaximumGhostState::Uninitialized) {
+        if (g_maximum_ghost_state == MaximumGhostState::Active ||
+            g_maximum_ghost_state == MaximumGhostState::Partial) {
             // Allocator callbacks and their owning module are process-lifetime.
             // Unloading runtime modules would make later backend reuse ambiguous.
             return;
         }
 #endif
         modules.swap(g_loaded_modules);
-        dependency_cookie = g_dependency_cookie;
-        g_dependency_cookie = nullptr;
         g_global_allocator_hooks_enabled.store(false, std::memory_order_release);
     }
 
     // Never execute DLL detach code while registry mutex is held. A module's
     // loader callback may otherwise re-enter runtime lookup and deadlock.
     ReleaseModulesReverse(modules);
-    if (dependency_cookie) {
-        const RemoveDllDirectoryFn remove_directory =
-            ResolveSystemPrimitive<RemoveDllDirectoryFn>(kRemoveDllDirectoryHash);
-        if (remove_directory) (void)remove_directory(dependency_cookie);
-    }
 }
 
 } // namespace burner::net

@@ -49,7 +49,7 @@ These checks answer: "What sensitive material remains in process memory after th
 Target outcomes:
 - BurnerNet-managed transport buffers should be wiped as they leave managed lifetime
 - temporary request/response fragments should have short memory residency
-- worker-thread stack cleanup should reduce leftover transport fragments after request completion
+- isolated worker teardown should shorten transport-state lifetime without claiming deterministic stack erasure
 - provider-fetched secrets should be materialized close to use and not retained in long-lived config state
 - backend-specific side effects such as per-thread error state or transport-side caches should be reviewed alongside the primary request buffers
 

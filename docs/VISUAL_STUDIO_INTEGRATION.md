@@ -94,10 +94,11 @@ if (!init.success) {
 }
 ```
 
-This mode requires OpenSSL-backed libcurl, installs process-global wiping
-allocators, and retains BurnerNet's owning module until process exit. Hook
-failure is terminal. Do not set this definition in an unloadable DLL or plugin.
-When omitted, it defaults to `0`.
+This mode requires OpenSSL-backed libcurl and attempts process-global wiping
+allocators. Prior host initialization can make hooks unavailable without
+blocking BurnerNet networking; check `GlobalAllocatorHooksEnabled()`. Installed
+callback owners remain resident until process exit. Do not set this definition
+in an unloadable DLL or plugin. When omitted, it defaults to `0`.
 
 ### Mode 1: Standard source-drop (Recommended)
 

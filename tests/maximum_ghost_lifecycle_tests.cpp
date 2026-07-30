@@ -4,17 +4,13 @@
 #include "burner/net/bootstrap.h"
 #include "burner/net/builder.h"
 
-TEST_CASE("Maximum Ghost requires bootstrap and remains active until process exit") {
+TEST_CASE("Maximum Ghost installs early and remains active until process exit") {
 #if !defined(_WIN32) || !BURNERNET_MAXIMUM_GHOST
     MESSAGE("Maximum Ghost lifecycle is Windows-only and requires the build option");
 #else
     using namespace burner::net;
 
     REQUIRE_FALSE(GlobalAllocatorHooksEnabled());
-
-    const auto unavailable = ClientBuilder().Build();
-    REQUIRE_FALSE(unavailable.Ok());
-    REQUIRE(unavailable.error == ErrorCode::MaximumGhostRuntimeRequired);
 
     BootstrapConfig boot{};
     boot.link_mode = LinkMode::Static;

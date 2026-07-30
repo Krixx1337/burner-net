@@ -30,7 +30,13 @@ bool InitializeRuntime(const char* executable) {
     bootstrap.link_mode = burner::net::LinkMode::Dynamic;
     bootstrap.dependency_directory =
         std::filesystem::absolute(executable).parent_path() / "redist";
-    bootstrap.dependency_dlls.push_back(L"libcurl.dll");
+    bootstrap.dependency_dlls = {
+        L"zlib1.dll",
+        L"libcrypto-3-x64.dll",
+        L"libssl-3-x64.dll",
+        L"legacy.dll",
+        L"libcurl.dll",
+    };
     bootstrap.integrity_provider =
         [](const std::filesystem::path& path, const std::wstring&) {
             return std::filesystem::is_regular_file(path);

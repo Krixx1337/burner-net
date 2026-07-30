@@ -32,12 +32,18 @@ private:
     CURL* m_easy = nullptr;
 };
 
-// Calls curl_global_init_mem exactly once per process, injecting the wiping
-// allocator callbacks.  Must be called after the CurlApi is fully populated
-// and before easy_init() is invoked.
+enum class GlobalAllocatorHookInstallResult {
+    Unavailable,
+    Partial,
+    Active
+};
+
+// Calls curl_global_init_mem exactly once per process. Existing host
+// initialization can make the hooks unavailable; that must not block transport.
 [[nodiscard]] bool EnsureCurlGlobalZapped(const CurlApi& api) noexcept;
-[[nodiscard]] bool InstallGlobalAllocatorHooks(const CurlApi& api) noexcept;
-[[nodiscard]] bool InstallLinkedGlobalAllocatorHooks() noexcept;
+[[nodiscard]] GlobalAllocatorHookInstallResult InstallGlobalAllocatorHooks(
+    const CurlApi& api) noexcept;
+[[nodiscard]] GlobalAllocatorHookInstallResult InstallLinkedGlobalAllocatorHooks() noexcept;
 
 std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, ErrorCode* init_error);
 

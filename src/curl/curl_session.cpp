@@ -173,21 +173,26 @@ bool EnsureCurlGlobalZapped(const CurlApi& api) noexcept {
     return s_result;
 }
 
-bool InstallLinkedGlobalAllocatorHooks() noexcept {
+GlobalAllocatorHookInstallResult InstallLinkedGlobalAllocatorHooks() noexcept {
 #if BURNERNET_HARDEN_IMPORTS
-    return false;
+    return GlobalAllocatorHookInstallResult::Unavailable;
 #else
     const CurlApi curl_api = MakeWrappedCurlApi();
     return InstallGlobalAllocatorHooks(curl_api);
 #endif
 }
 
-bool InstallGlobalAllocatorHooks(const CurlApi& api) noexcept {
+GlobalAllocatorHookInstallResult InstallGlobalAllocatorHooks(const CurlApi& api) noexcept {
     if (!api.global_sslset ||
         api.global_sslset(CURLSSLBACKEND_OPENSSL, nullptr, nullptr) != CURLSSLSET_OK) {
-        return false;
+        return GlobalAllocatorHookInstallResult::Unavailable;
     }
-    return TryApplyOpenSSLHooks() && EnsureCurlGlobalZapped(api);
+    if (!TryApplyOpenSSLHooks()) {
+        return GlobalAllocatorHookInstallResult::Unavailable;
+    }
+    return EnsureCurlGlobalZapped(api)
+        ? GlobalAllocatorHookInstallResult::Active
+        : GlobalAllocatorHookInstallResult::Partial;
 }
 
 CurlSession::CurlSession(CurlApi api, detail::RuntimeModuleLease module_lease)
@@ -223,16 +228,6 @@ std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, Error
     if (init_error == nullptr) {
         return nullptr;
     }
-
-#if BURNERNET_MAXIMUM_GHOST
-    // Process-global allocators must be installed during explicit bootstrap,
-    // before any client can create backend state.
-    const ErrorCode runtime_error = detail::MaximumGhostRuntimeError();
-    if (runtime_error != ErrorCode::None) {
-        *init_error = runtime_error;
-        return nullptr;
-    }
-#endif
 
     CurlApi curl_api{};
     detail::RuntimeModuleLease module_lease;

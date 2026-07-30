@@ -117,14 +117,15 @@ control-flow tricks and exposes small application-owned enforcement points.
 - **Algorithm Agnostic:** The response verifier can host HMAC, Ed25519, a custom
   proof, or another application-specific scheme. BurnerNet owns phase ordering
   and fail-closed publication, not the cryptographic policy.
-- **Narrow Bootstrap:** BurnerNet canonicalizes dependency paths, rejects
-  reparse-point ambiguity, revalidates file identity around loading, and offers
-  `dependency_directory_guard` and `integrity_provider` callbacks. Application
-  callbacks never run while the global bootstrap mutex is held.
+- **Narrow Bootstrap:** Hardened imports require a complete DLL manifest and
+  integrity provider. BurnerNet locks and verifies every packaged DLL before
+  loading, rejects reparse-point ambiguity, revalidates file identity, and
+  restricts dependency lookup to the package directory and System32.
 - **Maximum Ghost Build Contract:** Process-global curl/OpenSSL allocator hooks
-  default off. Windows process-lifetime consumers enable
-  `BURNERNET_MAXIMUM_GHOST=1`; BurnerNet then fails closed unless hooks install
-  before backend use and retains their owning code until process exit.
+  default off. `BURNERNET_MAXIMUM_GHOST=1` attempts early installation, but
+  host-owned prior initialization does not disable networking. Hook status is
+  reported by `GlobalAllocatorHooksEnabled()`; installed callback owners remain
+  resident until process exit.
 - **Respect for the Developer:** BurnerNet provides hidden imports, encoded
   pointers, vtable-free callback storage, deterministic sequencing, wiping, and
   safe mount points. The application provides debugger policy, VM heuristics,
@@ -217,9 +218,9 @@ consumer's secrets or replace server-provided functional data.
 
 ## Security Limit
 
-Pointer encoding, literal obfuscation, hidden imports, stack isolation, wiping,
-and source-drop builds raise attacker cost. They cannot make a client immune to
-a dedicated attacker who controls its process. Real security comes from normal
-TLS validation, application response proof, minimal secret lifetime, independent
-enforcement effects, and functionality that genuinely depends on verified
-server data.
+TLS validation, application response proof, loader integrity, explicit bounds,
+and functionality that depends on verified server data are security controls.
+Pointer encoding, literal obfuscation, non-cryptographic hashes, hidden imports,
+stack isolation, and source-drop builds only raise analysis cost. Wiping reduces
+residue within owned memory; it cannot prove a process clean or defeat an
+attacker who controls that process.

@@ -85,6 +85,7 @@ enum class ErrorCode : uint32_t {
     ConnectFailed = 61,
     TimedOut = 62,
     WorkerThreadStartFailed = 63,
+    // Reserved for source/ABI compatibility; opportunistic hooks no longer emit it.
     MaximumGhostRuntimeRequired = 64
 };
 

@@ -115,8 +115,8 @@ add_subdirectory(external/burner-net)
 Set this before `add_subdirectory(...)`. The option defaults off and is rejected
 on non-Windows targets.
 
-Maximum Ghost requires OpenSSL-backed libcurl and an early
-`InitializeNetworkingRuntime(...)` call, even with normal linked imports:
+Successful Maximum Ghost installation requires OpenSSL-backed libcurl and an
+early `InitializeNetworkingRuntime(...)` call, even with normal linked imports:
 
 ```cpp
 burner::net::BootstrapConfig boot{};
@@ -128,10 +128,12 @@ if (!init.success) {
 }
 ```
 
-Hook installation fails closed if another component already initialized the
-backend. Once installation begins, BurnerNet retains its owning module; active
-Maximum Ghost runtimes are not unloaded by `ShutdownNetworkingRuntime()`.
-Do not enable this option in an unloadable DLL or plugin.
+If another component already initialized the backend, hook installation becomes
+unavailable but BurnerNet networking remains usable.
+`GlobalAllocatorHooksEnabled()` reports whether complete curl/OpenSSL coverage
+was installed. BurnerNet retains callback owners only when complete or partial
+installation requires process-lifetime residency. Do not enable this option in
+an unloadable DLL or plugin.
 
 ### Mode 1: Local subproject integration with consumer-owned dependencies (Recommended)
 

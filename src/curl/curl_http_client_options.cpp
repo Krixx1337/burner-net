@@ -29,12 +29,12 @@ ErrorCode SetPostBody(const CurlApi& curl_api, CURL* easy, const char* body_data
     if (!SetCurlOption(
             curl_api,
             easy,
-            static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDS))),
+            CURLOPT_POSTFIELDS,
             body_data) ||
         !SetCurlOption(
             curl_api,
             easy,
-            static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDSIZE_LARGE))),
+            CURLOPT_POSTFIELDSIZE_LARGE,
             static_cast<curl_off_t>(body_size))) {
         return ErrorCode::CurlOptionFailed;
     }
@@ -59,53 +59,53 @@ ErrorCode CurlHttpClient::ApplyCommonOptions(
 
     const CurlApi& curl_api = m_session->Api();
 
-    if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_URL))), request.url.c_str()) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_ERRORBUFFER))), error_buffer)) {
+    if (!SetCurlOption(curl_api, easy, CURLOPT_URL, request.url.c_str()) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_ERRORBUFFER, error_buffer)) {
         return ErrorCode::CurlOptionFailed;
     }
-    if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_WRITEFUNCTION))), &CurlHttpClient::WriteBodyCallback) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_WRITEDATA))), body_ctx) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HEADERFUNCTION))), &CurlHttpClient::WriteHeaderCallback) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HEADERDATA))), header_ctx) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_XFERINFOFUNCTION))), &CurlHttpClient::ProgressCallback) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_XFERINFODATA))), this) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_NOPROGRESS))), 0L) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_FRESH_CONNECT))), 1L) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_FORBID_REUSE))), 1L)) {
+    if (!SetCurlOption(curl_api, easy, CURLOPT_WRITEFUNCTION, &CurlHttpClient::WriteBodyCallback) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_WRITEDATA, body_ctx) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_HEADERFUNCTION, &CurlHttpClient::WriteHeaderCallback) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_HEADERDATA, header_ctx) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_XFERINFOFUNCTION, &CurlHttpClient::ProgressCallback) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_XFERINFODATA, this) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_NOPROGRESS, 0L) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_FRESH_CONNECT, 1L) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_FORBID_REUSE, 1L)) {
         return ErrorCode::CurlOptionFailed;
     }
-    if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_FOLLOWLOCATION))), request.follow_redirects ? 1L : 0L)) {
+    if (!SetCurlOption(curl_api, easy, CURLOPT_FOLLOWLOCATION, request.follow_redirects ? 1L : 0L)) {
         return ErrorCode::CurlOptionFailed;
     }
     if (!m_config.use_system_proxy) {
-        if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PROXY))), "") ||
+        if (!SetCurlOption(curl_api, easy, CURLOPT_PROXY, "") ||
         // Force all hosts to bypass proxies, including any inherited environment configuration.
-            !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_NOPROXY))), "*")) {
+            !SetCurlOption(curl_api, easy, CURLOPT_NOPROXY, "*")) {
             return ErrorCode::CurlOptionFailed;
         }
     }
     if (protocol_scheme != nullptr) {
         *protocol_scheme = BURNER_OBF_LITERAL("https");
-        if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PROTOCOLS_STR))), protocol_scheme->c_str())) {
+        if (!SetCurlOption(curl_api, easy, CURLOPT_PROTOCOLS_STR, protocol_scheme->c_str())) {
             return ErrorCode::CurlOptionFailed;
         }
     }
-    if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_DISALLOW_USERNAME_IN_URL))), 1L)) {
+    if (!SetCurlOption(curl_api, easy, CURLOPT_DISALLOW_USERNAME_IN_URL, 1L)) {
         return ErrorCode::CurlOptionFailed;
     }
     if (request.follow_redirects) {
         if (redirect_protocol_scheme != nullptr) {
             *redirect_protocol_scheme = BURNER_OBF_LITERAL("https");
-            if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_REDIR_PROTOCOLS_STR))), redirect_protocol_scheme->c_str())) {
+            if (!SetCurlOption(curl_api, easy, CURLOPT_REDIR_PROTOCOLS_STR, redirect_protocol_scheme->c_str())) {
                 return ErrorCode::CurlOptionFailed;
             }
         }
-        if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_MAXREDIRS))), 10L)) {
+        if (!SetCurlOption(curl_api, easy, CURLOPT_MAXREDIRS, 10L)) {
             return ErrorCode::CurlOptionFailed;
         }
     }
-    if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_TIMEOUT))), request.timeout_seconds) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_CONNECTTIMEOUT))), request.connect_timeout_seconds)) {
+    if (!SetCurlOption(curl_api, easy, CURLOPT_TIMEOUT, request.timeout_seconds) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_CONNECTTIMEOUT, request.connect_timeout_seconds)) {
         return ErrorCode::CurlOptionFailed;
     }
 
@@ -113,26 +113,26 @@ ErrorCode CurlHttpClient::ApplyCommonOptions(
         *user_agent_storage = m_config.user_agent;
     }
     if (user_agent_storage != nullptr && !user_agent_storage->empty()) {
-        if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_USERAGENT))), m_config.user_agent.c_str())) {
+        if (!SetCurlOption(curl_api, easy, CURLOPT_USERAGENT, m_config.user_agent.c_str())) {
             return ErrorCode::CurlOptionFailed;
         }
     }
 
-    if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_VERIFYPEER))), m_config.verify_peer ? 1L : 0L) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_VERIFYHOST))), m_config.verify_host ? 2L : 0L) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSLVERSION))), CURL_SSLVERSION_TLSv1_2)) {
+    if (!SetCurlOption(curl_api, easy, CURLOPT_SSL_VERIFYPEER, m_config.verify_peer ? 1L : 0L) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_SSL_VERIFYHOST, m_config.verify_host ? 2L : 0L) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_SSLVERSION, CURL_SSLVERSION_TLSv1_2)) {
         return ErrorCode::CurlOptionFailed;
     }
-    if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_CERTINFO))), 1L) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_NOSIGNAL))), 1L) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_SESSIONID_CACHE))), 0L) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_DNS_CACHE_TIMEOUT))), 0L) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_CA_CACHE_TIMEOUT))), 0L)) {
+    if (!SetCurlOption(curl_api, easy, CURLOPT_CERTINFO, 1L) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_NOSIGNAL, 1L) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_SSL_SESSIONID_CACHE, 0L) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_DNS_CACHE_TIMEOUT, 0L) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_CA_CACHE_TIMEOUT, 0L)) {
         return ErrorCode::CurlOptionFailed;
     }
 #ifdef CURLSSLOPT_NATIVE_CA
     if (m_config.use_native_ca) {
-        if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSL_OPTIONS))), CURLSSLOPT_NATIVE_CA)) {
+        if (!SetCurlOption(curl_api, easy, CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA)) {
             return ErrorCode::CurlOptionFailed;
         }
     }
@@ -150,7 +150,7 @@ ErrorCode CurlHttpClient::ApplyCommonOptions(
                 pinned_keys.push_back(';');
             }
         }
-        const bool pin_set = SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_PINNEDPUBLICKEY))), pinned_keys.c_str());
+        const bool pin_set = SetCurlOption(curl_api, easy, CURLOPT_PINNEDPUBLICKEY, pinned_keys.c_str());
         SecureWipe(pinned_keys);
         if (!pin_set) {
             return ErrorCode::CurlOptionFailed;
@@ -182,9 +182,9 @@ ErrorCode CurlHttpClient::ApplyMethodAndBody(
 
     auto apply_request_body = [&]() -> ErrorCode {
         if (has_streamed_body) {
-            if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_READFUNCTION))), &CurlHttpClient::ReadBodyCallback) ||
-                !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_READDATA))), read_ctx) ||
-                !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POSTFIELDSIZE_LARGE))), static_cast<curl_off_t>(request.streamed_payload_size))) {
+            if (!SetCurlOption(curl_api, easy, CURLOPT_READFUNCTION, &CurlHttpClient::ReadBodyCallback) ||
+                !SetCurlOption(curl_api, easy, CURLOPT_READDATA, read_ctx) ||
+                !SetCurlOption(curl_api, easy, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(request.streamed_payload_size))) {
                 return ErrorCode::CurlOptionFailed;
             }
         } else if (has_body_view || !request.body.empty()) {
@@ -196,12 +196,12 @@ ErrorCode CurlHttpClient::ApplyMethodAndBody(
     ErrorCode result = ErrorCode::None;
     switch (request.method) {
     case HttpMethod::Get:
-        if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_HTTPGET))), 1L)) {
+        if (!SetCurlOption(curl_api, easy, CURLOPT_HTTPGET, 1L)) {
             result = ErrorCode::CurlOptionFailed;
         }
         break;
     case HttpMethod::Post:
-        if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_POST))), 1L)) {
+        if (!SetCurlOption(curl_api, easy, CURLOPT_POST, 1L)) {
             result = ErrorCode::CurlOptionFailed;
         } else {
             result = apply_request_body();
@@ -212,7 +212,7 @@ ErrorCode CurlHttpClient::ApplyMethodAndBody(
     case HttpMethod::Patch:
         if (custom_method_storage != nullptr) {
             *custom_method_storage = ToCurlMethod(request.method);
-            if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_CUSTOMREQUEST))), custom_method_storage->c_str())) {
+            if (!SetCurlOption(curl_api, easy, CURLOPT_CUSTOMREQUEST, custom_method_storage->c_str())) {
                 result = ErrorCode::CurlOptionFailed;
             }
         }
@@ -260,20 +260,20 @@ ErrorCode CurlHttpClient::ApplyTlsOptions(DarkString* cert_type_storage, DarkStr
     };
 
     const CurlApi& curl_api = m_session->Api();
-    if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSLCERT_BLOB))), &cert_blob) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSLKEY_BLOB))), &key_blob) ||
-        !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_KEYPASSWD))), credentials.key_password.c_str())) {
+    if (!SetCurlOption(curl_api, easy, CURLOPT_SSLCERT_BLOB, &cert_blob) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_SSLKEY_BLOB, &key_blob) ||
+        !SetCurlOption(curl_api, easy, CURLOPT_KEYPASSWD, credentials.key_password.c_str())) {
         return ErrorCode::CurlOptionFailed;
     }
     if (cert_type_storage != nullptr) {
         *cert_type_storage = BURNER_OBF_LITERAL("PEM");
-        if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSLCERTTYPE))), cert_type_storage->c_str())) {
+        if (!SetCurlOption(curl_api, easy, CURLOPT_SSLCERTTYPE, cert_type_storage->c_str())) {
             return ErrorCode::CurlOptionFailed;
         }
     }
     if (key_type_storage != nullptr) {
         *key_type_storage = BURNER_OBF_LITERAL("PEM");
-        if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_SSLKEYTYPE))), key_type_storage->c_str())) {
+        if (!SetCurlOption(curl_api, easy, CURLOPT_SSLKEYTYPE, key_type_storage->c_str())) {
             return ErrorCode::CurlOptionFailed;
         }
     }
@@ -288,9 +288,9 @@ ErrorCode CurlHttpClient::ApplyDnsStrategy(const DnsStrategy& strategy) {
 
     if (strategy.mode == DnsMode::Doh) {
         const CurlApi& curl_api = m_session->Api();
-        if (!SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_DOH_URL))), strategy.doh_url.c_str()) ||
-            !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_DOH_SSL_VERIFYPEER))), m_config.verify_peer ? 1L : 0L) ||
-            !SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_DOH_SSL_VERIFYHOST))), m_config.verify_host ? 2L : 0L)) {
+        if (!SetCurlOption(curl_api, easy, CURLOPT_DOH_URL, strategy.doh_url.c_str()) ||
+            !SetCurlOption(curl_api, easy, CURLOPT_DOH_SSL_VERIFYPEER, m_config.verify_peer ? 1L : 0L) ||
+            !SetCurlOption(curl_api, easy, CURLOPT_DOH_SSL_VERIFYHOST, m_config.verify_host ? 2L : 0L)) {
             return ErrorCode::CurlOptionFailed;
         }
     }
@@ -304,8 +304,8 @@ ErrorCode CurlHttpClient::ClearDnsStrategy() {
     }
 
     const CurlApi& curl_api = m_session->Api();
-    return SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_DOH_URL))), nullptr) &&
-        SetCurlOption(curl_api, easy, static_cast<CURLoption>(BURNER_MASK_INT(static_cast<long>(CURLOPT_RESOLVE))), nullptr)
+    return SetCurlOption(curl_api, easy, CURLOPT_DOH_URL, nullptr) &&
+        SetCurlOption(curl_api, easy, CURLOPT_RESOLVE, nullptr)
         ? ErrorCode::None
         : ErrorCode::CurlOptionFailed;
 }
