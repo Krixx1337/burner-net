@@ -8,7 +8,15 @@ namespace burner::net {
 
 namespace detail {
 
+enum class PeerAddressClassification : std::uint8_t {
+    NonLoopback,
+    Loopback,
+    Invalid,
+};
+
 DarkString MakeCacheExpiringResolveEntry(std::string_view entry);
+PeerAddressClassification ClassifyConnectedPeerAddress(
+    const ConnectedPeer& peer) noexcept;
 
 } // namespace detail
 
@@ -18,10 +26,17 @@ struct BodyWriteContext {
     bool limit_exceeded = false;
     std::size_t streamed_body_bytes = 0;
     ChunkCallback on_chunk_received;
+    bool* callback_failed = nullptr;
+};
+
+struct HeaderWriteContext {
+    HeaderMap* headers = nullptr;
+    bool* callback_failed = nullptr;
 };
 
 struct BodyReadContext {
     const StreamPayloadCallback* provider = nullptr;
+    bool* callback_failed = nullptr;
 };
 
 } // namespace burner::net

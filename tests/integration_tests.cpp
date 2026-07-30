@@ -6,7 +6,6 @@
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
 #include "burner/net/http.h"
-#include "burner/net/security_auditor.h"
 
 TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
     using namespace burner::net;
@@ -56,18 +55,6 @@ TEST_CASE("Zero-Trust Research: badssl.com rejection patterns") {
         CHECK(resp.Ok());
         CHECK(resp.status_code == 200);
     }
-}
-
-TEST_CASE("security auditor reports trusted TLS canary rejection") {
-    auto client = burner::net::ClientBuilder()
-        .WithUseNativeCa(true)
-        .Build();
-
-    REQUIRE(static_cast<bool>(client.client));
-    CHECK(burner::net::SecurityAuditor::AuditTransportTrust(
-        client.client->Raw(),
-        {"https://expired.badssl.com", "https://wrong.host.badssl.com"}) ==
-        burner::net::AuditResult::Trusted);
 }
 
 TEST_CASE("max_body_bytes aborts oversized responses mid-stream") {
@@ -202,4 +189,70 @@ TEST_CASE("successful https requests expose timing and tls telemetry") {
     CHECK(response.status_code == 200);
     CHECK(response.telemetry.total_time_seconds >= 0.0);
     CHECK_FALSE(response.telemetry.tls_chain.empty());
+}
+
+TEST_CASE("failed response verification wipes staged data") {
+    using namespace burner::net;
+
+    bool verifier_saw_body = false;
+
+    auto client = ClientBuilder()
+        .WithUseNativeCa(true)
+        .WithResponseVerifier([&](
+            const HttpRequest&,
+            const HttpResponseView& response) {
+            verifier_saw_body = !response.body.empty();
+            return VerificationResult{ErrorCode::SigMismatch};
+        })
+        .Build();
+
+    REQUIRE(client.Ok());
+    const auto response = client.client->Get("https://example.com").Send();
+
+    CHECK(response.TransportOk());
+    CHECK(response.verification_status == VerificationStatus::Failed);
+    CHECK(response.verification_error == ErrorCode::SigMismatch);
+    CHECK(verifier_saw_body);
+    CHECK(response.body.empty());
+    CHECK(response.headers.empty());
+    CHECK(response.telemetry.tls_chain.empty());
+    CHECK(response.telemetry.total_time_seconds == 0.0);
+}
+
+TEST_CASE("response verifier exception becomes a wiping terminal failure") {
+    using namespace burner::net;
+
+    auto client = ClientBuilder()
+        .WithUseNativeCa(true)
+        .WithResponseVerifier(
+            [](const HttpRequest&, const HttpResponseView&) -> VerificationResult {
+                throw 7;
+            })
+        .Build();
+
+    REQUIRE(client.Ok());
+    const auto response = client.client->Get("https://example.com").Send();
+
+    CHECK(response.TransportOk());
+    CHECK(response.verification_status == VerificationStatus::Failed);
+    CHECK(response.verification_error == ErrorCode::CallbackFailed);
+    CHECK(response.body.empty());
+    CHECK(response.headers.empty());
+    CHECK(response.telemetry.tls_chain.empty());
+}
+
+TEST_CASE("chunk callback exception aborts transfer without publication") {
+    using namespace burner::net;
+
+    auto client = ClientBuilder().WithUseNativeCa(true).Build();
+    REQUIRE(client.Ok());
+
+    const auto response = client.client
+        ->Get("https://example.com")
+        .OnChunkReceived([](const std::uint8_t*, std::size_t) { throw 7; })
+        .Send();
+
+    CHECK(response.transport_error == ErrorCode::CallbackFailed);
+    CHECK(response.body.empty());
+    CHECK(response.headers.empty());
 }

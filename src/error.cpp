@@ -62,8 +62,32 @@ const char* ErrorCodeDebugString(ErrorCode code) noexcept {
         "HardenedSystemDnsOrder",
         "HardenedResponseVerifierRequired",
         "HardenedTrustMountRequired",
-        "HardenedPersistentMtlsForbidden"
+        "HardenedPersistentMtlsForbidden",
+        "CurlOptionFailed",
+        "CredentialProviderFailed",
+        "InvalidCredentials",
+        "UnsupportedVerifiedStreaming",
+        "InvalidHardenedDoh",
+        "InvalidBootstrapDependency",
+        "NetworkingRuntimeUnavailable",
+        "OutOfMemory",
+        "InvalidHardenedPin",
+        "HardenedRedirectForbidden",
+        "RequestGuardRejected",
+        "TransferCancelled",
+        "CallbackFailed",
+        "BootstrapDirectoryRejected",
+        "BootstrapBusy",
+        "AllocatorHookInstallFailed",
+        "DnsResolutionFailed",
+        "ConnectFailed",
+        "TimedOut",
+        "WorkerThreadStartFailed",
+        "MaximumGhostRuntimeRequired"
     };
+    static_assert(
+        (sizeof(kNames) / sizeof(kNames[0])) ==
+        static_cast<std::size_t>(ErrorCode::MaximumGhostRuntimeRequired) + 1);
 
     const auto index = static_cast<std::size_t>(code);
     return index < (sizeof(kNames) / sizeof(kNames[0])) ? kNames[index] : "Unknown";

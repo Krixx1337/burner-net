@@ -33,6 +33,10 @@ using CurlGlobalInitMemFn = CURLcode (*)(long flags,
     CurlReallocCallback r,
     CurlStrdupCallback  s,
     CurlCallocCallback  c);
+using CurlGlobalSslSetFn = CURLsslset (*)(
+    curl_sslbackend id,
+    const char* name,
+    const curl_ssl_backend*** available);
 
 struct CurlApi {
     EncodedPointer<CurlEasyInitFn> easy_init = nullptr;
@@ -45,6 +49,7 @@ struct CurlApi {
     EncodedPointer<CurlSlistFreeAllFn> slist_free_all = nullptr;
     EncodedPointer<CurlEasyStrerrorFn> easy_strerror = nullptr;
     EncodedPointer<CurlGlobalInitMemFn> global_init_mem = nullptr;
+    EncodedPointer<CurlGlobalSslSetFn> global_sslset = nullptr;
 };
 
 } // namespace burner::net

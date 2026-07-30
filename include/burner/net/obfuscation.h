@@ -4,6 +4,7 @@
 #define HOSTILE_CORE_EXPORT BURNER_API
 #endif
 
+#include "burner/net/detail/build_config.h"
 #include "burner/net/detail/constexpr_obfuscation.h"
 #include "burner/net/detail/memory_hygiene.h"
 
@@ -12,50 +13,32 @@
 #include <string>
 #include <vector>
 
-#ifndef BURNERNET_OBFUSCATE_STRINGS
-#if defined(BURNER_OBFUSCATE_STRINGS)
-#define BURNERNET_OBFUSCATE_STRINGS BURNER_OBFUSCATE_STRINGS
-#else
-#define BURNERNET_OBFUSCATE_STRINGS 1
-#endif
-#endif
-
-#ifndef BURNERNET_HARDEN_IMPORTS
-#define BURNERNET_HARDEN_IMPORTS 0
-#endif
-
 namespace burner::net {
 
 inline void SecureWipe(std::string& value) {
-    ::burner::net::obf::secure_wipe(value.data(), value.size());
-    value.clear();
+    ::burner::net::obf::secure_wipe(value);
 }
 
 template <typename Traits, typename Alloc>
 inline void SecureWipe(std::basic_string<char, Traits, Alloc>& value) {
-    ::burner::net::obf::secure_wipe(value.data(), value.size());
-    value.clear();
+    ::burner::net::obf::secure_wipe(value);
 }
 
 inline void SecureWipe(SecureString& value) {
-    ::burner::net::obf::secure_wipe(value.data(), value.capacity());
     value.clear();
 }
 
 template <typename T>
 inline void SecureWipe(std::vector<T>& value) {
-    ::burner::net::obf::secure_wipe(value.data(), value.size() * sizeof(T));
-    value.clear();
+    ::burner::net::obf::secure_wipe(value);
 }
 
 template <typename T, typename Alloc>
 inline void SecureWipe(std::vector<T, Alloc>& value) {
-    ::burner::net::obf::secure_wipe(value.data(), value.size() * sizeof(T));
-    value.clear();
+    ::burner::net::obf::secure_wipe(value);
 }
 
 inline void SecureWipe(SecureBuffer& value) {
-    ::burner::net::obf::secure_wipe(value.data(), value.capacity() * sizeof(SecureBuffer::value_type));
     value.clear();
 }
 

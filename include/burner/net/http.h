@@ -10,14 +10,12 @@
 #include <utility>
 #include <vector>
 
-#include "concepts.h"
 #include "detail/dark_callables.h"
 #include "detail/dark_hashing.h"
 #include "detail/memory_hygiene.h"
 #include "export.h"
 #include "error.h"
 #include "obfuscation.h"
-#include "policy.h"
 
 namespace burner::net {
 
@@ -128,13 +126,21 @@ inline void HeaderMap::clear() noexcept {
 using TokenProvider = detail::CompactCallable<bool(DarkString& out)>;
 using ChunkCallback = detail::CompactCallable<void(const uint8_t*, size_t)>;
 using StreamPayloadCallback = detail::CompactCallable<std::size_t(std::span<char> dest_buffer)>;
-using PreFlightCallback = detail::CompactCallable<bool(const struct HttpRequest& request)>;
-using EnvironmentCheckCallback = detail::CompactCallable<bool()>;
-using TransportCheckCallback = detail::CompactCallable<bool(const char* url, const char* remote_ip)>;
-using ResponseReceivedCallback = detail::CompactCallable<bool(const struct HttpRequest& request, const struct HttpResponse& response)>;
-using ResponseVerifyFn = detail::CompactCallable<bool(const struct HttpRequest& request, const struct HttpResponse& response, ErrorCode* reason)>;
-using PostVerificationCallback = detail::CompactCallable<void(bool verified, ErrorCode reason)>;
-using TamperActionCallback = detail::CompactCallable<void()>;
+using RequestGuard = detail::CompactCallable<bool(const struct HttpRequest& request)>;
+
+enum class ConnectedPeerAddressFamily : std::uint8_t {
+    Unknown,
+    IPv4,
+    IPv6
+};
+
+struct ConnectedPeer {
+    std::string_view remote_ip;
+    ConnectedPeerAddressFamily address_family = ConnectedPeerAddressFamily::Unknown;
+    int remote_port = 0;
+};
+
+using ConnectedPeerGuard = detail::CompactCallable<bool(const ConnectedPeer& peer)>;
 
 struct TransferProgress {
     long long dl_total = 0;
@@ -143,7 +149,7 @@ struct TransferProgress {
     long long ul_now = 0;
 };
 
-using HeartbeatCallback = detail::CompactCallable<bool(const TransferProgress&)>;
+using TransferCancellation = detail::CompactCallable<bool(const TransferProgress&)>;
 
 enum class DnsMode {
     System,
@@ -177,6 +183,58 @@ struct MtlsCredentials {
 };
 
 struct HttpRequest {
+    HttpRequest() = default;
+    HttpRequest(const HttpRequest&) = default;
+    HttpRequest(HttpRequest&&) noexcept = default;
+    HttpRequest& operator=(HttpRequest&& other) noexcept {
+        if (this != &other) {
+            SecureWipe(url);
+            SecureWipe(body);
+            method = other.method;
+            url = std::move(other.url);
+            body = std::move(other.body);
+            body_view = other.body_view;
+            stream_payload_provider = std::move(other.stream_payload_provider);
+            streamed_payload_size = other.streamed_payload_size;
+            headers = std::move(other.headers);
+            bearer_token_provider = std::move(other.bearer_token_provider);
+            on_chunk_received = std::move(other.on_chunk_received);
+            max_body_bytes = other.max_body_bytes;
+            timeout_seconds = other.timeout_seconds;
+            connect_timeout_seconds = other.connect_timeout_seconds;
+            follow_redirects = other.follow_redirects;
+            retry = other.retry;
+            dns_fallback = std::move(other.dns_fallback);
+        }
+        return *this;
+    }
+    HttpRequest& operator=(const HttpRequest& other) {
+        if (this != &other) {
+            SecureWipe(url);
+            SecureWipe(body);
+            method = other.method;
+            url = other.url;
+            body = other.body;
+            body_view = other.body_view;
+            stream_payload_provider = other.stream_payload_provider;
+            streamed_payload_size = other.streamed_payload_size;
+            headers = other.headers;
+            bearer_token_provider = other.bearer_token_provider;
+            on_chunk_received = other.on_chunk_received;
+            max_body_bytes = other.max_body_bytes;
+            timeout_seconds = other.timeout_seconds;
+            connect_timeout_seconds = other.connect_timeout_seconds;
+            follow_redirects = other.follow_redirects;
+            retry = other.retry;
+            dns_fallback = other.dns_fallback;
+        }
+        return *this;
+    }
+    ~HttpRequest() {
+        SecureWipe(url);
+        SecureWipe(body);
+    }
+
     HttpMethod method = HttpMethod::Get;
     DarkString url;
     SecureString body;
@@ -207,6 +265,58 @@ enum class VerificationStatus : std::uint8_t {
 };
 
 struct HttpResponse {
+    HttpResponse() = default;
+    HttpResponse(const HttpResponse&) = default;
+    HttpResponse& operator=(const HttpResponse& other) {
+        if (this != &other) {
+            ClearSensitiveData();
+            status_code = other.status_code;
+            body = other.body;
+            headers = other.headers;
+            telemetry = other.telemetry;
+            transport_code = other.transport_code;
+            transport_error = other.transport_error;
+            verification_status = other.verification_status;
+            verification_error = other.verification_error;
+            dns_strategy_used = other.dns_strategy_used;
+            streamed_body_bytes = other.streamed_body_bytes;
+        }
+        return *this;
+    }
+    HttpResponse(HttpResponse&& other) noexcept
+        : status_code(other.status_code),
+          body(std::move(other.body)),
+          headers(std::move(other.headers)),
+          telemetry(std::move(other.telemetry)),
+          transport_code(other.transport_code),
+          transport_error(other.transport_error),
+          verification_status(other.verification_status),
+          verification_error(other.verification_error),
+          dns_strategy_used(std::move(other.dns_strategy_used)),
+          streamed_body_bytes(other.streamed_body_bytes) {
+        other.ClearSensitiveData();
+    }
+    HttpResponse& operator=(HttpResponse&& other) noexcept {
+        if (this != &other) {
+            ClearSensitiveData();
+            status_code = other.status_code;
+            body = std::move(other.body);
+            headers = std::move(other.headers);
+            telemetry = std::move(other.telemetry);
+            transport_code = other.transport_code;
+            transport_error = other.transport_error;
+            verification_status = other.verification_status;
+            verification_error = other.verification_error;
+            dns_strategy_used = std::move(other.dns_strategy_used);
+            streamed_body_bytes = other.streamed_body_bytes;
+            other.ClearSensitiveData();
+        }
+        return *this;
+    }
+    ~HttpResponse() {
+        ClearSensitiveData();
+    }
+
     long status_code = 0;
     DarkString body;
     HeaderMap headers;
@@ -215,7 +325,6 @@ struct HttpResponse {
     int transport_code = 0;
     ErrorCode transport_error = ErrorCode::None;
 
-    bool verified = true;
     VerificationStatus verification_status = VerificationStatus::NotConfigured;
     ErrorCode verification_error = ErrorCode::None;
     DarkString dns_strategy_used;
@@ -223,68 +332,59 @@ struct HttpResponse {
 
     bool TransportOk() const { return transport_code == 0 && transport_error == ErrorCode::None; }
     bool HttpOk() const { return status_code >= 200 && status_code < 400; }
-    bool Ok() const { return TransportOk() && HttpOk() && verified; }
+    bool Ok() const {
+        return TransportOk() && HttpOk() &&
+            verification_status != VerificationStatus::Failed;
+    }
     bool WasResponseVerified() const { return verification_status == VerificationStatus::Passed; }
     DarkString DnsStrategyDisplayName() const {
         return dns_strategy_used.empty() ? DarkString(BURNER_OBF_LITERAL("Default")) : dns_strategy_used;
     }
-};
 
-struct BURNER_API IResponseVerifier {
-    bool Verify(const HttpRequest&, const HttpResponse&, ErrorCode* reason) const {
-        if (reason != nullptr) {
-            *reason = ErrorCode::VerifyGeneric;
+    void ClearSensitiveData() noexcept {
+        SecureWipe(body);
+        headers.clear();
+        for (auto& line : telemetry.tls_chain) {
+            SecureWipe(line);
         }
-        return false;
+        telemetry.tls_chain.clear();
+        telemetry.total_time_seconds = 0.0;
+        SecureWipe(dns_strategy_used);
+        streamed_body_bytes = 0;
     }
 };
 
-class BURNER_API ResponseVerifier {
-public:
-    ResponseVerifier() = default;
-    ResponseVerifier(ResponseVerifyFn verifier) {
-        emplace_lambda(std::move(verifier));
+struct VerificationResult {
+    ErrorCode error = ErrorCode::None;
+
+    [[nodiscard]] bool Passed() const noexcept {
+        return error == ErrorCode::None;
     }
-
-    template <ResponseVerifierConcept TVerifier>
-    ResponseVerifier(TVerifier verifier) {
-        emplace(std::move(verifier));
-    }
-
-    [[nodiscard]] bool Enabled() const noexcept {
-        return static_cast<bool>(m_state);
-    }
-
-    [[nodiscard]] bool Verify(const HttpRequest& request, const HttpResponse& response, ErrorCode* reason) const {
-        return m_verify(m_state.get(), request, response, reason);
-    }
-
-private:
-    struct LambdaVerifier final {
-        ResponseVerifyFn fn;
-
-        bool Verify(const HttpRequest& request, const HttpResponse& response, ErrorCode* reason) const {
-            return fn(request, response, reason);
-        }
-    };
-
-    void emplace_lambda(ResponseVerifyFn verifier) {
-        emplace(LambdaVerifier{std::move(verifier)});
-    }
-
-    template <ResponseVerifierConcept TVerifier>
-    void emplace(TVerifier verifier) {
-        using VerifierType = std::decay_t<TVerifier>;
-
-        m_state = detail::SecureHandle<const void>::template make<VerifierType>(std::move(verifier));
-        m_verify = [](const void* raw, const HttpRequest& request, const HttpResponse& response, ErrorCode* reason) {
-            return static_cast<const VerifierType*>(raw)->Verify(request, response, reason);
-        };
-    }
-
-    detail::SecureHandle<const void> m_state;
-    bool (*m_verify)(const void*, const HttpRequest&, const HttpResponse&, ErrorCode*) = nullptr;
 };
+
+struct HttpResponseView {
+    explicit HttpResponseView(const HttpResponse& response) noexcept
+        : status_code(response.status_code),
+          body(response.body),
+          headers(response.headers),
+          telemetry(response.telemetry),
+          transport_code(response.transport_code),
+          transport_error(response.transport_error),
+          dns_strategy_used(response.dns_strategy_used),
+          streamed_body_bytes(response.streamed_body_bytes) {}
+
+    long status_code = 0;
+    std::string_view body;
+    const HeaderMap& headers;
+    const TransportTelemetry& telemetry;
+    int transport_code = 0;
+    ErrorCode transport_error = ErrorCode::None;
+    std::string_view dns_strategy_used;
+    std::size_t streamed_body_bytes = 0;
+};
+
+using ResponseVerifyFn =
+    detail::CompactCallable<VerificationResult(const HttpRequest&, const HttpResponseView&)>;
 
 struct ClientConfig {
     DarkString user_agent;
@@ -294,12 +394,14 @@ struct ClientConfig {
     bool use_system_proxy = false;
 
     HeaderMap default_headers;
-    MtlsCredentials mtls{};
     detail::CompactCallable<bool(MtlsCredentials& out)> mtls_provider;
     TokenProvider bearer_token_provider;
-    ResponseVerifier response_verifier;
+    RequestGuard request_guard;
+    bool reject_loopback_peers = false;
+    ConnectedPeerGuard connected_peer_guard;
+    TransferCancellation transfer_cancellation;
+    ResponseVerifyFn response_verifier;
     bool require_response_verification = false;
-    SecurityPolicy security_policy;
     std::size_t global_max_body_bytes = 0;
     DarkVector<DarkString> pinned_public_keys;
     DarkString curl_module_name;

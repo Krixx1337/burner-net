@@ -20,7 +20,7 @@
 
 namespace burner::net::obf {
 
-HOSTILE_CORE_EXPORT void secure_wipe(void* ptr, std::size_t size) noexcept;
+BURNER_API void secure_wipe(void* ptr, std::size_t size) noexcept;
 
 // Wipe a region of the calling thread's stack to destroy ephemeral RAM Ghosts
 // (TLS keys, header fragments) left behind by deep call chains such as
@@ -52,13 +52,25 @@ inline void scrub_stack(std::size_t depth_bytes) noexcept {
 
 template <typename Traits, typename Alloc>
 inline void secure_wipe(std::basic_string<char, Traits, Alloc>& value) noexcept {
-    secure_wipe(value.data(), value.capacity());
+    value.resize(value.capacity());
+    secure_wipe(value.data(), value.size());
     value.clear();
 }
 
 template <typename T, typename Alloc>
 inline void secure_wipe(std::vector<T, Alloc>& value) noexcept {
-    secure_wipe(value.data(), value.capacity() * sizeof(T));
+    if constexpr (std::is_trivially_copyable_v<T>) {
+        if constexpr (std::is_default_constructible_v<T>) {
+            value.resize(value.capacity());
+        }
+        secure_wipe(value.data(), value.size() * sizeof(T));
+    } else {
+        for (auto& item : value) {
+            if constexpr (requires(T& element) { secure_wipe(element); }) {
+                secure_wipe(item);
+            }
+        }
+    }
     value.clear();
 }
 
@@ -151,7 +163,9 @@ public:
     [[nodiscard]] size_type size() const noexcept { return str().size(); }
     [[nodiscard]] size_type capacity() const noexcept { return str().capacity(); }
 
-    void clear() noexcept { str().clear(); }
+    void clear() noexcept {
+        obf::secure_wipe(str());
+    }
     void reserve(size_type new_capacity) { str().reserve(new_capacity); }
     void resize(size_type count) { str().resize(count); }
     void resize(size_type count, char value) { str().resize(count, value); }
@@ -180,8 +194,7 @@ private:
         }
 
         DarkString* value = ptr();
-        obf::secure_wipe(value->data(), value->capacity());
-        value->clear();
+        obf::secure_wipe(*value);
         std::destroy_at(value);
         obf::secure_wipe(&m_storage, sizeof(m_storage));
         m_engaged = false;
@@ -251,7 +264,9 @@ public:
     [[nodiscard]] size_type size() const noexcept { return buffer().size(); }
     [[nodiscard]] size_type capacity() const noexcept { return buffer().capacity(); }
 
-    void clear() noexcept { buffer().clear(); }
+    void clear() noexcept {
+        obf::secure_wipe(buffer());
+    }
     void reserve(size_type new_capacity) { buffer().reserve(new_capacity); }
     void resize(size_type count) { buffer().resize(count); }
     void push_back(value_type value) { buffer().push_back(value); }
@@ -276,8 +291,7 @@ private:
         }
 
         storage_type* value = ptr();
-        obf::secure_wipe(value->data(), value->capacity() * sizeof(value_type));
-        value->clear();
+        obf::secure_wipe(*value);
         std::destroy_at(value);
         obf::secure_wipe(&m_storage, sizeof(m_storage));
         m_engaged = false;

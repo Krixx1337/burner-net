@@ -1,5 +1,6 @@
 #pragma once
 
+#include "burner/net/detail/build_config.h"
 #include "burner/net/export.h"
 #include "burner/net/detail/polymorphic_error.h"
 
@@ -16,19 +17,7 @@ BURNER_API std::uint32_t ErrorXorKey() noexcept;
 } // namespace detail
 
 #ifndef BURNERNET_DIAGNOSTIC_STRINGS
-#if defined(BURNERNET_HARDEN_ERRORS)
-#define BURNERNET_DIAGNOSTIC_STRINGS (!(BURNERNET_HARDEN_ERRORS))
-#elif defined(BURNER_HARDEN_ERRORS)
-#define BURNERNET_DIAGNOSTIC_STRINGS (!(BURNER_HARDEN_ERRORS))
-#else
 #define BURNERNET_DIAGNOSTIC_STRINGS 1
-#endif
-#endif
-
-// Compatibility alias for 1.2 consumers. New code should configure
-// BURNERNET_DIAGNOSTIC_STRINGS directly.
-#ifndef BURNERNET_HARDEN_ERRORS
-#define BURNERNET_HARDEN_ERRORS (!(BURNERNET_DIAGNOSTIC_STRINGS))
 #endif
 
 enum class ErrorCode : uint32_t {
@@ -75,7 +64,28 @@ enum class ErrorCode : uint32_t {
     HardenedSystemDnsOrder = 40,
     HardenedResponseVerifierRequired = 41,
     HardenedTrustMountRequired = 42,
-    HardenedPersistentMtlsForbidden = 43
+    HardenedPersistentMtlsForbidden = 43,
+    CurlOptionFailed = 44,
+    CredentialProviderFailed = 45,
+    InvalidCredentials = 46,
+    UnsupportedVerifiedStreaming = 47,
+    InvalidHardenedDoh = 48,
+    InvalidBootstrapDependency = 49,
+    NetworkingRuntimeUnavailable = 50,
+    OutOfMemory = 51,
+    InvalidHardenedPin = 52,
+    HardenedRedirectForbidden = 53,
+    RequestGuardRejected = 54,
+    TransferCancelled = 55,
+    CallbackFailed = 56,
+    BootstrapDirectoryRejected = 57,
+    BootstrapBusy = 58,
+    AllocatorHookInstallFailed = 59,
+    DnsResolutionFailed = 60,
+    ConnectFailed = 61,
+    TimedOut = 62,
+    WorkerThreadStartFailed = 63,
+    MaximumGhostRuntimeRequired = 64
 };
 
 inline constexpr bool IsSuccessCode(ErrorCode code) {

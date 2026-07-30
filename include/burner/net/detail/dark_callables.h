@@ -5,6 +5,8 @@
 #include <type_traits>
 #include <utility>
 
+#include "pointer_mangling.h"
+
 namespace burner::net::detail {
 
 template <typename T>
@@ -174,11 +176,11 @@ public:
     }
 
     [[nodiscard]] explicit operator bool() const noexcept {
-        return invoke_ != nullptr;
+        return static_cast<bool>(invoke_);
     }
 
     [[nodiscard]] R operator()(Args... args) const {
-        if (invoke_ == nullptr) {
+        if (!invoke_) {
             if constexpr (std::is_void_v<R>) {
                 return;
             } else {
@@ -203,7 +205,7 @@ private:
     }
 
     void* context_ = nullptr;
-    invoke_fn invoke_ = nullptr;
+    EncodedPointer<invoke_fn> invoke_ = nullptr;
     clone_fn clone_ = nullptr;
     destroy_fn destroy_ = nullptr;
 };

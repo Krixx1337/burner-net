@@ -2,7 +2,7 @@ add_executable(BurnerNetExamples
     main.cpp
     01_basic_usage.cpp
     02_zero_trust_pipeline.cpp
-    03_custom_security_policy.cpp
+    03_connected_peer_guard.cpp
     04_bootstrap_runtime.cpp
     05_mtls_usage.cpp
     06_hmac_custom_verifier.cpp

@@ -34,14 +34,24 @@ inline std::atomic<std::uintptr_t> g_encoded_pointer_nonce{
         static_cast<std::uintptr_t>(split_mix_increment),
         std::memory_order_relaxed);
 
+#if UINTPTR_MAX > UINT32_MAX
     std::uintptr_t value = static_cast<std::uintptr_t>(obf::build_seed());
+#else
+    constexpr auto build_seed = obf::build_seed();
+    std::uintptr_t value = static_cast<std::uintptr_t>(
+        static_cast<std::uint32_t>(build_seed ^ (build_seed >> 32)));
+#endif
     value ^= reinterpret_cast<std::uintptr_t>(&g_encoded_pointer_nonce);
     value ^= reinterpret_cast<std::uintptr_t>(&stack_anchor);
     value ^= nonce;
     value ^= salt;
     value = mix_runtime_key(value);
     if (value == 0) {
+#if UINTPTR_MAX > UINT32_MAX
         value = static_cast<std::uintptr_t>(0xA5A5A5A5A5A5A5A5ull);
+#else
+        value = static_cast<std::uintptr_t>(0xA5A5A5A5u);
+#endif
     }
     return value;
 }

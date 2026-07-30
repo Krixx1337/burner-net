@@ -55,5 +55,6 @@ inline constexpr std::uint32_t kCryptoSetMemFunctionsHash = fnv1a("CRYPTO_set_me
 
 // Hash of the function used to inject our wiping allocators into libcurl.
 inline constexpr std::uint32_t kCurlGlobalInitMemHash = fnv1a("curl_global_init_mem");
+inline constexpr std::uint32_t kCurlGlobalSslSetHash = fnv1a("curl_global_sslset");
 
 } // namespace burner::net::detail

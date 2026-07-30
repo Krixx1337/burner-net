@@ -3,7 +3,7 @@
 
 int RunBasicUsage();
 int RunZeroTrustPipeline();
-int RunCustomPolicy();
+int RunConnectedPeerGuard();
 int RunBootstrapRuntime();
 int RunMtlsUsage();
 int RunCustomHmacVerifier();
@@ -16,8 +16,8 @@ int main(int argc, char* argv[]) {
                   << "Usage: BurnerNetExamples <example_name>\n\n"
                   << "Available examples:\n"
                   << "  basic      - Simple request with explicit secure DoH defaults\n"
-                  << "  hardened   - Audit check, pinning, and custom policy flow\n"
-                  << "  policy     - Custom ISecurityPolicy implementation\n"
+                  << "  hardened   - Pinning, narrow guards, and response verification\n"
+                  << "  peer       - Connected-peer guard implementation\n"
                   << "  bootstrap  - Load curl/OpenSSL runtime DLLs from a custom folder\n"
                   << "  mtls       - Short-lived mTLS credential provider pattern\n"
                   << "  hmac       - App-owned HMAC response verification via lambda\n"
@@ -33,8 +33,8 @@ int main(int argc, char* argv[]) {
     if (example == "hardened") {
         return RunZeroTrustPipeline();
     }
-    if (example == "policy") {
-        return RunCustomPolicy();
+    if (example == "peer") {
+        return RunConnectedPeerGuard();
     }
     if (example == "bootstrap") {
         return RunBootstrapRuntime();

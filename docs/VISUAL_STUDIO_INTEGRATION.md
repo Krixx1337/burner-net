@@ -61,6 +61,44 @@ This guide does **not** replace the CMake integration path. If your downstream p
 - Want a single `.exe` with no extra DLLs? **Mode 3.**
 - Building something that needs to hide its dependencies? **Mode 2.**
 
+### Optional Maximum Ghost build contract
+
+For a Windows executable or permanently loaded module, add:
+
+```xml
+<PreprocessorDefinitions>
+  BURNERNET_MAXIMUM_GHOST=1;
+  %(PreprocessorDefinitions)
+</PreprocessorDefinitions>
+```
+
+The included source-drop example exposes the same choice as one MSBuild
+property:
+
+```powershell
+msbuild examples\vs-consumer\vs-consumer.vcxproj `
+  /p:Configuration=Release /p:Platform=x64 `
+  /p:BurnerNetMaximumGhost=1
+```
+
+Call `InitializeNetworkingRuntime(...)` before creating any BurnerNet client.
+For normal linked imports:
+
+```cpp
+burner::net::BootstrapConfig boot{};
+boot.link_mode = burner::net::LinkMode::Static;
+
+const auto init = burner::net::InitializeNetworkingRuntime(boot);
+if (!init.success) {
+    return 1;
+}
+```
+
+This mode requires OpenSSL-backed libcurl, installs process-global wiping
+allocators, and retains BurnerNet's owning module until process exit. Hook
+failure is terminal. Do not set this definition in an unloadable DLL or plugin.
+When omitted, it defaults to `0`.
+
 ### Mode 1: Standard source-drop (Recommended)
 
 Use this when:
@@ -177,14 +215,9 @@ This is the lower-friction Visual Studio path.
 
 ### Preprocessor definitions
 
-Recommended minimum:
-
-- `BURNER_ENABLE_CURL=1`
-- `BURNERNET_HARDEN_IMPORTS=0`
-
-Optional:
-
-- `BURNERNET_OBFUSCATE_STRINGS=1`
+No BurnerNet security definitions are required for the standard source-drop
+setup. Normal imports, readable diagnostics, Maximum Ghost off, and string
+obfuscation on are the defaults.
 
 ### Windows system libraries
 
@@ -240,7 +273,6 @@ Use this only when you intentionally want to control where curl/OpenSSL/zlib DLL
 
 Required:
 
-- `BURNER_ENABLE_CURL=1`
 - `BURNERNET_HARDEN_IMPORTS=1`
 
 Often required:
@@ -273,8 +305,7 @@ boot.dependency_dlls = {
     L"libcrypto-3-x64.dll",
     L"zlibd1.dll",
 };
-boot.integrity_policy.enabled = true;
-boot.integrity_policy.integrity_provider =
+boot.integrity_provider =
     [](const std::filesystem::path& dll_path, const std::wstring& dll_name) {
         return VerifyPackagedRuntimeDll(dll_path, dll_name);
     };
@@ -316,7 +347,6 @@ Use this mode when you have a static curl build and want BurnerNet source-drop i
 
 Required:
 
-- `BURNER_ENABLE_CURL=1`
 - `BURNERNET_HARDEN_IMPORTS=0`
 - `CURL_STATICLIB`
 

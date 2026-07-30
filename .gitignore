@@ -445,3 +445,6 @@ FodyWeavers.xsd
 *.msix
 *.msm
 *.msp
+
+# Local vcpkg manifest installation tree
+/vcpkg_installed/

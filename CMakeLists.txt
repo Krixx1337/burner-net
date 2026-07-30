@@ -13,9 +13,14 @@ option(BURNERNET_BUILD_EXAMPLES "Build BurnerNet examples" ${PROJECT_IS_TOP_LEVE
 option(BURNERNET_OBFUSCATE_STRINGS "Obfuscate BurnerNet security-anchor string literals" ON)
 option(BURNERNET_HARDEN_IMPORTS "Resolve libcurl dynamically instead of linking it into the import table" OFF)
 option(BURNERNET_DIAGNOSTIC_STRINGS "Include readable ErrorCode names" ON)
+option(BURNERNET_MAXIMUM_GHOST
+    "Install process-lifetime libcurl/OpenSSL wiping allocators (Windows only; prevents safe module unload)"
+    OFF)
+mark_as_advanced(BURNERNET_OBFUSCATE_STRINGS)
 
-if(MSVC)
-    add_definitions(-D_HAS_EXCEPTIONS=0)
+if(BURNERNET_MAXIMUM_GHOST AND NOT WIN32)
+    message(FATAL_ERROR
+        "BURNERNET_MAXIMUM_GHOST is supported only on Windows in BurnerNet v1.3.")
 endif()
 
 include(CTest)
@@ -79,10 +84,10 @@ set_target_properties(BurnerNet PROPERTIES
 
 target_compile_definitions(BurnerNet
     PUBLIC
-        BURNER_ENABLE_CURL=1
         BURNERNET_OBFUSCATE_STRINGS=$<IF:$<BOOL:${BURNERNET_OBFUSCATE_STRINGS}>,1,0>
         BURNERNET_HARDEN_IMPORTS=$<IF:$<BOOL:${BURNERNET_HARDEN_IMPORTS}>,1,0>
         BURNERNET_DIAGNOSTIC_STRINGS=$<IF:$<BOOL:${BURNERNET_DIAGNOSTIC_STRINGS}>,1,0>
+        BURNERNET_MAXIMUM_GHOST=$<IF:$<BOOL:${BURNERNET_MAXIMUM_GHOST}>,1,0>
     PRIVATE
         BURNER_BUILDING_LIBRARY
         HOSTILE_CORE_EXPORT=BURNER_API
@@ -97,9 +102,9 @@ if(DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET MATCHES "static")
 endif()
 
 if(MSVC)
-    target_compile_options(BurnerNet PRIVATE /W4 /permissive- /GR- /EHs-c-)
+    target_compile_options(BurnerNet PRIVATE /W4 /permissive- /GR- /EHsc)
 else()
-    target_compile_options(BurnerNet PRIVATE -Wall -Wextra -Wpedantic -Werror -fno-rtti -fno-exceptions)
+    target_compile_options(BurnerNet PRIVATE -Wall -Wextra -Wpedantic -Werror -fno-rtti)
 endif()
 
 if(BURNERNET_HARDEN_IMPORTS AND WIN32)
@@ -159,7 +164,7 @@ endfunction()
 
 function(burner_apply_example_warnings target_name)
     if(MSVC)
-        target_compile_options(${target_name} PRIVATE /W4 /permissive-)
+        target_compile_options(${target_name} PRIVATE /W4 /permissive- /EHsc)
     else()
         target_compile_options(${target_name} PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
@@ -181,7 +186,7 @@ if(BURNERNET_BUILD_TESTING)
     target_include_directories(BurnerNetTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(BurnerNetTests PRIVATE BurnerNet doctest::doctest)
     if(MSVC)
-        target_compile_options(BurnerNetTests PRIVATE /W4 /permissive-)
+        target_compile_options(BurnerNetTests PRIVATE /W4 /permissive- /EHsc)
     else()
         target_compile_options(BurnerNetTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
@@ -189,30 +194,106 @@ if(BURNERNET_BUILD_TESTING)
     set_target_properties(BurnerNetTests PROPERTIES FOLDER "Tests")
     add_test(NAME BurnerNet.Unit COMMAND BurnerNetTests)
 
-    add_executable(BurnerNetErrorModeTests
-        tests/error_mode_tests.cpp
+    add_executable(BurnerNetDiagnosticOffContractTest
+        tests/diagnostic_off_contract_test.cpp
         src/error.cpp
     )
-    target_include_directories(BurnerNetErrorModeTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
-    target_compile_features(BurnerNetErrorModeTests PRIVATE cxx_std_20)
-    target_compile_definitions(BurnerNetErrorModeTests PRIVATE
+    target_include_directories(BurnerNetDiagnosticOffContractTest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+    target_compile_features(BurnerNetDiagnosticOffContractTest PRIVATE cxx_std_20)
+    target_compile_definitions(BurnerNetDiagnosticOffContractTest PRIVATE
         BURNERNET_DIAGNOSTIC_STRINGS=0
         BURNER_BUILDING_LIBRARY
         HOSTILE_CORE_EXPORT=BURNER_API
     )
     if(MSVC)
-        target_compile_options(BurnerNetErrorModeTests PRIVATE /W4 /permissive-)
+        target_compile_options(BurnerNetDiagnosticOffContractTest PRIVATE /W4 /permissive- /EHsc)
     else()
-        target_compile_options(BurnerNetErrorModeTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        target_compile_options(BurnerNetDiagnosticOffContractTest PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()
-    set_target_properties(BurnerNetErrorModeTests PROPERTIES FOLDER "Tests")
-    add_test(NAME BurnerNet.ErrorMode COMMAND BurnerNetErrorModeTests)
+    set_target_properties(BurnerNetDiagnosticOffContractTest PROPERTIES FOLDER "Tests")
     add_test(
-        NAME BurnerNet.ErrorMode.BinaryStrings
+        NAME BurnerNet.DiagnosticOffContract
+        COMMAND BurnerNetDiagnosticOffContractTest
+    )
+    add_test(
+        NAME BurnerNet.DiagnosticOffContract.BinaryStrings
         COMMAND ${CMAKE_COMMAND}
-            -DBINARY=$<TARGET_FILE:BurnerNetErrorModeTests>
+            -DBINARY=$<TARGET_FILE:BurnerNetDiagnosticOffContractTest>
             -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyNoDiagnosticStrings.cmake
     )
+
+    add_executable(BurnerNetBootstrapLifecycleTests
+        tests/bootstrap_lifecycle_tests.cpp
+    )
+    target_include_directories(BurnerNetBootstrapLifecycleTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(BurnerNetBootstrapLifecycleTests PRIVATE BurnerNet doctest::doctest)
+    if(MSVC)
+        target_compile_options(BurnerNetBootstrapLifecycleTests PRIVATE /W4 /permissive- /EHsc)
+    else()
+        target_compile_options(BurnerNetBootstrapLifecycleTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    burnernet_configure_runtime(BurnerNetBootstrapLifecycleTests)
+    set_target_properties(BurnerNetBootstrapLifecycleTests PROPERTIES FOLDER "Tests")
+    add_test(NAME BurnerNet.BootstrapLifecycle COMMAND BurnerNetBootstrapLifecycleTests)
+
+    if(BURNERNET_MAXIMUM_GHOST AND NOT BURNERNET_HARDEN_IMPORTS)
+        add_executable(BurnerNetMaximumGhostLifecycleTests
+            tests/maximum_ghost_lifecycle_tests.cpp
+        )
+        target_link_libraries(BurnerNetMaximumGhostLifecycleTests PRIVATE BurnerNet doctest::doctest)
+        if(MSVC)
+            target_compile_options(BurnerNetMaximumGhostLifecycleTests PRIVATE /W4 /permissive- /EHsc)
+        else()
+            target_compile_options(BurnerNetMaximumGhostLifecycleTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        endif()
+        set_target_properties(BurnerNetMaximumGhostLifecycleTests PROPERTIES FOLDER "Tests")
+        add_test(NAME BurnerNet.MaximumGhostLifecycle COMMAND BurnerNetMaximumGhostLifecycleTests)
+
+        add_executable(BurnerNetMaximumGhostLateFailureTests
+            tests/maximum_ghost_late_failure_tests.cpp
+        )
+        target_link_libraries(BurnerNetMaximumGhostLateFailureTests PRIVATE BurnerNet doctest::doctest)
+        if(MSVC)
+            target_compile_options(BurnerNetMaximumGhostLateFailureTests PRIVATE /W4 /permissive- /EHsc)
+        else()
+            target_compile_options(BurnerNetMaximumGhostLateFailureTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        endif()
+        set_target_properties(BurnerNetMaximumGhostLateFailureTests PROPERTIES FOLDER "Tests")
+        add_test(NAME BurnerNet.MaximumGhostLateFailure COMMAND BurnerNetMaximumGhostLateFailureTests)
+
+        if(BUILD_SHARED_LIBS)
+            add_library(BurnerNetMaximumGhostSharedConsumer SHARED
+                tests/maximum_ghost_shared_consumer.cpp
+            )
+            target_link_libraries(BurnerNetMaximumGhostSharedConsumer PRIVATE BurnerNet)
+            set_target_properties(BurnerNetMaximumGhostSharedConsumer PROPERTIES
+                FOLDER "Tests"
+                RUNTIME_OUTPUT_DIRECTORY "${BURNERNET_RUNTIME_DIR}"
+            )
+
+            add_executable(BurnerNetMaximumGhostSharedOwnerTests
+                tests/maximum_ghost_shared_owner_tests.cpp
+            )
+            target_compile_features(BurnerNetMaximumGhostSharedOwnerTests PRIVATE cxx_std_20)
+            add_dependencies(
+                BurnerNetMaximumGhostSharedOwnerTests
+                BurnerNetMaximumGhostSharedConsumer
+            )
+            if(MSVC)
+                target_compile_options(BurnerNetMaximumGhostSharedOwnerTests PRIVATE /W4 /permissive- /EHsc)
+            else()
+                target_compile_options(BurnerNetMaximumGhostSharedOwnerTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+            endif()
+            set_target_properties(BurnerNetMaximumGhostSharedOwnerTests PROPERTIES FOLDER "Tests")
+            add_test(
+                NAME BurnerNet.MaximumGhostSharedOwner
+                COMMAND BurnerNetMaximumGhostSharedOwnerTests
+                    $<TARGET_FILE:BurnerNetMaximumGhostSharedConsumer>
+                    $<TARGET_FILE_NAME:BurnerNet>
+            )
+        endif()
+    endif()
+
     if(NOT BURNERNET_DIAGNOSTIC_STRINGS)
         add_test(
             NAME BurnerNet.Library.BinaryStrings
@@ -231,7 +312,7 @@ if(BURNERNET_BUILD_INTEGRATION_TESTS)
     target_include_directories(BurnerNetIntegrationTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_link_libraries(BurnerNetIntegrationTests PRIVATE BurnerNet doctest::doctest)
     if(MSVC)
-        target_compile_options(BurnerNetIntegrationTests PRIVATE /W4 /permissive-)
+        target_compile_options(BurnerNetIntegrationTests PRIVATE /W4 /permissive- /EHsc)
     else()
         target_compile_options(BurnerNetIntegrationTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
     endif()

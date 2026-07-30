@@ -1,11 +1,22 @@
 #include <iostream>
 
+#include "burner/net/bootstrap.h"
 #include "burner/net/builder.h"
 #include "burner/net/error.h"
 #include "burner/net/version.h"
 
 int main() {
     std::cout << "BurnerNet VS Source-Drop Example (v" << burner::net::VersionString << ")\n";
+
+#if BURNERNET_MAXIMUM_GHOST
+    burner::net::BootstrapConfig bootstrap{};
+    const auto initialized = burner::net::InitializeNetworkingRuntime(bootstrap);
+    if (!initialized.success) {
+        std::cerr << "Maximum Ghost initialization failed: "
+                  << burner::net::ErrorCodeToString(initialized.code) << "\n";
+        return 1;
+    }
+#endif
 
     auto build_result = burner::net::ClientBuilder().Build();
     if (!build_result.Ok()) {

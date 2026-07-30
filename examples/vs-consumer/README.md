@@ -26,8 +26,8 @@ For 32-bit builds, install the matching x86 triplet instead.
 This project follows BurnerNet's Visual Studio Mode 1 integration:
 
 - BurnerNet source files are compiled directly into the consumer executable
-- `BURNERNET_HARDEN_IMPORTS=0`
-- `_HAS_EXCEPTIONS=0` is defined for MSVC to match the main project hardening setup
+- no security preprocessor definitions are required for the normal setup
+- C++ exception unwinding is enabled so BurnerNet can contain consumer callback exceptions at its public and C ABI boundaries
 - curl is linked through the normal vcpkg/MSBuild import-library path
 - curl/OpenSSL/zlib runtime DLLs are expected to resolve through the standard Visual Studio or vcpkg app-local flow
 

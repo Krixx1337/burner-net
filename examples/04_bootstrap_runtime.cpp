@@ -21,9 +21,7 @@ int RunBootstrapRuntime() {
         L"libcurl.dll"
 #endif
     );
-    boot.integrity_policy.enabled = true;
-    boot.integrity_policy.fail_closed = false;
-    boot.integrity_policy.integrity_provider =
+    boot.integrity_provider =
         [](const std::filesystem::path& dll_path, const std::wstring&) {
             // Implement your own hash/signature verification here.
             return std::filesystem::exists(dll_path);
@@ -41,7 +39,10 @@ int RunBootstrapRuntime() {
 
     std::cout << "Bootstrap initialization result: "
               << ErrorCodeToString(init.code) << '\n';
-    std::cout << "Replace the example path and integrity callback with your packaged runtime policy.\n";
+#if BURNERNET_MAXIMUM_GHOST
+    std::cout << "Maximum Ghost active: allocator hooks and runtime are process-lifetime.\n";
+#endif
+    std::cout << "Replace example path and integrity callback with packaged runtime checks.\n";
     return 0;
 #endif
 }

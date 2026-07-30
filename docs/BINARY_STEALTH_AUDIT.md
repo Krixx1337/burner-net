@@ -16,9 +16,29 @@ This report is a point-in-time audit snapshot for BurnerNet `v1.0.0` under the c
 *   **Hardening Flags:** 
     *   `BURNERNET_HARDEN_IMPORTS=ON`
     *   `BURNERNET_OBFUSCATE_STRINGS=ON`
-    *   `BURNERNET_HARDEN_ERRORS=1`
+    *   `BURNERNET_DIAGNOSTIC_STRINGS=OFF`
     *   RTTI Disabled (`/GR-`)
 *   **Integration:** Bootstrap Runtime Loading (Mode 2)
+
+### Allocator-hook dependency
+
+BurnerNet v1.0 installed its process-global libcurl/OpenSSL wiping allocators
+automatically. The runtime-memory result below depends on that global injection;
+it is not evidence for a hooks-off v1.3 build.
+
+BurnerNet v1.3 makes the equivalent lifetime contract explicit:
+
+```text
+BURNERNET_MAXIMUM_GHOST=ON
+```
+
+| v1.3 configuration | Audit inheritance |
+| :--- | :--- |
+| Default (`OFF`) | Import/string results may apply; libcurl/OpenSSL heap cleanup is not guaranteed |
+| Maximum Ghost (`ON`) | Designed to reproduce full backend wiping; requires a fresh v1.3 audit |
+
+Maximum Ghost is Windows-only in v1.3, requires early runtime initialization,
+and retains BurnerNet plus the hooked runtime until process exit.
 
 ---
 
@@ -44,7 +64,7 @@ A full strings dump of the `.text` and `.rdata` sections was performed via IDA P
 | **Internal Verbs** | `GET`, `POST`, `PUT`, `DELETE` | **Not Found** |
 | **Internal Headers** | `Authorization`, `Bearer`, `Accept` | **Not Found** |
 | **Hardened Errors** | `TlsVerificationFailed`, `SigMismatch` | **Not Found** |
-| **Library Metadata** | `CurlHttpClient`, `SecurityPolicy` | **Not Found** |
+| **Library Metadata** | `CurlHttpClient`, `ConnectedPeerGuard` | **Not Found** |
 
 ### Note on Consumer Literals:
 The test endpoint (`https://example48291.invalid`) was discoverable in the static analysis of the test harness. Because the URL was passed as a raw string literal in the consumer's `main.cpp`, it was correctly placed in the `.rdata` section by the compiler. **Obfuscating consumer-defined strings remains the responsibility of the application developer** (e.g. via `BURNER_OBF_LITERAL`).
@@ -98,3 +118,7 @@ The BurnerNet binary footprint has transitioned from "Hardened" to **"Forensic-R
 By synchronizing the memory lifecycles of the application, libcurl, and OpenSSL, BurnerNet substantially reduces recoverable transport residue inside the audited process boundaries.
 
 Within the audited `v1.0.0` configuration above, BurnerNet behaved like the intended "Ghost Library."
+
+The v1.3 Maximum Ghost implementation has automated lifecycle coverage, but its
+Cheat Engine idle-window scan has not yet been rerun. Do not label v1.3
+runtime-memory behavior “Verified / Clean” until that manual audit is recorded.

@@ -81,6 +81,58 @@ This guide does **not** replace the Visual Studio `.vcxproj` path. If your downs
 - Want a single `.exe` with no extra DLLs? **Mode 3.**
 - Building something that needs to hide its dependencies? **Mode 2.**
 
+For Mode 1, no BurnerNet security flags are required:
+
+```cmake
+add_subdirectory(external/burner-net)
+target_link_libraries(MyApp PRIVATE BurnerNet::BurnerNet)
+```
+
+The test, integration-test, and example targets default off when BurnerNet is a
+subproject. String obfuscation defaults on. Normal curl linking, readable error
+names, and unload-safe runtime ownership are the mass-adoption defaults.
+
+The independently selectable advanced options are:
+
+- `BURNERNET_DIAGNOSTIC_STRINGS=OFF` to omit symbolic error names
+- `BURNERNET_HARDEN_IMPORTS=ON` for explicit Windows bootstrap loading
+- `BURNERNET_MAXIMUM_GHOST=ON` for process-lifetime backend allocator wiping
+
+`BURNERNET_OBFUSCATE_STRINGS` is intentionally hidden from normal CMake GUI
+configuration. It remains available for specialized build and diagnostic work,
+but consumers should normally keep its default.
+
+### Optional Maximum Ghost build contract
+
+Windows executables and permanently loaded modules can extend secure wiping
+into libcurl/OpenSSL:
+
+```cmake
+set(BURNERNET_MAXIMUM_GHOST ON CACHE BOOL "" FORCE)
+add_subdirectory(external/burner-net)
+```
+
+Set this before `add_subdirectory(...)`. The option defaults off and is rejected
+on non-Windows targets.
+
+Maximum Ghost requires OpenSSL-backed libcurl and an early
+`InitializeNetworkingRuntime(...)` call, even with normal linked imports:
+
+```cpp
+burner::net::BootstrapConfig boot{};
+boot.link_mode = burner::net::LinkMode::Static;
+
+const auto init = burner::net::InitializeNetworkingRuntime(boot);
+if (!init.success) {
+    return 1;
+}
+```
+
+Hook installation fails closed if another component already initialized the
+backend. Once installation begins, BurnerNet retains its owning module; active
+Maximum Ghost runtimes are not unloaded by `ShutdownNetworkingRuntime()`.
+Do not enable this option in an unloadable DLL or plugin.
+
 ### Mode 1: Local subproject integration with consumer-owned dependencies (Recommended)
 
 Use this when:
@@ -199,10 +251,6 @@ set(BURNERNET_DEP_PREFIX
     CACHE PATH "")
 
 list(PREPEND CMAKE_PREFIX_PATH "${BURNERNET_DEP_PREFIX}")
-
-set(BURNERNET_BUILD_TESTING OFF CACHE BOOL "" FORCE)
-set(BURNERNET_BUILD_INTEGRATION_TESTS OFF CACHE BOOL "" FORCE)
-set(BURNERNET_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 add_subdirectory("${BURNERNET_SOURCE_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/_deps/burner-net")
 
@@ -327,8 +375,10 @@ int main() {
         L"libcrypto-3-x64.dll",
         L"zlibd1.dll",
     };
-    boot.integrity_policy.enabled = true;
-    boot.integrity_policy.fail_closed = true;
+    boot.integrity_provider =
+        [](const std::filesystem::path& path, const std::wstring& basename) {
+            return VerifyPackagedDependency(path, basename);
+        };
 
     auto init = burner::net::InitializeNetworkingRuntime(boot);
     if (!init.success) {

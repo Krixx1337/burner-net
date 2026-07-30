@@ -49,15 +49,15 @@ BurnerNet fits projects such as:
 | **Client lifetime** | Often shared and long-lived | Designed for disposable clients and burst-scope use |
 | **Sensitive values** | Secrets often sit in config or memory longer than needed | Provider callbacks fetch them close to use |
 | **DNS and trust** | Usually inherits local resolver and host defaults | Supports stricter trust controls including DoH fallback and pinned keys |
-| **Verification** | App-specific integrity checks are often bolted on later | Built to work with pre-flight, transport, and response verification hooks |
+| **Verification** | App-specific integrity checks are often bolted on later | Narrow request, peer, and response enforcement phases |
 
 ## Defensive Outcomes
 
-- **Zero-Ghost Memory Architecture**: BurnerNet uses a custom **Prefix-Size Scrubber** to hook the internal memory allocation paths of `libcurl` and OpenSSL-backed flows. Sensitive transport buffers are wiped as they leave BurnerNet-managed lifetime. **This hygiene is verified on both Windows and Linux within the audited configurations described in the docs.**
+- **Zero-Ghost Memory Architecture**: BurnerNet uses wiping containers and explicit response/credential scrubbing. Windows process-lifetime integrations can enable Maximum Ghost mode to extend wiping into libcurl/OpenSSL allocations.
 - **Stack-Frame Swiping**: After every request, the library proactively scrubs its own thread stack (High-Water Mark scrubbing). This is intended to destroy ephemeral transport fragments before control returns to your application.
 - **Moving-Target Heap**: The combination of disposable transports and aligned metadata headers creates high address-space dispersion, making the process memory unpredictable and resistant to stable pointer-mapping.
 - **Short-lived request state**: BurnerNet is designed around disposable clients instead of process-wide singleton transports.
-- **Less trust in the host**: DoH support, pinned-key support, and transport auditing help reduce dependence on compromised local defaults.
+- **Less trust in the host**: DoH support, pinned-key support, and exact transport errors help consumer-owned trust checks reduce dependence on compromised local defaults.
 - **Lower plaintext exposure**: Provider callbacks and secure wiping utilities reduce the lifetime of certs, keys, tokens, and other sensitive buffers.
 - **App-owned verification**: Response verification stays in your code through `WithResponseVerifier(...)` instead of being hardcoded into a shared library.
 - **Harder static fingerprinting**: hardened builds can set `BURNERNET_DIAGNOSTIC_STRINGS=0` so `ErrorCodeToString(...)` returns stable `E<number>` values without embedding symbolic error names.
@@ -66,7 +66,9 @@ BurnerNet fits projects such as:
 
 ## Verified Stealth
 
-BurnerNet does not just claim an import-light hardened mode; it also ships with audit notes for specific tested configurations. In a Windows x64 Release audit with `BURNERNET_HARDEN_IMPORTS=ON`:
+BurnerNet ships point-in-time audit notes for specific tested configurations.
+The recorded Windows x64 Release audit covers v1.0 with hardened imports and
+the then-automatic global allocator injection:
 
 - **IAT Blackout**: No entries for `libcurl.dll`, `ws2_32.dll`, `bcrypt.dll`, or `crypt32.dll` were observed in the audited binary.
 - **Memory Dark-out**: Forensic scans (Cheat Engine "All Strings") failed to discover sensitive canary URLs or headers in the process heap or stack.
@@ -75,6 +77,24 @@ BurnerNet does not just claim an import-light hardened mode; it also ships with 
 
 Audit details and methodology:
 - [docs/BINARY_STEALTH_AUDIT.md](docs/BINARY_STEALTH_AUDIT.md)
+
+### Maximum Ghost mode
+
+For a Windows executable or permanently loaded module, enable full backend
+allocator wiping:
+
+```bash
+cmake -DBURNERNET_MAXIMUM_GHOST=ON
+```
+
+Then call `InitializeNetworkingRuntime(...)` before creating any client.
+Initialization fails closed if libcurl/OpenSSL hooks are unavailable or already
+too late. BurnerNet retains its owning module and hooked runtime until process
+exit; `ShutdownNetworkingRuntime()` intentionally does not unload them.
+
+Keep this mode off for unloadable DLLs and plugins. Normal builds still wipe
+BurnerNet-owned request, credential, response, heap, and stack state, but do not
+claim control over every internal libcurl/OpenSSL allocation.
 
 ## Getting Started
 
@@ -120,7 +140,8 @@ For security-critical traffic, use the Hardened profile. `Build()` rejects missi
 ```cpp
 auto secure = burner::net::ClientBuilder(burner::net::ClientProfile::Hardened)
     .WithMtlsProvider(ProvideMtlsCredentials)
-    .WithSecurityPolicy(AppSecurityPolicy{})
+    .WithLoopbackPeerRejection()
+    .WithConnectedPeerGuard(RejectUnexpectedPeer)
     .WithDnsFallback(burner::net::DnsMode::Doh,
                      "https://resolver.example/dns-query",
                      "Primary DoH",
@@ -130,9 +151,31 @@ auto secure = burner::net::ClientBuilder(burner::net::ClientProfile::Hardened)
     .Build();
 ```
 
-Hardened requires peer and hostname verification, stack isolation, DoH-first routing, an app response verifier, and an app-owned trust mount. Persistent `WithMtls(...)` credentials are rejected; use `WithMtlsProvider(...)`.
+Hardened requires peer and hostname verification, stack isolation, DoH-first routing, and an app response verifier. SPKI pinning and loopback-peer rejection are opt-in. Loopback rejection runs after TLS but before HTTP bytes; it does not block the TLS/mTLS handshake. mTLS is provider-only. Connected-peer guards are optional defense-in-depth, not a replacement for TLS identity.
+
+Provider callbacks are fail-closed: returning `false`, throwing, or returning enabled mTLS without both certificate and key material aborts before transport. Hardened DoH URLs must be non-empty `https://` URLs. Hardened redirects are unsupported in v1.3. A request cannot combine `OnChunkReceived(...)` with a response verifier because streamed bytes would escape before whole-response verification.
 
 ## Integration Paths
+
+Normal consumers do not need to select security build flags:
+
+```cmake
+add_subdirectory(external/burner-net)
+target_link_libraries(MyApp PRIVATE BurnerNet::BurnerNet)
+```
+
+BurnerNet defaults to string obfuscation with readable diagnostics, normal curl
+linking, and unload-safe runtime ownership. Only set an advanced option when its
+trade-off is required:
+
+| Option | Use it when | Cost |
+| :--- | :--- | :--- |
+| `BURNERNET_DIAGNOSTIC_STRINGS=OFF` | Release binaries should omit readable error names | Logs contain stable numeric codes |
+| `BURNERNET_HARDEN_IMPORTS=ON` | Windows dependency imports should be resolved through bootstrap | Explicit early runtime loading |
+| `BURNERNET_MAXIMUM_GHOST=ON` | A process-lifetime Windows integration needs libcurl/OpenSSL allocator wiping | BurnerNet and hooked runtimes cannot unload |
+
+`BURNERNET_OBFUSCATE_STRINGS` is an advanced build/debug control. It defaults
+on and ordinary consumers should leave it unchanged.
 
 ### 1. Standard CMake
 
@@ -163,7 +206,15 @@ Reference:
 - [docs/CMAKE_INTEGRATION.md](docs/CMAKE_INTEGRATION.md)
 - [docs/VISUAL_STUDIO_INTEGRATION.md](docs/VISUAL_STUDIO_INTEGRATION.md)
 
-> **Linux Support:** BurnerNet provides full forensic parity (Memory Wiping & Stack Isolation) on Linux. See [docs/LINUX_USAGE.md](docs/LINUX_USAGE.md) for build instructions.
+### 4. Maximum Ghost Runtime
+
+Use this Windows-only build mode when backend memory wiping matters more than
+module unload. It is independent from the Hardened client profile and can be
+combined with normal or hardened imports.
+
+> **Linux Support:** BurnerNet supports owned-memory wiping and stack isolation
+> on Linux. Maximum Ghost allocator interception is Windows-only in v1.3. See
+> [docs/LINUX_USAGE.md](docs/LINUX_USAGE.md).
 
 ## Usage Notes
 
@@ -178,7 +229,7 @@ Recommended defaults:
 Examples:
 - [examples/01_basic_usage.cpp](examples/01_basic_usage.cpp)
 - [examples/02_zero_trust_pipeline.cpp](examples/02_zero_trust_pipeline.cpp)
-- [examples/03_custom_security_policy.cpp](examples/03_custom_security_policy.cpp)
+- [examples/03_connected_peer_guard.cpp](examples/03_connected_peer_guard.cpp)
 - [examples/04_bootstrap_runtime.cpp](examples/04_bootstrap_runtime.cpp)
 - [examples/05_mtls_usage.cpp](examples/05_mtls_usage.cpp)
 - [examples/06_hmac_custom_verifier.cpp](examples/06_hmac_custom_verifier.cpp)
@@ -202,7 +253,7 @@ Documentation:
 BurnerNet is a hardening layer designed to raise the cost of attack to a professional level. We operate on the principle that **stealth should be architectural, not just superficial.**
 
 **Can an attacker bypass BurnerNet if they have the source code?**
-Knowledge of BurnerNet's source code is not, by itself, a master key to every downstream application. BurnerNet follows Kerckhoffs's Principle: the library is designed so that your app-specific trust anchors (HMAC secrets, pinned keys, UI logic, policy hooks) remain application-owned. Knowing the transport layer does not automatically yield a universal bypass of your specific security flow.
+Knowledge of BurnerNet's source code is not, by itself, a master key to every downstream application. BurnerNet follows Kerckhoffs's Principle: app-specific trust anchors, response proof, UI logic, and narrow guards remain application-owned. Knowing transport layer does not automatically yield a universal bypass of a specific security flow.
 
 - **Stealth as a Delay:** Hardening forces attackers out of standard convenience tools and into tedious instruction-level analysis.
 - **Data as the Root:** Use **Functional Dependency** (Principle 6) to ensure your app is literally broken without server-provided data.

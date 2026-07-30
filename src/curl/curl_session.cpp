@@ -8,6 +8,7 @@
 #include "internal/openssl_sync.h"
 
 #include <mutex>
+#include <new>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -70,12 +71,11 @@ CurlApi MakeWrappedCurlApi() {
     api.slist_free_all = &DefaultCurlSlistFreeAll;
     api.easy_strerror = &DefaultCurlEasyStrerror;
     api.global_init_mem = reinterpret_cast<CurlGlobalInitMemFn>(&curl_global_init_mem);
+    api.global_sslset = reinterpret_cast<CurlGlobalSslSetFn>(&curl_global_sslset);
     return api;
 }
 
 #if BURNERNET_HARDEN_IMPORTS && defined(_WIN32)
-constexpr std::uint32_t kLibCurlHash = ::burner::net::detail::fnv1a_ci("libcurl.dll");
-constexpr std::uint32_t kLibCurlDHash = ::burner::net::detail::fnv1a_ci("libcurl-d.dll");
 constexpr std::uint32_t kCurlEasyInitHash = ::burner::net::detail::fnv1a("curl_easy_init");
 constexpr std::uint32_t kCurlEasyCleanupHash = ::burner::net::detail::fnv1a("curl_easy_cleanup");
 constexpr std::uint32_t kCurlEasyResetHash = ::burner::net::detail::fnv1a("curl_easy_reset");
@@ -86,17 +86,17 @@ constexpr std::uint32_t kCurlSlistAppendHash = ::burner::net::detail::fnv1a("cur
 constexpr std::uint32_t kCurlSlistFreeAllHash = ::burner::net::detail::fnv1a("curl_slist_free_all");
 constexpr std::uint32_t kCurlEasyStrerrorHash = ::burner::net::detail::fnv1a("curl_easy_strerror");
 constexpr std::uint32_t kCurlGlobalInitMemHash = ::burner::net::detail::kCurlGlobalInitMemHash;
+constexpr std::uint32_t kCurlGlobalSslSetHash = ::burner::net::detail::kCurlGlobalSslSetHash;
 
-HMODULE ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
+detail::RuntimeModuleLease ResolveConfiguredCurlModule(const ClientConfig& config) noexcept {
     if (!config.curl_module_name.empty()) {
-        return static_cast<HMODULE>(::burner::net::detail::KernelResolver::GetSystemModule(
-            ::burner::net::detail::fnv1a_runtime_ci(config.curl_module_name)));
+        return detail::AcquireRuntimeModule(config.curl_module_name);
     }
 
 #if defined(_DEBUG)
-    return static_cast<HMODULE>(::burner::net::detail::KernelResolver::GetSystemModule(kLibCurlDHash));
+    return detail::AcquireRuntimeModule("libcurl-d.dll");
 #else
-    return static_cast<HMODULE>(::burner::net::detail::KernelResolver::GetSystemModule(kLibCurlHash));
+    return detail::AcquireRuntimeModule("libcurl.dll");
 #endif
 }
 
@@ -122,12 +122,18 @@ bool IsCurlApiComplete(const CurlApi& api) {
         static_cast<bool>(api.easy_strerror);
 }
 
-CurlApi MakeResolvedCurlApi(const ClientConfig& config) {
+CurlApi MakeResolvedCurlApi(const ClientConfig& config, detail::RuntimeModuleLease* module_lease) {
     CurlApi api{};
 #ifdef _WIN32
-    const HMODULE curl_module = ResolveConfiguredCurlModule(config);
+    detail::RuntimeModuleLease lease = ResolveConfiguredCurlModule(config);
+    const HMODULE curl_module = lease
+        ? static_cast<HMODULE>(lease->handle)
+        : nullptr;
     if (curl_module == nullptr) {
         return api;
+    }
+    if (module_lease != nullptr) {
+        *module_lease = std::move(lease);
     }
 
     api.easy_init = ResolveCurlExportByHash<CurlEasyInitFn>(curl_module, kCurlEasyInitHash);
@@ -140,6 +146,7 @@ CurlApi MakeResolvedCurlApi(const ClientConfig& config) {
     api.slist_free_all = ResolveCurlExportByHash<CurlSlistFreeAllFn>(curl_module, kCurlSlistFreeAllHash);
     api.easy_strerror = ResolveCurlExportByHash<CurlEasyStrerrorFn>(curl_module, kCurlEasyStrerrorHash);
     api.global_init_mem = ResolveCurlExportByHash<CurlGlobalInitMemFn>(curl_module, kCurlGlobalInitMemHash);
+    api.global_sslset = ResolveCurlExportByHash<CurlGlobalSslSetFn>(curl_module, kCurlGlobalSslSetHash);
 #endif
     return api;
 }
@@ -147,9 +154,10 @@ CurlApi MakeResolvedCurlApi(const ClientConfig& config) {
 
 } // namespace
 
-void EnsureCurlGlobalZapped(const CurlApi& api, const SecurityPolicy& policy) noexcept {
+bool EnsureCurlGlobalZapped(const CurlApi& api) noexcept {
     static std::once_flag s_curl_zapped;
-    std::call_once(s_curl_zapped, [&api, &policy]() {
+    static bool s_result = false;
+    std::call_once(s_curl_zapped, [&api]() {
         if (!api.global_init_mem) {
             return;
         }
@@ -160,14 +168,31 @@ void EnsureCurlGlobalZapped(const CurlApi& api, const SecurityPolicy& policy) no
             reinterpret_cast<CurlReallocCallback>(&::burner::net::detail::alloc::dark_realloc),
             reinterpret_cast<CurlStrdupCallback>(&::burner::net::detail::alloc::dark_strdup),
             reinterpret_cast<CurlCallocCallback>(&::burner::net::detail::alloc::dark_calloc));
-        if (result != CURLE_OK) {
-            const_cast<SecurityPolicy&>(policy).OnTamper();
-        }
+        s_result = result == CURLE_OK;
     });
+    return s_result;
 }
 
-CurlSession::CurlSession(CurlApi api)
+bool InstallLinkedGlobalAllocatorHooks() noexcept {
+#if BURNERNET_HARDEN_IMPORTS
+    return false;
+#else
+    const CurlApi curl_api = MakeWrappedCurlApi();
+    return InstallGlobalAllocatorHooks(curl_api);
+#endif
+}
+
+bool InstallGlobalAllocatorHooks(const CurlApi& api) noexcept {
+    if (!api.global_sslset ||
+        api.global_sslset(CURLSSLBACKEND_OPENSSL, nullptr, nullptr) != CURLSSLSET_OK) {
+        return false;
+    }
+    return TryApplyOpenSSLHooks() && EnsureCurlGlobalZapped(api);
+}
+
+CurlSession::CurlSession(CurlApi api, detail::RuntimeModuleLease module_lease)
     : m_api(std::move(api)),
+      m_module_lease(std::move(module_lease)),
       m_easy(m_api.easy_init ? m_api.easy_init() : nullptr) {}
 
 CurlSession::~CurlSession() {
@@ -195,21 +220,29 @@ void CurlSession::Reset() const {
 }
 
 std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, ErrorCode* init_error) {
-    // Attempt to hook OpenSSL's allocator before any TLS session begins.
-    // This handles the case where BURNERNET_HARDEN_IMPORTS=0 and libcrypto
-    // was loaded by the OS loader at process startup.
-    if (GlobalAllocatorHooksEnabled()) TryApplyOpenSSLHooks(config.security_policy);
-
     if (init_error == nullptr) {
         return nullptr;
     }
 
+#if BURNERNET_MAXIMUM_GHOST
+    // Process-global allocators must be installed during explicit bootstrap,
+    // before any client can create backend state.
+    const ErrorCode runtime_error = detail::MaximumGhostRuntimeError();
+    if (runtime_error != ErrorCode::None) {
+        *init_error = runtime_error;
+        return nullptr;
+    }
+#endif
+
     CurlApi curl_api{};
+    detail::RuntimeModuleLease module_lease;
 #if BURNERNET_HARDEN_IMPORTS
 #ifdef _WIN32
-    curl_api = MakeResolvedCurlApi(config);
+    curl_api = MakeResolvedCurlApi(config, &module_lease);
     if (!IsCurlApiComplete(curl_api)) {
-        *init_error = ErrorCode::CurlApiIncomplete;
+        *init_error = module_lease
+            ? ErrorCode::CurlApiIncomplete
+            : ErrorCode::NetworkingRuntimeUnavailable;
         return nullptr;
     }
 #else
@@ -221,10 +254,12 @@ std::unique_ptr<CurlSession> CreateCurlSession(const ClientConfig& config, Error
     curl_api = MakeWrappedCurlApi();
 #endif
 
-    // Inject wiping allocators into libcurl before the first easy_init call.
-    if (GlobalAllocatorHooksEnabled()) EnsureCurlGlobalZapped(curl_api, config.security_policy);
-
-    auto session = std::unique_ptr<CurlSession>(new CurlSession(curl_api));
+    auto session = std::unique_ptr<CurlSession>(
+        new (std::nothrow) CurlSession(curl_api, std::move(module_lease)));
+    if (!session) {
+        *init_error = ErrorCode::OutOfMemory;
+        return nullptr;
+    }
     if (!session->IsInitialized()) {
         *init_error = ErrorCode::InitCurl;
         return nullptr;
