@@ -66,18 +66,13 @@ bool IsValidBearerToken(std::string_view token) {
     if (token.empty()) {
         return false;
     }
-    bool padding_started = false;
     for (const unsigned char c : token) {
-        if (c == '=') {
-            padding_started = true;
-            continue;
-        }
-        if (padding_started ||
-            !((c >= '0' && c <= '9') ||
-              (c >= 'A' && c <= 'Z') ||
-              (c >= 'a' && c <= 'z') ||
-              c == '-' || c == '.' || c == '_' || c == '~' ||
-              c == '+' || c == '/')) {
+        // Bearer credentials are opaque to the transport. Laravel Sanctum
+        // tokens contain `|`, so restricting them to RFC 6750's b64token
+        // alphabet rejects valid credentials before the request reaches curl.
+        // Visible ASCII preserves the protocol contract while excluding all
+        // whitespace and control characters, including CR/LF injection.
+        if (c < 0x21 || c > 0x7e) {
             return false;
         }
     }
