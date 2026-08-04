@@ -67,9 +67,9 @@ bool IsValidBearerToken(std::string_view token) {
         return false;
     }
     for (const unsigned char c : token) {
-        // Bearer credentials are opaque to the transport. Laravel Sanctum
-        // tokens contain `|`, so restricting them to RFC 6750's b64token
-        // alphabet rejects valid credentials before the request reaches curl.
+        // Bearer credentials are opaque to the transport. Restricting them to
+        // a specific token alphabet can reject valid application-defined
+        // credentials before the request reaches curl.
         // Visible ASCII preserves the protocol contract while excluding all
         // whitespace and control characters, including CR/LF injection.
         if (c < 0x21 || c > 0x7e) {
