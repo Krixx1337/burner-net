@@ -164,8 +164,11 @@ TEST_CASE("header and bearer validation reject controls") {
     CHECK_FALSE(burner::net::internal::IsValidHeaderValue(std::string_view("abc\0def", 7)));
     CHECK_FALSE(burner::net::internal::IsValidHeaderValue("abc\x1f"));
     CHECK_FALSE(burner::net::internal::IsValidBearerToken("token value"));
+    CHECK_FALSE(burner::net::internal::IsValidBearerToken("token\tvalue"));
     CHECK_FALSE(burner::net::internal::IsValidBearerToken(std::string_view("abc\0def", 7)));
+    CHECK_FALSE(burner::net::internal::IsValidBearerToken("token\x7f"));
     CHECK(burner::net::internal::IsValidBearerToken("abc.def-_~+/="));
+    CHECK(burner::net::internal::IsValidBearerToken("42|sanctum-token"));
 }
 
 TEST_CASE("HTTPS URL validation requires a non-empty authority") {
