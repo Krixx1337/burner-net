@@ -85,6 +85,11 @@ ClientBuilder& ClientBuilder::WithUseNativeCa(bool enabled) {
     return *this;
 }
 
+ClientBuilder& ClientBuilder::WithSystemProxy(bool enabled) {
+    m_config.use_system_proxy = enabled;
+    return *this;
+}
+
 ClientBuilder& ClientBuilder::WithMtlsProvider(detail::CompactCallable<bool(MtlsCredentials&)> provider) {
     m_config.mtls_provider = std::move(provider);
     return *this;

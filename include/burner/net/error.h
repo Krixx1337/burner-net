@@ -86,7 +86,8 @@ enum class ErrorCode : uint32_t {
     TimedOut = 62,
     WorkerThreadStartFailed = 63,
     // Reserved for source/ABI compatibility; opportunistic hooks no longer emit it.
-    MaximumGhostRuntimeRequired = 64
+    MaximumGhostRuntimeRequired = 64,
+    ResponseHeadersTooLarge = 65
 };
 
 inline constexpr bool IsSuccessCode(ErrorCode code) {

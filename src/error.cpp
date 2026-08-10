@@ -83,11 +83,12 @@ const char* ErrorCodeDebugString(ErrorCode code) noexcept {
         "ConnectFailed",
         "TimedOut",
         "WorkerThreadStartFailed",
-        "MaximumGhostRuntimeRequired"
+        "MaximumGhostRuntimeRequired",
+        "ResponseHeadersTooLarge"
     };
     static_assert(
         (sizeof(kNames) / sizeof(kNames[0])) ==
-        static_cast<std::size_t>(ErrorCode::MaximumGhostRuntimeRequired) + 1);
+        static_cast<std::size_t>(ErrorCode::ResponseHeadersTooLarge) + 1);
 
     const auto index = static_cast<std::size_t>(code);
     return index < (sizeof(kNames) / sizeof(kNames[0])) ? kNames[index] : "Unknown";

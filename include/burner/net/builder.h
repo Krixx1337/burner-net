@@ -26,13 +26,13 @@ public:
         m_request.dns_fallback.strategies.clear();
     }
 
-    RequestBuilder& WithHeader(std::string name, std::string value) {
-        m_request.headers[std::move(name)] = std::move(value);
+    RequestBuilder& WithHeader(std::string_view name, std::string_view value) {
+        m_request.headers.insert_or_assign(DarkString(name), DarkString(value));
         return *this;
     }
 
-    RequestBuilder& WithBody(std::string body) {
-        m_request.body = std::move(body);
+    RequestBuilder& WithBody(std::string_view body) {
+        m_request.body = body;
         m_request.body_view = {};
         m_request.stream_payload_provider = {};
         m_request.streamed_payload_size = 0;
@@ -162,6 +162,7 @@ public:
     ClientBuilder& WithVerifyPeer(bool enabled);
     ClientBuilder& WithVerifyHost(bool enabled);
     ClientBuilder& WithUseNativeCa(bool enabled);
+    ClientBuilder& WithSystemProxy(bool enabled);
     ClientBuilder& WithMtlsProvider(detail::CompactCallable<bool(MtlsCredentials&)> provider);
     ClientBuilder& WithBearerTokenProvider(TokenProvider provider);
     ClientBuilder& WithRequestGuard(RequestGuard guard);

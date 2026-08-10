@@ -32,6 +32,11 @@ struct BodyWriteContext {
 struct HeaderWriteContext {
     HeaderMap* headers = nullptr;
     bool* callback_failed = nullptr;
+    std::size_t max_header_bytes = 64U * 1024U;
+    std::size_t max_header_count = 128U;
+    std::size_t received_header_bytes = 0;
+    std::size_t received_header_count = 0;
+    bool limit_exceeded = false;
 };
 
 struct BodyReadContext {
