@@ -619,6 +619,8 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
 #endif
         ) {
             response.transport_error = ErrorCode::TlsVerificationFailed;
+        } else if (code == CURLE_WRITE_ERROR && header_ctx.limit_exceeded) {
+            response.transport_error = ErrorCode::ResponseHeadersTooLarge;
         } else if (m_callback_failed) {
             response.transport_error = ErrorCode::CallbackFailed;
         } else if (code == CURLE_ABORTED_BY_CALLBACK && m_connected_peer_rejected) {

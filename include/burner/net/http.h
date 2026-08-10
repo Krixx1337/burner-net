@@ -56,7 +56,14 @@ public:
     HeaderMap(HeaderMap&& other) noexcept
         : m_items(std::move(other.m_items)) {}
 
-    HeaderMap& operator=(const HeaderMap&) = default;
+    HeaderMap& operator=(const HeaderMap& other) {
+        if (this != &other) {
+            storage_type replacement(other.m_items);
+            clear();
+            m_items = std::move(replacement);
+        }
+        return *this;
+    }
     HeaderMap& operator=(HeaderMap&& other) noexcept {
         if (this != &other) {
             clear();
@@ -84,6 +91,7 @@ public:
 
     void insert_or_assign(key_type key, mapped_type value) {
         if (auto* existing = find_value(key)) {
+            ::burner::net::obf::secure_wipe(*existing);
             *existing = std::move(value);
             return;
         }

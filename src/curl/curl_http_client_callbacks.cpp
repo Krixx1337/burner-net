@@ -72,6 +72,12 @@ size_t CurlHttpClient::WriteHeaderCallback(void* contents, size_t size, size_t n
     if (ctx->headers == nullptr) {
         return 0;
     }
+    if (total > (std::numeric_limits<std::size_t>::max)() - ctx->received_header_bytes ||
+        ctx->received_header_bytes + total > ctx->max_header_bytes) {
+        ctx->limit_exceeded = true;
+        return 0;
+    }
+    ctx->received_header_bytes += total;
     std::string_view line(static_cast<const char*>(contents), total);
 
     try {
@@ -82,6 +88,11 @@ size_t CurlHttpClient::WriteHeaderCallback(void* contents, size_t size, size_t n
 
         auto it = line.find(':');
         if (it != std::string_view::npos) {
+            if (ctx->received_header_count >= ctx->max_header_count) {
+                ctx->limit_exceeded = true;
+                return 0;
+            }
+            ++ctx->received_header_count;
             DarkString name(line.substr(0, it));
             DarkString value(line.substr(it + 1));
 

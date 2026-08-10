@@ -540,6 +540,34 @@ TEST_CASE("header callback publishes final response headers only") {
     CHECK(saw_final);
 }
 
+TEST_CASE("header callback rejects excessive aggregate bytes") {
+    burner::net::HeaderMap headers;
+    burner::net::HeaderWriteContext context{&headers, nullptr};
+    context.max_header_bytes = 20;
+
+    CHECK(
+        burner::net::CurlHttpClientTestAccess::WriteHeader(
+            "HTTP/1.1 200 OK\r\n", &context) > 0);
+    CHECK(
+        burner::net::CurlHttpClientTestAccess::WriteHeader(
+            "X-Test: value\r\n", &context) == 0);
+    CHECK(context.limit_exceeded);
+}
+
+TEST_CASE("header callback rejects excessive header count") {
+    burner::net::HeaderMap headers;
+    burner::net::HeaderWriteContext context{&headers, nullptr};
+    context.max_header_count = 1;
+
+    CHECK(
+        burner::net::CurlHttpClientTestAccess::WriteHeader(
+            "X-One: value\r\n", &context) > 0);
+    CHECK(
+        burner::net::CurlHttpClientTestAccess::WriteHeader(
+            "X-Two: value\r\n", &context) == 0);
+    CHECK(context.limit_exceeded);
+}
+
 TEST_CASE("SecureWipe clears active vector bytes before emptying the buffer") {
     std::vector<std::uint8_t> secret = {0xde, 0xad, 0xbe, 0xef};
     secret.reserve(32);
@@ -547,6 +575,42 @@ TEST_CASE("SecureWipe clears active vector bytes before emptying the buffer") {
     burner::net::SecureWipe(secret);
 
     CHECK(secret.empty());
+}
+
+TEST_CASE("SecureString assignment accepts an aliased view") {
+    burner::net::SecureString value("prefix-secret-suffix");
+    const std::string_view suffix(value.data() + 14, 6);
+
+    value = suffix;
+
+    CHECK(std::string_view(value.data(), value.size()) == "suffix");
+}
+
+TEST_CASE("SecureString and SecureBuffer replace existing values") {
+    burner::net::SecureString text("old-sensitive-value");
+    text = std::string_view("new");
+    CHECK(std::string_view(text.data(), text.size()) == "new");
+
+    burner::net::SecureBuffer first{1, 2, 3, 4};
+    burner::net::SecureBuffer second{9, 8};
+    first = second;
+    REQUIRE(first.size() == 2);
+    CHECK(first.data()[0] == 9);
+    CHECK(first.data()[1] == 8);
+}
+
+TEST_CASE("HeaderMap securely replaces duplicate values and prior maps") {
+    burner::net::HeaderMap headers;
+    headers.insert_or_assign("Authorization", "a-long-sensitive-value");
+    headers.insert_or_assign("authorization", "new");
+    CHECK(headers.size() == 1);
+    CHECK(headers["AUTHORIZATION"] == "new");
+
+    burner::net::HeaderMap replacement;
+    replacement.insert_or_assign("X-Test", "replacement");
+    headers = replacement;
+    CHECK(headers.size() == 1);
+    CHECK(headers["x-test"] == "replacement");
 }
 
 TEST_CASE("raw secure wipe zeroes the requested span") {

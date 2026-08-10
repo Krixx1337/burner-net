@@ -99,31 +99,40 @@ public:
 
     SecureString& operator=(const SecureString& other) {
         if (this != &other) {
-            str() = other.str();
+            DarkString replacement(other.str());
+            obf::secure_wipe(str());
+            str() = std::move(replacement);
         }
         return *this;
     }
 
     SecureString& operator=(SecureString&& other) noexcept {
         if (this != &other) {
-            str() = std::move(other.str());
+            DarkString replacement(std::move(other.str()));
+            obf::secure_wipe(str());
+            str() = std::move(replacement);
             other.wipe_and_reset();
         }
         return *this;
     }
 
     SecureString& operator=(const char* value) {
-        str() = value == nullptr ? "" : value;
+        DarkString replacement(value == nullptr ? "" : value);
+        obf::secure_wipe(str());
+        str() = std::move(replacement);
         return *this;
     }
 
     SecureString& operator=(DarkString value) {
+        obf::secure_wipe(str());
         str() = std::move(value);
         return *this;
     }
 
     SecureString& operator=(std::string_view value) {
-        str() = value;
+        DarkString replacement(value);
+        obf::secure_wipe(str());
+        str() = std::move(replacement);
         return *this;
     }
 
@@ -216,14 +225,18 @@ public:
 
     SecureBuffer& operator=(const SecureBuffer& other) {
         if (this != &other) {
-            buffer() = other.buffer();
+            storage_type replacement(other.buffer());
+            obf::secure_wipe(buffer());
+            buffer() = std::move(replacement);
         }
         return *this;
     }
 
     SecureBuffer& operator=(SecureBuffer&& other) noexcept {
         if (this != &other) {
-            buffer() = std::move(other.buffer());
+            storage_type replacement(std::move(other.buffer()));
+            obf::secure_wipe(buffer());
+            buffer() = std::move(replacement);
             other.wipe_and_reset();
         }
         return *this;
