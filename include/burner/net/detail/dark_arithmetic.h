@@ -1,5 +1,7 @@
 #pragma once
 
+#include "burner/net/detail/build_config.h"
+
 #include <atomic>
 #include <concepts>
 #include <cstdint>
@@ -129,13 +131,21 @@ template <typename T, T Value, std::uint64_t Salt>
 
 } // namespace burner::net::detail
 
+// The mask salt is derived from the masked value itself, never from
+// __COUNTER__/__TIME__: per-inclusion counters would give the same constant
+// different expansions in different translation units (ODR violation) and
+// break reproducible builds. BURNERNET_OBFUSCATE_STRINGS=0 expands to the
+// plain value so the build option is honored.
+#if BURNERNET_OBFUSCATE_STRINGS
 #define BURNER_MASK_INT(value)                                                                      \
     ([]() {                                                                                         \
         using burner_mask_type = std::decay_t<decltype(value)>;                                     \
         static_assert(::burner::net::detail::DarkIntegral<burner_mask_type>);                       \
         return ::burner::net::detail::mask_integer_constant<burner_mask_type,                       \
             static_cast<burner_mask_type>(value),                                                   \
-            ((static_cast<std::uint64_t>(__COUNTER__) << 32u) ^                                     \
-                static_cast<std::uint64_t>(__TIME__[0]) ^                                           \
-                (static_cast<std::uint64_t>(__TIME__[7]) << 8u))>();                                \
+            ::burner::net::detail::dark_mix64(                                                      \
+                static_cast<std::uint64_t>(static_cast<burner_mask_type>(value)))>();               \
     }())
+#else
+#define BURNER_MASK_INT(value) (value)
+#endif

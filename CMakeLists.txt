@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(BurnerNet VERSION 1.3.0 LANGUAGES CXX)
+project(BurnerNet VERSION 1.4.0 LANGUAGES CXX)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -16,14 +16,33 @@ option(BURNERNET_DIAGNOSTIC_STRINGS "Include readable ErrorCode names" ON)
 option(BURNERNET_MAXIMUM_GHOST
     "Install process-lifetime libcurl/OpenSSL wiping allocators (Windows only; prevents safe module unload)"
     OFF)
+option(BURNERNET_ENABLE_WERROR
+    "Treat compiler warnings as errors (opt-in maintainer setting; never forced on consumers)"
+    ${PROJECT_IS_TOP_LEVEL})
 mark_as_advanced(BURNERNET_OBFUSCATE_STRINGS)
 
 if(BURNERNET_MAXIMUM_GHOST AND NOT WIN32)
     message(FATAL_ERROR
-        "BURNERNET_MAXIMUM_GHOST is supported only on Windows in BurnerNet v1.3.")
+        "BURNERNET_MAXIMUM_GHOST is supported only on Windows in BurnerNet v1.4.")
 endif()
 
-include(CTest)
+# Hardened imports deliberately avoid linking libcurl into the import table;
+# that mechanism only exists on Windows. Fail loudly instead of silently
+# falling back to a linked transport the caller believed was hardened.
+if(BURNERNET_HARDEN_IMPORTS AND NOT WIN32)
+    message(FATAL_ERROR
+        "BURNERNET_HARDEN_IMPORTS is supported only on Windows in BurnerNet v1.4.")
+endif()
+
+# Warnings-as-errors must never leak into consumer builds via add_subdirectory.
+set(BURNERNET_WERROR_FLAG "")
+if(BURNERNET_ENABLE_WERROR)
+    set(BURNERNET_WERROR_FLAG "-Werror")
+endif()
+
+if(PROJECT_IS_TOP_LEVEL)
+    include(CTest)
+endif()
 
 if(DEFINED CMAKE_CXX_STANDARD AND CMAKE_CXX_STANDARD LESS 20)
     message(FATAL_ERROR "BurnerNet requires C++20 or newer. Set CMAKE_CXX_STANDARD to 20 or higher before adding this project.")
@@ -32,6 +51,9 @@ endif()
 if(NOT TARGET CURL::libcurl)
     find_package(CURL REQUIRED)
 endif()
+# The transport uses std::thread; declare the dependency as a portable link
+# contract instead of relying on transitive thread support.
+find_package(Threads REQUIRED)
 if(DEFINED CURL_VERSION_STRING AND CURL_VERSION_STRING VERSION_LESS "7.87.0")
     message(FATAL_ERROR "BurnerNet requires libcurl >= 7.87.0.")
 endif()
@@ -82,6 +104,8 @@ target_include_directories(BurnerNet
 target_compile_features(BurnerNet PUBLIC cxx_std_20)
 set_target_properties(BurnerNet PROPERTIES
     CXX_EXTENSIONS OFF
+    VERSION ${PROJECT_VERSION}
+    SOVERSION ${PROJECT_VERSION_MAJOR}
 )
 
 target_compile_definitions(BurnerNet
@@ -99,14 +123,26 @@ if(BUILD_SHARED_LIBS)
     target_compile_definitions(BurnerNet PUBLIC BURNER_SHARED)
 endif()
 
-if(DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET MATCHES "static")
+# Respect target-provided curl requirements first: when CURL::libcurl is
+# supplied externally (or by a curl package config that already declares
+# static linkage), its own INTERFACE_COMPILE_DEFINITIONS apply through the
+# link and must not be second-guessed. The vcpkg triplet substring is only a
+# fallback for toolchains whose curl target carries no such requirement.
+set(BURNERNET_CURL_STATICLIB_FROM_TARGET FALSE)
+if(TARGET CURL::libcurl)
+    get_target_property(BURNERNET_CURL_INTERFACE_DEFS CURL::libcurl INTERFACE_COMPILE_DEFINITIONS)
+    if(BURNERNET_CURL_INTERFACE_DEFS AND "CURL_STATICLIB" IN_LIST BURNERNET_CURL_INTERFACE_DEFS)
+        set(BURNERNET_CURL_STATICLIB_FROM_TARGET TRUE)
+    endif()
+endif()
+if(NOT BURNERNET_CURL_STATICLIB_FROM_TARGET AND DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET MATCHES "static")
     target_compile_definitions(BurnerNet PUBLIC CURL_STATICLIB)
 endif()
 
 if(MSVC)
     target_compile_options(BurnerNet PRIVATE /W4 /permissive- /GR- /EHsc)
 else()
-    target_compile_options(BurnerNet PRIVATE -Wall -Wextra -Wpedantic -Werror -fno-rtti)
+    target_compile_options(BurnerNet PRIVATE -Wall -Wextra -Wpedantic ${BURNERNET_WERROR_FLAG} -fno-rtti)
 endif()
 
 if(BURNERNET_HARDEN_IMPORTS AND WIN32)
@@ -139,6 +175,9 @@ else()
         target_link_libraries(BurnerNet PRIVATE ${CMAKE_DL_LIBS})
     endif()
 endif()
+# Propagate thread support to static consumers: the transport spawns worker
+# threads when stack isolation is enabled.
+target_link_libraries(BurnerNet PUBLIC Threads::Threads)
 
 function(burnernet_configure_runtime target_name)
     set_target_properties(${target_name} PROPERTIES
@@ -168,7 +207,7 @@ function(burner_apply_example_warnings target_name)
     if(MSVC)
         target_compile_options(${target_name} PRIVATE /W4 /permissive- /EHsc)
     else()
-        target_compile_options(${target_name} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        target_compile_options(${target_name} PRIVATE -Wall -Wextra -Wpedantic ${BURNERNET_WERROR_FLAG})
     endif()
 endfunction()
 
@@ -190,7 +229,7 @@ if(BURNERNET_BUILD_TESTING)
     if(MSVC)
         target_compile_options(BurnerNetTests PRIVATE /W4 /permissive- /EHsc)
     else()
-        target_compile_options(BurnerNetTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        target_compile_options(BurnerNetTests PRIVATE -Wall -Wextra -Wpedantic ${BURNERNET_WERROR_FLAG})
     endif()
     burnernet_configure_runtime(BurnerNetTests)
     set_target_properties(BurnerNetTests PROPERTIES FOLDER "Tests")
@@ -210,7 +249,7 @@ if(BURNERNET_BUILD_TESTING)
     if(MSVC)
         target_compile_options(BurnerNetDiagnosticOffContractTest PRIVATE /W4 /permissive- /EHsc)
     else()
-        target_compile_options(BurnerNetDiagnosticOffContractTest PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        target_compile_options(BurnerNetDiagnosticOffContractTest PRIVATE -Wall -Wextra -Wpedantic ${BURNERNET_WERROR_FLAG})
     endif()
     set_target_properties(BurnerNetDiagnosticOffContractTest PROPERTIES FOLDER "Tests")
     add_test(
@@ -232,7 +271,7 @@ if(BURNERNET_BUILD_TESTING)
     if(MSVC)
         target_compile_options(BurnerNetBootstrapLifecycleTests PRIVATE /W4 /permissive- /EHsc)
     else()
-        target_compile_options(BurnerNetBootstrapLifecycleTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        target_compile_options(BurnerNetBootstrapLifecycleTests PRIVATE -Wall -Wextra -Wpedantic ${BURNERNET_WERROR_FLAG})
     endif()
     burnernet_configure_runtime(BurnerNetBootstrapLifecycleTests)
     set_target_properties(BurnerNetBootstrapLifecycleTests PROPERTIES FOLDER "Tests")
@@ -246,7 +285,7 @@ if(BURNERNET_BUILD_TESTING)
         if(MSVC)
             target_compile_options(BurnerNetMaximumGhostLifecycleTests PRIVATE /W4 /permissive- /EHsc)
         else()
-            target_compile_options(BurnerNetMaximumGhostLifecycleTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+            target_compile_options(BurnerNetMaximumGhostLifecycleTests PRIVATE -Wall -Wextra -Wpedantic ${BURNERNET_WERROR_FLAG})
         endif()
         set_target_properties(BurnerNetMaximumGhostLifecycleTests PROPERTIES FOLDER "Tests")
         add_test(NAME BurnerNet.MaximumGhostLifecycle COMMAND BurnerNetMaximumGhostLifecycleTests)
@@ -258,7 +297,7 @@ if(BURNERNET_BUILD_TESTING)
         if(MSVC)
             target_compile_options(BurnerNetMaximumGhostLateFailureTests PRIVATE /W4 /permissive- /EHsc)
         else()
-            target_compile_options(BurnerNetMaximumGhostLateFailureTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+            target_compile_options(BurnerNetMaximumGhostLateFailureTests PRIVATE -Wall -Wextra -Wpedantic ${BURNERNET_WERROR_FLAG})
         endif()
         set_target_properties(BurnerNetMaximumGhostLateFailureTests PROPERTIES FOLDER "Tests")
         add_test(NAME BurnerNet.MaximumGhostLateFailure COMMAND BurnerNetMaximumGhostLateFailureTests)
@@ -284,7 +323,7 @@ if(BURNERNET_BUILD_TESTING)
             if(MSVC)
                 target_compile_options(BurnerNetMaximumGhostSharedOwnerTests PRIVATE /W4 /permissive- /EHsc)
             else()
-                target_compile_options(BurnerNetMaximumGhostSharedOwnerTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+                target_compile_options(BurnerNetMaximumGhostSharedOwnerTests PRIVATE -Wall -Wextra -Wpedantic ${BURNERNET_WERROR_FLAG})
             endif()
             set_target_properties(BurnerNetMaximumGhostSharedOwnerTests PROPERTIES FOLDER "Tests")
             add_test(
@@ -316,7 +355,7 @@ if(BURNERNET_BUILD_INTEGRATION_TESTS)
     if(MSVC)
         target_compile_options(BurnerNetIntegrationTests PRIVATE /W4 /permissive- /EHsc)
     else()
-        target_compile_options(BurnerNetIntegrationTests PRIVATE -Wall -Wextra -Wpedantic -Werror)
+        target_compile_options(BurnerNetIntegrationTests PRIVATE -Wall -Wextra -Wpedantic ${BURNERNET_WERROR_FLAG})
     endif()
     burnernet_configure_runtime(BurnerNetIntegrationTests)
     set_target_properties(BurnerNetIntegrationTests PROPERTIES FOLDER "Tests")
@@ -332,6 +371,10 @@ if(BURNERNET_BUILD_INTEGRATION_TESTS)
 endif()
 
 set(BURNERNET_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/BurnerNet")
+
+# Exported to BurnerNetConfig.cmake so installed consumers can tell whether
+# this build used hardened imports (no libcurl link) or a normal link.
+set(BURNERNET_HARDEN_IMPORTS_CONFIG ${BURNERNET_HARDEN_IMPORTS})
 
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/BurnerNetConfig.cmake.in

@@ -49,12 +49,14 @@ bool RedirectBlockedByPolicy(const ClientConfig& config, const HttpRequest& requ
 }
 
 ErrorCode ValidateEffectiveDnsPolicy(const ClientConfig& config, const HttpRequest& request) {
-    // Reject malformed DoH endpoints on every profile before any network
-    // activity; a bad DoH URL must never silently degrade to system DNS.
+    // Reject malformed strategies on every profile before any network
+    // activity; a bad DoH URL must never silently degrade to system DNS, and
+    // an unknown mode must never be treated as DoH or system by accident.
+    // This is the same validator the builder path uses.
     for (const DnsStrategy& strategy : request.dns_fallback.strategies) {
-        if (strategy.mode == DnsMode::Doh &&
-            !internal::IsValidHttpsUrl(strategy.doh_url)) {
-            return ErrorCode::InvalidHardenedDoh;
+        if (const ErrorCode strategy_error = internal::ValidateDnsStrategy(strategy);
+            strategy_error != ErrorCode::None) {
+            return strategy_error;
         }
     }
 
@@ -71,13 +73,19 @@ ErrorCode ValidateEffectiveDnsPolicy(const ClientConfig& config, const HttpReque
     bool has_doh = false;
     bool seen_system_dns = false;
     for (const DnsStrategy& strategy : request.dns_fallback.strategies) {
-        if (strategy.mode == DnsMode::System) {
+        switch (strategy.mode) {
+        case DnsMode::System:
             seen_system_dns = true;
-        } else {
+            break;
+        case DnsMode::Doh:
             has_doh = true;
             if (seen_system_dns) {
                 return ErrorCode::HardenedSystemDnsOrder;
             }
+            break;
+        default:
+            // Unreachable after ValidateDnsStrategy above; defense in depth.
+            return ErrorCode::InvalidDnsMode;
         }
     }
     if (!has_doh) {
@@ -93,6 +101,28 @@ TransportOrchestrator::TransportOrchestrator(CurlHttpClient& client)
 
 HttpResponse TransportOrchestrator::Execute(HttpRequest request) {
     HttpResponse response{};
+    // Validate the request URL before invoking guards: guards inspect the
+    // length-aware DarkString while curl receives a C string, so an embedded
+    // NUL (or control characters) would let a guard or log inspect more
+    // bytes than curl sends. The same HTTPS-only check gates DoH endpoints,
+    // giving guards one consistent URL contract.
+    if (!internal::IsValidHttpsUrl(std::string_view(request.url.data(), request.url.size()))) {
+        response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
+        response.transport_error = ErrorCode::InvalidRequestUrl;
+        return response;
+    }
+    // User-Agent values reach CURLOPT_USERAGENT without ordinary header
+    // validation (including direct ClientConfig construction), so reject
+    // CR/LF/NUL/controls and overlong values before any provider or guard
+    // runs. Never silently sanitize.
+    if (!m_client.m_config.user_agent.empty() &&
+        !internal::IsValidUserAgent(std::string_view(
+            m_client.m_config.user_agent.data(),
+            m_client.m_config.user_agent.size()))) {
+        response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
+        response.transport_error = ErrorCode::InvalidUserAgent;
+        return response;
+    }
     if (m_client.m_config.require_response_verification && request.follow_redirects) {
         response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
         response.transport_error = ErrorCode::HardenedRedirectForbidden;
@@ -123,6 +153,11 @@ HttpResponse TransportOrchestrator::Execute(HttpRequest request) {
         return response;
     }
 
+    // Timing contract: request timeouts apply per physical attempt, so a
+    // multi-attempt operation can run longer than a single timeout. There is
+    // no overall operation deadline yet; backoff sleeps do not poll transfer
+    // cancellation. Callers needing a global bound must enforce it around
+    // Send() (e.g. via WithTransferCancellation or their own deadline).
     const int attempts = std::clamp(
         (std::max)(1, request.retry.max_attempts), 1, kMaxTotalTransportAttempts);
 
@@ -130,6 +165,13 @@ HttpResponse TransportOrchestrator::Execute(HttpRequest request) {
     for (int attempt = 1; attempt <= attempts && remaining_attempts > 0; ++attempt) {
         response = PerformWithDnsFallback(request, remaining_attempts);
         if (!m_client.ShouldRetry(request, response, attempt)) {
+            break;
+        }
+        // Only wipe and back off when another physical attempt will actually
+        // occur. When the per-request attempt cap or the total transport
+        // budget is exhausted, the final response must be preserved instead
+        // of wiped with no follow-up attempt.
+        if (attempt >= attempts || remaining_attempts <= 0) {
             break;
         }
         m_client.WipeResponse(response);

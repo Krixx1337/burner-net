@@ -1,5 +1,6 @@
 #pragma once
 
+#include "burner/net/detail/build_config.h"
 #include "burner/net/detail/dark_hash_utils.h"
 #include "burner/net/detail/dark_simd.h"
 
@@ -25,12 +26,14 @@ namespace burner::net::obf {
 }
 
 [[nodiscard]] consteval std::uint64_t build_seed() noexcept {
-    std::uint64_t seed = hash_build_fragment(std::string_view{__DATE__, sizeof(__DATE__) - 1u});
-    seed ^= ::burner::net::detail::split_mix64(
-        hash_build_fragment(std::string_view{__TIME__, sizeof(__TIME__) - 1u}));
-    seed ^= ::burner::net::detail::split_mix64(
-        hash_build_fragment(std::string_view{__FILE__, sizeof(__FILE__) - 1u}));
-    return ::burner::net::detail::mix64(seed);
+    // Fixed build seed, identical in every translation unit. Earlier
+    // revisions mixed __DATE__/__TIME__/__FILE__ here, so the same public
+    // inline definitions (and the g_encoded_pointer_nonce initializer) had
+    // different values per translation unit: an ODR violation that also
+    // broke reproducible builds. Per-build uniqueness now comes only from
+    // runtime entropy (pointer nonce, stack addresses); rotate this constant
+    // deliberately if per-release obfuscation diversity is ever required.
+    return 0x9E3779B97F4A7C15ull;
 }
 
 [[nodiscard]] consteval std::uint32_t build_error_xor_key() noexcept {
@@ -94,10 +97,19 @@ struct ObfuscatedString {
 
 } // namespace burner::net::obf
 
-// Note: __LINE__ is intentionally omitted so MSVC Edit and Continue (/ZI)
-// keeps this as a valid compile-time expression in default Debug builds.
+// Note: the obfuscation seed is derived from the literal itself
+// (hash_string), never from __COUNTER__/__TIME__/__FILE__/__LINE__. A
+// per-inclusion counter or timestamp would give the same literal different
+// DarkLiteral instantiations in different translation units, violating the
+// one-definition rule for every public inline definition that expands this
+// macro (and breaking reproducible builds). MSVC Edit and Continue (/ZI)
+// compatibility is preserved: no __LINE__ is used.
+// BURNERNET_OBFUSCATE_STRINGS=0 expands to a plain string so the build
+// option is honored instead of silently obfuscating anyway.
+#if BURNERNET_OBFUSCATE_STRINGS
 #define BURNER_OBF_LITERAL(str)                                                                \
     ::burner::net::detail::DarkLiteral<sizeof(str),                                            \
-        ((static_cast<std::uint64_t>(__COUNTER__) << 32u) ^                                    \
-            static_cast<std::uint64_t>(__TIME__[6]) ^                                          \
-            (static_cast<std::uint64_t>(__TIME__[7]) << 8u))>{str}.resolve()
+        ::burner::net::obf::hash_string(str)>{str}.resolve()
+#else
+#define BURNER_OBF_LITERAL(str) std::string(str)
+#endif

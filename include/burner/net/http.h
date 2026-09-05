@@ -132,6 +132,11 @@ inline void HeaderMap::clear() noexcept {
     m_items.clear();
 }
 using TokenProvider = detail::CompactCallable<bool(DarkString& out)>;
+// Chunk bytes are published immediately as they arrive and cannot be
+// retracted: they can precede final HTTP/transport success, and a failed or
+// retried transfer does not un-deliver them. Automatic retries are disabled
+// once any chunk bytes were delivered. Sinks must tolerate prefixes from
+// attempts that never produce a final successful response.
 using ChunkCallback = detail::CompactCallable<void(const uint8_t*, size_t)>;
 using StreamPayloadCallback = detail::CompactCallable<std::size_t(std::span<char> dest_buffer)>;
 using RequestGuard = detail::CompactCallable<bool(const struct HttpRequest& request)>;

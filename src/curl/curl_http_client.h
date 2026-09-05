@@ -1,8 +1,10 @@
 #pragma once
 
+#include "burner/net/export.h"
 #include "burner/net/http.h"
 #include "curl_api.h"
 
+#include <atomic>
 #include <memory>
 #include <optional>
 
@@ -18,7 +20,11 @@ class CurlSession;
 class TransportOrchestrator;
 struct BodyReadContext;
 
-class CurlHttpClient final {
+// Exported so external shared-library consumers can use the transport through
+// the public template builders (FluentClient/RequestBuilder own, move, and
+// call Send() on this type). Out-of-line methods carry BURNER_API via the
+// class annotation.
+class BURNER_API CurlHttpClient final {
 public:
     explicit CurlHttpClient(const ClientConfig& config);
     ~CurlHttpClient();
@@ -71,6 +77,12 @@ private:
     bool m_transfer_cancelled = false;
     bool m_connected_peer_rejected = false;
     bool m_callback_failed = false;
+    // Rejects overlapping sends on the same client, including reentrant
+    // Send() calls made from chunk callbacks, progress callbacks, or request
+    // guards on the same thread. Concurrent misuse fails deterministically
+    // instead of resetting the active easy handle mid-transfer. Use a
+    // separate client for callback-initiated requests.
+    std::atomic<bool> m_in_flight{false};
 };
 
 } // namespace burner::net

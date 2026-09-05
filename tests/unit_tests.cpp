@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdarg>
 #include <filesystem>
 #include <cstdint>
 #include <limits>
@@ -1763,4 +1764,364 @@ TEST_CASE("transport stays on caller thread when isolation is disabled") {
     (void)build_result.client->Get("https://example.com").Send();
 
     CHECK(transport_thread_id == caller_thread_id); // No thread hop
+}
+
+namespace {
+
+struct V14ThrowOnCopyOnly {
+    int value = 41;
+    V14ThrowOnCopyOnly() = default;
+    V14ThrowOnCopyOnly(const V14ThrowOnCopyOnly&) { throw 42; }
+    V14ThrowOnCopyOnly(V14ThrowOnCopyOnly&&) noexcept = default;
+    int operator()() const { return value; }
+};
+
+const char* v14_seen_postfields = nullptr;
+bool v14_seen_postfields_size = false;
+curl_off_t v14_seen_postfields_size_value = -1;
+
+CURLcode V14RecordPostBodySetopt(CURL*, CURLoption option, ...) {
+    va_list args;
+    va_start(args, option);
+    if (option == CURLOPT_POSTFIELDS) {
+        v14_seen_postfields = va_arg(args, const char*);
+    } else if (option == CURLOPT_POSTFIELDSIZE_LARGE) {
+        v14_seen_postfields_size_value = va_arg(args, curl_off_t);
+        v14_seen_postfields_size = true;
+    }
+    va_end(args);
+    return CURLE_OK;
+}
+
+} // namespace
+
+TEST_CASE("v1.4 S1: moved-from secure containers stay live and empty") {
+    using namespace burner::net;
+
+    SUBCASE("SecureString heap value") {
+        SecureString heap(DarkString(256, 'x'));
+        SecureString moved(std::move(heap));
+        CHECK(moved.str() == DarkString(256, 'x'));
+        CHECK(heap.empty());
+        CHECK(heap.size() == 0);
+        heap = "reuse-after-move";
+        CHECK(heap.str() == "reuse-after-move");
+        SecureString again(std::move(heap)); // move-again must stay live
+        CHECK(again.str() == "reuse-after-move");
+        CHECK(heap.empty());
+        heap.clear(); // clear() on a moved-from container must be safe
+        CHECK(heap.empty());
+    }
+
+    SUBCASE("SecureString short and empty values") {
+        SecureString short_value("hi");
+        SecureString moved_short(std::move(short_value));
+        CHECK(moved_short.str() == "hi");
+        CHECK(short_value.empty());
+        short_value.clear();
+        CHECK(short_value.empty());
+
+        SecureString empty;
+        SecureString moved_empty(std::move(empty));
+        CHECK(moved_empty.empty());
+        CHECK(empty.empty());
+    }
+
+    SUBCASE("SecureBuffer move, reuse, and move-again") {
+        SecureBuffer buf;
+        buf.push_back(1);
+        buf.push_back(2);
+        SecureBuffer moved_buf(std::move(buf));
+        CHECK(moved_buf.size() == 2);
+        CHECK(buf.empty());
+        buf.push_back(3); // reuse after move must work
+        CHECK(buf.size() == 1);
+        SecureBuffer again_buf(std::move(buf)); // move-again must stay live
+        CHECK(again_buf.size() == 1);
+        CHECK(buf.empty());
+        buf.clear();
+        CHECK(buf.empty());
+    }
+
+    SUBCASE("HttpRequest move keeps SecureWipe(body) in the destructor safe") {
+        HttpRequest req;
+        req.url = "https://example.com";
+        req.body = "secret";
+        HttpRequest moved(std::move(req));
+        CHECK(moved.body.str() == "secret");
+        CHECK(req.body.empty()); // moved-from body is live and empty
+
+        HttpRequest assigned;
+        assigned.url = "https://example.com";
+        assigned = std::move(moved);
+        CHECK(assigned.body.str() == "secret");
+        CHECK(moved.body.empty());
+        // Destructors (with SecureWipe) run here; ASAN/CRT would flag
+        // use-after-destroy on the pre-fix code.
+    }
+}
+
+TEST_CASE("v1.4 S3: failed callable copy leaves the destination intact") {
+    using namespace burner::net::detail;
+
+    CompactCallable<int()> throwing_source(V14ThrowOnCopyOnly{});
+
+    SUBCASE("failed copy-assign preserves the original target") {
+        CompactCallable<int()> dest([] { return 1; });
+        REQUIRE(static_cast<bool>(dest));
+        CHECK_THROWS_AS(dest = throwing_source, int);
+        CHECK(static_cast<bool>(dest));
+        CHECK(dest() == 1); // original target, not a null context
+    }
+
+    SUBCASE("failed copy-assign into an empty callable stays empty") {
+        CompactCallable<int()> empty;
+        CHECK_THROWS_AS(empty = throwing_source, int);
+        CHECK_FALSE(static_cast<bool>(empty));
+    }
+}
+
+TEST_CASE("v1.4 S2: user-agent injection is rejected, never sanitized") {
+    using namespace burner::net;
+
+    CHECK_FALSE(internal::IsValidUserAgent("agent\r\nX-Injected: value"));
+    CHECK_FALSE(internal::IsValidUserAgent("agent\nX-Injected: value"));
+    CHECK_FALSE(internal::IsValidUserAgent(std::string("agent\0hidden", 12)));
+    CHECK_FALSE(internal::IsValidUserAgent(std::string(600, 'a'))); // length bound
+    CHECK(internal::IsValidUserAgent("BurnerNet/1.4"));
+    CHECK(internal::IsValidUserAgent("")); // empty means "unset"
+
+    SUBCASE("builder rejects at build time") {
+        auto bad = ClientBuilder()
+            .WithUserAgent("agent\r\nX-Injected: value")
+            .Build();
+        CHECK_FALSE(bad.Ok());
+        CHECK(bad.error == ErrorCode::InvalidUserAgent);
+
+        auto too_long = ClientBuilder()
+            .WithUserAgent(std::string(600, 'a'))
+            .Build();
+        CHECK_FALSE(too_long.Ok());
+        CHECK(too_long.error == ErrorCode::InvalidUserAgent);
+    }
+
+    SUBCASE("direct ClientConfig is validated at send time before guards") {
+        int guard_calls = 0;
+        ClientConfig config{};
+        config.user_agent = DarkString("agent\r\nX-Injected: value");
+        config.request_guard = [&](const HttpRequest&) {
+            ++guard_calls;
+            return true;
+        };
+        CurlHttpClient transport(config);
+        REQUIRE(transport.IsInitialized());
+
+        HttpRequest request{};
+        request.url = "https://example.com";
+        const auto response = transport.Send(request);
+        CHECK(response.transport_error == ErrorCode::InvalidUserAgent);
+        CHECK(guard_calls == 0);
+    }
+}
+
+TEST_CASE("v1.4 S7: malformed request URLs are rejected before guards") {
+    using namespace burner::net;
+
+    int guard_calls = 0;
+    auto build_result = ClientBuilder()
+        .WithRequestGuard([&](const HttpRequest&) {
+            ++guard_calls;
+            return true;
+        })
+        .Build();
+    REQUIRE(build_result.Ok());
+
+    SUBCASE("embedded NUL") {
+        HttpRequest request{};
+        DarkString evil("https://example.com");
+        evil.push_back('\0');
+        evil.append("evil.example");
+        request.url = std::move(evil);
+        const auto response = build_result.client->Send(request);
+        CHECK(response.transport_error == ErrorCode::InvalidRequestUrl);
+        CHECK(guard_calls == 0);
+    }
+
+    SUBCASE("control characters") {
+        HttpRequest request{};
+        request.url = "https://example.com/\x01";
+        const auto response = build_result.client->Send(request);
+        CHECK(response.transport_error == ErrorCode::InvalidRequestUrl);
+        CHECK(guard_calls == 0);
+    }
+
+    SUBCASE("valid URL still reaches the guard") {
+        HttpRequest request{};
+        request.url = "https://example.com";
+        const auto response = build_result.client->Send(request);
+        CHECK(response.transport_error != ErrorCode::InvalidRequestUrl);
+        CHECK(guard_calls == 1);
+    }
+}
+
+TEST_CASE("v1.4 S6: DNS revocation and unknown modes are rejected") {
+    using namespace burner::net;
+
+    SUBCASE("AllowSystemDns(false) revokes the system fallback") {
+        auto capture_modes = [](bool revoke) {
+            DarkVector<DnsMode> modes;
+            ClientBuilder builder;
+            builder
+                .WithDnsFallback(
+                    DnsMode::Doh, "https://resolver.example/dns-query", "DoH")
+                .AllowSystemDns(true);
+            if (revoke) {
+                builder.AllowSystemDns(false);
+            }
+            auto built = builder.WithRequestGuard([&](const HttpRequest& req) {
+                for (const auto& strategy : req.dns_fallback.strategies) {
+                    modes.push_back(strategy.mode);
+                }
+                return true;
+            }).Build();
+            REQUIRE(built.Ok());
+            HttpRequest request{};
+            request.url = "https://example.com";
+            (void)built.client->Send(request);
+            return modes;
+        };
+
+        const auto granted = capture_modes(false);
+        REQUIRE(granted.size() == 2);
+        CHECK(granted[0] == DnsMode::Doh);
+        CHECK(granted[1] == DnsMode::System);
+
+        const auto revoked = capture_modes(true);
+        REQUIRE(revoked.size() == 1);
+        CHECK(revoked[0] == DnsMode::Doh);
+    }
+
+    SUBCASE("unknown DnsMode is rejected at build time") {
+        auto bad = ClientBuilder()
+            .WithDnsFallback(
+                static_cast<DnsMode>(2),
+                "https://resolver.example/dns-query",
+                "Bogus")
+            .Build();
+        CHECK_FALSE(bad.Ok());
+        CHECK(bad.error == ErrorCode::InvalidDnsMode);
+    }
+
+    SUBCASE("unknown DnsMode is rejected at send time on every profile") {
+        auto standard = ClientBuilder().Build();
+        REQUIRE(standard.Ok());
+
+        HttpRequest request{};
+        request.url = "https://example.com";
+        request.dns_fallback.enabled = true;
+        request.dns_fallback.use_client_defaults = false;
+        DnsStrategy bogus{};
+        bogus.mode = static_cast<DnsMode>(2);
+        bogus.doh_url = "https://resolver.example/dns-query";
+        request.dns_fallback.strategies.push_back(std::move(bogus));
+
+        const auto response = standard.client->Send(request);
+        CHECK(response.transport_error == ErrorCode::InvalidDnsMode);
+    }
+}
+
+TEST_CASE("v1.4 S10: reentrant sends on the same client are rejected") {
+    using namespace burner::net;
+
+    FluentClient<CurlHttpClient>* client_ptr = nullptr;
+    ErrorCode inner_error = ErrorCode::None;
+    bool inner_ran = false;
+
+    auto build_result = ClientBuilder()
+        .WithRequestGuard([&](const HttpRequest&) {
+            if (!inner_ran && client_ptr != nullptr) {
+                inner_ran = true;
+                HttpRequest inner{};
+                inner.url = "https://example.com";
+                const auto inner_response = client_ptr->Send(std::move(inner));
+                inner_error = inner_response.transport_error;
+            }
+            return true;
+        })
+        .Build();
+    REQUIRE(build_result.Ok());
+    client_ptr = build_result.client.get();
+
+    HttpRequest outer{};
+    outer.url = "https://example.com";
+    (void)build_result.client->Send(std::move(outer));
+
+    CHECK(inner_ran);
+    CHECK(inner_error == ErrorCode::ReentrantSend);
+}
+
+TEST_CASE("v1.4 S11: empty POST configures an explicit zero-byte body") {
+    using namespace burner::net;
+
+    auto result = ClientBuilder().Build();
+    REQUIRE(result.Ok());
+    auto* api = CurlHttpClientTestAccess::MutableApi(*result.client->Raw());
+    REQUIRE(api != nullptr);
+    const auto original = api->easy_setopt.get();
+
+    v14_seen_postfields = nullptr;
+    v14_seen_postfields_size = false;
+    v14_seen_postfields_size_value = -1;
+    api->easy_setopt = &V14RecordPostBodySetopt;
+    (void)result.client->Post("https://example.com").Send();
+    api->easy_setopt = original;
+
+    // An explicit buffer (never curl's default stdin reader) with zero size.
+    REQUIRE(v14_seen_postfields != nullptr);
+    CHECK(v14_seen_postfields[0] == '\0');
+    CHECK(v14_seen_postfields_size);
+    CHECK(v14_seen_postfields_size_value == 0);
+}
+
+TEST_CASE("v1.4 S5: retries stop once chunk bytes were published") {
+    using namespace burner::net;
+
+    auto result = ClientBuilder().Build();
+    REQUIRE(result.Ok());
+    const auto& transport = *result.client->Raw();
+
+    auto transport_failure = [](ErrorCode error) {
+        HttpResponse response{};
+        response.transport_code = 7;
+        response.transport_error = error;
+        return response;
+    };
+
+    HttpRequest streamed_get{};
+    streamed_get.retry.max_attempts = 3;
+    streamed_get.retry.backoff_ms = 0;
+    streamed_get.on_chunk_received = [](const std::uint8_t*, std::size_t) {};
+
+    SUBCASE("no bytes delivered yet: retry still allowed") {
+        CHECK(CurlHttpClientTestAccess::ShouldRetry(
+            transport,
+            streamed_get,
+            transport_failure(ErrorCode::TimedOut),
+            1));
+    }
+
+    SUBCASE("published prefix is never replayed") {
+        HttpResponse partial = transport_failure(ErrorCode::TimedOut);
+        partial.streamed_body_bytes = 128;
+        CHECK_FALSE(CurlHttpClientTestAccess::ShouldRetry(
+            transport, streamed_get, partial, 1));
+    }
+
+    SUBCASE("5xx body delivered through chunks is never replayed") {
+        HttpResponse server_error{};
+        server_error.status_code = 503;
+        server_error.streamed_body_bytes = 64;
+        CHECK_FALSE(CurlHttpClientTestAccess::ShouldRetry(
+            transport, streamed_get, server_error, 1));
+    }
 }

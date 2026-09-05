@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 3,
   "cmakeMinimumRequired": {
     "major": 3,
     "minor": 21,
@@ -63,8 +63,7 @@
       "displayName": "x64 Debug",
       "inherits": "windows-base",
       "architecture": {
-        "value": "x64",
-        "strategy": "external"
+        "value": "x64"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -77,8 +76,7 @@
       "displayName": "x64 Debug Static",
       "inherits": "windows-base",
       "architecture": {
-        "value": "x64",
-        "strategy": "external"
+        "value": "x64"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -91,8 +89,7 @@
       "displayName": "x64 Release",
       "inherits": "windows-base",
       "architecture": {
-        "value": "x64",
-        "strategy": "external"
+        "value": "x64"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
@@ -105,8 +102,7 @@
       "displayName": "x64 Release Static",
       "inherits": "windows-base",
       "architecture": {
-        "value": "x64",
-        "strategy": "external"
+        "value": "x64"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
@@ -119,8 +115,7 @@
       "displayName": "x86 Debug",
       "inherits": "windows-base",
       "architecture": {
-        "value": "Win32",
-        "strategy": "external"
+        "value": "Win32"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -133,8 +128,7 @@
       "displayName": "x86 Debug Static",
       "inherits": "windows-base",
       "architecture": {
-        "value": "Win32",
-        "strategy": "external"
+        "value": "Win32"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -147,8 +141,7 @@
       "displayName": "x86 Release",
       "inherits": "windows-base",
       "architecture": {
-        "value": "Win32",
-        "strategy": "external"
+        "value": "Win32"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
@@ -161,8 +154,7 @@
       "displayName": "x86 Release Static",
       "inherits": "windows-base",
       "architecture": {
-        "value": "Win32",
-        "strategy": "external"
+        "value": "Win32"
       },
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",

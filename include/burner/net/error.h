@@ -87,7 +87,13 @@ enum class ErrorCode : uint32_t {
     WorkerThreadStartFailed = 63,
     // Reserved for source/ABI compatibility; opportunistic hooks no longer emit it.
     MaximumGhostRuntimeRequired = 64,
-    ResponseHeadersTooLarge = 65
+    ResponseHeadersTooLarge = 65,
+    // v1.4 input-validation and reentrancy errors. Appended at the end so all
+    // existing numeric values are preserved.
+    InvalidUserAgent = 66,
+    InvalidRequestUrl = 67,
+    InvalidDnsMode = 68,
+    ReentrantSend = 69
 };
 
 inline constexpr bool IsSuccessCode(ErrorCode code) {

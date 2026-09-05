@@ -3,6 +3,7 @@
 #include "curl/curl_http_client.h"
 #include "internal/header_validation.h"
 
+#include <algorithm>
 #include <array>
 #include <new>
 
@@ -145,6 +146,23 @@ ClientBuilder& ClientBuilder::WithCasualDefaults() {
 
 ClientBuilder& ClientBuilder::AllowSystemDns(bool fallback_allowed) {
     if (!fallback_allowed) {
+        // Revocation is meaningful: drop every previously granted System
+        // strategy so layered configuration cannot leak DNS queries through
+        // a fallback the caller believed disabled. An explicit empty policy
+        // performs a single system-DNS attempt (see DisableDnsFallback);
+        // hardened builds reject policies without DoH below and at send time.
+        auto& strategies = m_default_dns_fallback.strategies;
+        strategies.erase(
+            std::remove_if(
+                strategies.begin(),
+                strategies.end(),
+                [](const DnsStrategy& strategy) {
+                    return strategy.mode == DnsMode::System;
+                }),
+            strategies.end());
+        // All System entries were removed above; no explicit system grant
+        // can remain.
+        m_system_dns_explicit = false;
         return *this;
     }
 
@@ -211,6 +229,23 @@ ClientBuilder& ClientBuilder::WithStackIsolation(bool enabled) {
 
 ClientBuilder::ClientBuildResult ClientBuilder::Build() {
     try {
+    // User-Agent values bypass ordinary header validation on their way to
+    // CURLOPT_USERAGENT: reject CR/LF/NUL/controls and overlong values here,
+    // before any provider or network work. Never silently sanitize.
+    if (!m_config.user_agent.empty() &&
+        !internal::IsValidUserAgent(std::string_view(
+            m_config.user_agent.data(), m_config.user_agent.size()))) {
+        return {nullptr, ErrorCode::InvalidUserAgent};
+    }
+    // One shared policy validator for the builder path and the raw request
+    // path: malformed modes, DoH URLs, and resolve entries fail here on
+    // every profile instead of degrading silently at send time.
+    for (const auto& strategy : m_default_dns_fallback.strategies) {
+        if (const ErrorCode strategy_error = internal::ValidateDnsStrategy(strategy);
+            strategy_error != ErrorCode::None) {
+            return {nullptr, strategy_error};
+        }
+    }
     if (m_profile == ClientProfile::Hardened) {
         if (m_config.use_system_proxy) {
             return {nullptr, ErrorCode::HardenedSystemProxyForbidden};
@@ -230,18 +265,25 @@ ClientBuilder::ClientBuildResult ClientBuilder::Build() {
         bool system_dns_seen = false;
         bool invalid_dns_order = false;
         for (const auto& strategy : m_default_dns_fallback.strategies) {
-            if (strategy.mode == DnsMode::System) {
+            // Exhaustive switch with a rejecting default: strategies were
+            // already validated above, so unknown modes cannot reach the
+            // DoH/system branches by accident.
+            switch (strategy.mode) {
+            case DnsMode::System:
                 has_system_dns = true;
                 system_dns_seen = true;
-            } else {
+                break;
+            case DnsMode::Doh:
                 has_doh = true;
-                if (strategy.mode != DnsMode::Doh ||
-                    !internal::IsValidHttpsUrl(strategy.doh_url)) {
+                if (!internal::IsValidHttpsUrl(strategy.doh_url)) {
                     return {nullptr, ErrorCode::InvalidHardenedDoh};
                 }
                 if (system_dns_seen) {
                     invalid_dns_order = true;
                 }
+                break;
+            default:
+                return {nullptr, ErrorCode::InvalidDnsMode};
             }
         }
         if (!has_doh) {

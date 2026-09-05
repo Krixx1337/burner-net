@@ -189,6 +189,14 @@ ErrorCode CurlHttpClient::ApplyMethodAndBody(
             }
         } else if (has_body_view || !request.body.empty()) {
             return SetPostBody(curl_api, easy, body_data, body_size);
+        } else {
+            // Explicit empty POST: configure a zero-byte body source instead
+            // of leaving curl's default input behavior, which would consume
+            // stdin or block where an empty request was expected. The string
+            // literal has static storage, so the borrowed pointer outlives
+            // the transfer. (Only POST reaches this branch with no body;
+            // PUT/DELETE/PATCH callers guard on has_body.)
+            return SetPostBody(curl_api, easy, "", 0);
         }
         return ErrorCode::None;
     };

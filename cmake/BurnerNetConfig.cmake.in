@@ -1,8 +1,23 @@
 @PACKAGE_INIT@
 
 include(CMakeFindDependencyMacro)
+# libcurl headers are required in every mode: installed public headers
+# (curl/curl_http_client.h) include <curl/curl.h>. Threads is required
+# because the interface links Threads::Threads.
 find_dependency(CURL REQUIRED)
+find_dependency(Threads REQUIRED)
 
 include("${CMAKE_CURRENT_LIST_DIR}/BurnerNetTargets.cmake")
+
+if("@BURNERNET_HARDEN_IMPORTS_CONFIG@" AND TARGET CURL::libcurl)
+    # Hardened-import builds intentionally do not link CURL::libcurl, so the
+    # installed target carries no curl link requirement. Consumers still need
+    # the headers; propagate the include directories without linking.
+    get_target_property(_BURNERNET_CURL_INCLUDE_DIRS CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)
+    if(_BURNERNET_CURL_INCLUDE_DIRS)
+        set_property(TARGET BurnerNet::BurnerNet APPEND PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${_BURNERNET_CURL_INCLUDE_DIRS}")
+    endif()
+    unset(_BURNERNET_CURL_INCLUDE_DIRS)
+endif()
 
 check_required_components(BurnerNet)

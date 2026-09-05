@@ -37,5 +37,5 @@
 #endif
 
 #if BURNERNET_MAXIMUM_GHOST && !defined(_WIN32)
-#error "BURNERNET_MAXIMUM_GHOST is supported only on Windows in BurnerNet v1.3"
+#error "BURNERNET_MAXIMUM_GHOST is supported only on Windows in BurnerNet v1.4"
 #endif

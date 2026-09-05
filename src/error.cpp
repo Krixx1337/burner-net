@@ -84,11 +84,15 @@ const char* ErrorCodeDebugString(ErrorCode code) noexcept {
         "TimedOut",
         "WorkerThreadStartFailed",
         "MaximumGhostRuntimeRequired",
-        "ResponseHeadersTooLarge"
+        "ResponseHeadersTooLarge",
+        "InvalidUserAgent",
+        "InvalidRequestUrl",
+        "InvalidDnsMode",
+        "ReentrantSend"
     };
     static_assert(
         (sizeof(kNames) / sizeof(kNames[0])) ==
-        static_cast<std::size_t>(ErrorCode::ResponseHeadersTooLarge) + 1);
+        static_cast<std::size_t>(ErrorCode::ReentrantSend) + 1);
 
     const auto index = static_cast<std::size_t>(code);
     return index < (sizeof(kNames) / sizeof(kNames[0])) ? kNames[index] : "Unknown";

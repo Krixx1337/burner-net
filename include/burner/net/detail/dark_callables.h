@@ -42,8 +42,13 @@ public:
 
     SecureHandle& operator=(const SecureHandle& other) {
         if (this != &other) {
+            // Strong guarantee: clone into a temporary first so a throwing
+            // copy leaves the destination untouched instead of half-published.
+            SecureHandle replacement(other);
             reset();
-            copy_from(other);
+            pointer_ = std::exchange(replacement.pointer_, nullptr);
+            destroy_ = std::exchange(replacement.destroy_, nullptr);
+            clone_ = std::exchange(replacement.clone_, nullptr);
         }
         return *this;
     }
@@ -125,8 +130,16 @@ public:
 
     CompactCallable& operator=(const CompactCallable& other) {
         if (this != &other) {
+            // Strong guarantee: build a complete replacement first, then
+            // publish it. A throwing clone leaves either the original
+            // callable or (via the temporary's destructor) no partial state:
+            // the destination is only touched after cloning succeeded.
+            CompactCallable replacement(other);
             reset();
-            copy_from(other);
+            context_ = std::exchange(replacement.context_, nullptr);
+            invoke_ = std::exchange(replacement.invoke_, nullptr);
+            clone_ = std::exchange(replacement.clone_, nullptr);
+            destroy_ = std::exchange(replacement.destroy_, nullptr);
         }
         return *this;
     }

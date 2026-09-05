@@ -365,6 +365,23 @@ int CurlHttpClient::PrereqCallback(
 }
 
 HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
+    // Reject overlapping sends on this client, including reentrant Send()
+    // calls from callbacks or request guards running on this transfer. A
+    // nested send would Reset() the active easy handle mid-transfer. Use a
+    // blocking-free flag (not a mutex) so reentry fails deterministically
+    // instead of deadlocking.
+    bool expected_idle = false;
+    if (!m_in_flight.compare_exchange_strong(
+            expected_idle, true, std::memory_order_acq_rel)) {
+        HttpResponse response{};
+        response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
+        response.transport_error = ErrorCode::ReentrantSend;
+        return response;
+    }
+    struct InFlightRelease final {
+        std::atomic<bool>& flag;
+        ~InFlightRelease() { flag.store(false, std::memory_order_release); }
+    } release{m_in_flight};
     try {
     if (request.on_chunk_received && m_config.response_verifier) {
         HttpResponse response{};
@@ -778,6 +795,16 @@ HttpResponse CurlHttpClient::PerformOnce(HttpRequest request, std::optional<DnsS
 }
 
 bool CurlHttpClient::ShouldRetry(const HttpRequest& request, const HttpResponse& response, int attempt) const {
+    // Streamed downloads publish bytes to the chunk callback immediately and
+    // the final HttpResponse cannot retract those side effects: retrying
+    // after bytes were delivered would replay an already-published prefix
+    // (including a 5xx body followed by another attempt's body). Disable
+    // automatic retries once any chunk bytes were delivered. Replay then
+    // requires an explicit sink reset/commit contract (not yet provided).
+    if (request.on_chunk_received && response.streamed_body_bytes > 0) {
+        return false;
+    }
+
     const int attempts = (std::max)(1, request.retry.max_attempts);
     if (attempt >= attempts) {
         return false;

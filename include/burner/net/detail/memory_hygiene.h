@@ -95,6 +95,11 @@ public:
         new (&m_storage) DarkString(std::move(other.str()));
         m_engaged = true;
         other.wipe_and_reset();
+        // Keep the moved-from container live and empty: every usable
+        // SecureString must own a live contained object. Final destruction
+        // of the source storage happens in its destructor.
+        new (&other.m_storage) DarkString();
+        other.m_engaged = true;
     }
 
     SecureString& operator=(const SecureString& other) {
@@ -112,6 +117,8 @@ public:
             obf::secure_wipe(str());
             str() = std::move(replacement);
             other.wipe_and_reset();
+            new (&other.m_storage) DarkString();
+            other.m_engaged = true;
         }
         return *this;
     }
@@ -221,6 +228,9 @@ public:
         new (&m_storage) storage_type(std::move(other.buffer()));
         m_engaged = true;
         other.wipe_and_reset();
+        // Keep the moved-from container live and empty (see SecureString).
+        new (&other.m_storage) storage_type();
+        other.m_engaged = true;
     }
 
     SecureBuffer& operator=(const SecureBuffer& other) {
@@ -238,6 +248,8 @@ public:
             obf::secure_wipe(buffer());
             buffer() = std::move(replacement);
             other.wipe_and_reset();
+            new (&other.m_storage) storage_type();
+            other.m_engaged = true;
         }
         return *this;
     }

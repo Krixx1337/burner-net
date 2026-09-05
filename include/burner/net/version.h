@@ -1,9 +1,9 @@
 #pragma once
 
 #define BURNERNET_VERSION_MAJOR 1
-#define BURNERNET_VERSION_MINOR 3
+#define BURNERNET_VERSION_MINOR 4
 #define BURNERNET_VERSION_PATCH 0
-#define BURNERNET_VERSION_STRING "1.3.0"
+#define BURNERNET_VERSION_STRING "1.4.0"
 
 namespace burner::net {
 

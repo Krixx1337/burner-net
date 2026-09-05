@@ -25,7 +25,10 @@
 namespace burner::net::detail {
 
 [[nodiscard]] constexpr std::uint64_t dark_string_seed_base() noexcept {
-    return fnv1a<std::uint64_t>(std::string_view{__TIME__, sizeof(__TIME__) - 1u});
+    // Fixed seed, identical in every translation unit. Deriving this from
+    // __TIME__ gave the same public inline definitions different values per
+    // translation unit (ODR violation) and broke reproducible builds.
+    return 0x9E3779B97F4A7C15ull;
 }
 
 [[nodiscard]] constexpr std::uint32_t dark_word_key(std::size_t index, std::uint64_t seed) noexcept {
