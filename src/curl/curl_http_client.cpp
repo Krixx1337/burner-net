@@ -162,6 +162,84 @@ DarkString BuildHeaderLine(std::string_view name, std::string_view value) {
     return header;
 }
 
+bool IsIdempotentMethod(HttpMethod method) noexcept {
+    switch (method) {
+    case HttpMethod::Get:
+    case HttpMethod::Put:
+    case HttpMethod::Delete:
+        return true;
+    case HttpMethod::Post:
+    case HttpMethod::Patch:
+        return false;
+    }
+    return false;
+}
+
+// Non-throwing RAII owner for curl_slist chains. Wipes entry bytes before
+// freeing so bearer credentials and other header material are reclaimed even
+// when an exception (e.g. throwing telemetry collection) unwinds past the
+// owning scope. Declared before the easy-handle reset guard so curl drops its
+// references before list storage is destroyed.
+class WipedSlistGuard final {
+public:
+    explicit WipedSlistGuard(const CurlApi& api) noexcept : m_api(&api) {}
+
+    WipedSlistGuard(const WipedSlistGuard&) = delete;
+    WipedSlistGuard& operator=(const WipedSlistGuard&) = delete;
+
+    ~WipedSlistGuard() noexcept {
+        Reset(nullptr);
+    }
+
+    [[nodiscard]] curl_slist* Get() const noexcept { return m_list; }
+
+    // Takes ownership of `list`, wiping and freeing the previously owned
+    // chain first. Callers pass the previous head to slist_append and adopt
+    // the result only on success, so a failed append retains the old chain.
+    void Reset(curl_slist* list) noexcept {
+        if (m_list != nullptr) {
+            for (curl_slist* it = m_list; it != nullptr; it = it->next) {
+                if (it->data != nullptr) {
+                    const size_t len = std::char_traits<char>::length(it->data);
+                    obf::secure_wipe(it->data, len);
+                }
+            }
+            if (m_api != nullptr) {
+                m_api->slist_free_all(m_list);
+            }
+        }
+        m_list = list;
+    }
+
+private:
+    const CurlApi* m_api = nullptr;
+    curl_slist* m_list = nullptr;
+};
+
+// Unconditional scope guard: the curl error buffer is wiped even when an
+// exception unwinds past PerformOnceInternal.
+class ErrorBufferGuard final {
+public:
+    explicit ErrorBufferGuard(char (&buffer)[CURL_ERROR_SIZE]) noexcept : m_buffer(buffer) {}
+
+    ErrorBufferGuard(const ErrorBufferGuard&) = delete;
+    ErrorBufferGuard& operator=(const ErrorBufferGuard&) = delete;
+
+    ~ErrorBufferGuard() noexcept {
+#if defined(_WIN32)
+        SecureZeroMemory(m_buffer, sizeof(m_buffer));
+#else
+        volatile char* ptr = m_buffer;
+        for (size_t i = 0; i < sizeof(m_buffer); ++i) {
+            ptr[i] = '\0';
+        }
+#endif
+    }
+
+private:
+    char (&m_buffer)[CURL_ERROR_SIZE];
+};
+
 struct IsolatedThreadState {
     IsolatedThreadState(HttpRequest request_value,
                         std::optional<DnsStrategy> strategy_value,
@@ -350,6 +428,11 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         response.transport_error = ErrorCode::NoCurlHandle;
         return response;
     }
+    const CurlApi& curl_api = m_session->Api();
+    char error_buffer[CURL_ERROR_SIZE] = {0};
+    ErrorBufferGuard error_buffer_guard(error_buffer);
+    WipedSlistGuard headers_guard(curl_api);
+    WipedSlistGuard resolve_guard(curl_api);
     struct EasyResetGuard final {
         CurlSession* session;
         ~EasyResetGuard() {
@@ -377,18 +460,6 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         response.transport_error = ErrorCode::RequestBodyTooLarge;
         return response;
     }
-
-    char error_buffer[CURL_ERROR_SIZE] = {0};
-    auto wipe_error_buffer = [&]() {
-#if defined(_WIN32)
-        SecureZeroMemory(error_buffer, sizeof(error_buffer));
-#else
-        volatile char* ptr = error_buffer;
-        for (size_t i = 0; i < sizeof(error_buffer); ++i) {
-            ptr[i] = '\0';
-        }
-#endif
-    };
 
     BodyWriteContext body_ctx{};
     body_ctx.body = &response.body;
@@ -439,51 +510,40 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
             ? static_cast<int>(CURLE_OUT_OF_MEMORY)
             : static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
         response.transport_error = option_error;
-        wipe_error_buffer();
         return response;
     }
 
-    const CurlApi& curl_api = m_session->Api();
-    curl_slist* headers = nullptr;
     for (const auto& [name, value] : m_config.default_headers) {
         if (!internal::IsValidHeaderName(name) || !internal::IsValidHeaderValue(value)) {
             response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
             response.transport_error = ErrorCode::InvalidHeader;
-            WipeHeaderList(headers);
-            wipe_error_buffer();
             return response;
         }
         DarkString header = BuildHeaderLine(name, value);
-        curl_slist* const appended = curl_api.slist_append(headers, header.c_str());
+        curl_slist* const appended = curl_api.slist_append(headers_guard.Get(), header.c_str());
         SecureWipe(header);
         if (appended == nullptr) {
             response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
             response.transport_error = ErrorCode::OutOfMemory;
-            WipeHeaderList(headers);
-            wipe_error_buffer();
             return response;
         }
-        headers = appended;
+        headers_guard.Reset(appended);
     }
     for (const auto& [name, value] : request.headers) {
         if (!internal::IsValidHeaderName(name) || !internal::IsValidHeaderValue(value)) {
             response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
             response.transport_error = ErrorCode::InvalidHeader;
-            WipeHeaderList(headers);
-            wipe_error_buffer();
             return response;
         }
         DarkString header = BuildHeaderLine(name, value);
-        curl_slist* const appended = curl_api.slist_append(headers, header.c_str());
+        curl_slist* const appended = curl_api.slist_append(headers_guard.Get(), header.c_str());
         SecureWipe(header);
         if (appended == nullptr) {
             response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
             response.transport_error = ErrorCode::OutOfMemory;
-            WipeHeaderList(headers);
-            wipe_error_buffer();
             return response;
         }
-        headers = appended;
+        headers_guard.Reset(appended);
     }
 
     DarkString active_bearer_token;
@@ -508,16 +568,22 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
             ? ErrorCode::InvalidCredentials
             : ErrorCode::CredentialProviderFailed;
         SecureWipe(active_bearer_token);
-        WipeHeaderList(headers);
-        wipe_error_buffer();
         return response;
     }
-    if (request.follow_redirects && has_secure_token) {
+    // Defense in depth alongside the orchestrator gate: curl follows redirects
+    // internally, so any guard, credential, custom header, or body material
+    // could cross origins without per-hop policy. Reject before networking.
+    const bool has_custom_headers =
+        !request.headers.empty() || !m_config.default_headers.empty();
+    const bool has_request_body = !request.body.empty() ||
+        !request.body_view.empty() ||
+        static_cast<bool>(request.stream_payload_provider);
+    if (request.follow_redirects &&
+        (has_secure_token || m_config.mtls_provider || m_config.response_verifier ||
+         m_config.request_guard || has_custom_headers || has_request_body)) {
         response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
         response.transport_error = ErrorCode::RedirectAuth;
         SecureWipe(active_bearer_token);
-        WipeHeaderList(headers);
-        wipe_error_buffer();
         return response;
     }
 
@@ -528,58 +594,49 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         auth.append(auth_prefix);
         auth.append(active_bearer.data(), active_bearer.size());
         SecureWipe(auth_prefix);
-        curl_slist* const appended = curl_api.slist_append(headers, auth.c_str());
+        curl_slist* const appended = curl_api.slist_append(headers_guard.Get(), auth.c_str());
         SecureWipe(auth);
         if (appended == nullptr) {
             response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
             response.transport_error = ErrorCode::OutOfMemory;
             SecureWipe(active_bearer_token);
-            WipeHeaderList(headers);
-            wipe_error_buffer();
             return response;
         }
-        headers = appended;
+        headers_guard.Reset(appended);
     }
     SecureWipe(active_bearer_token);
 
-    if (headers != nullptr) {
+    if (headers_guard.Get() != nullptr) {
         if (curl_api.easy_setopt(
                 easy,
                 CURLOPT_HTTPHEADER,
-                headers) != CURLE_OK) {
+                headers_guard.Get()) != CURLE_OK) {
             response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
             response.transport_error = ErrorCode::CurlOptionFailed;
-            WipeHeaderList(headers);
-            wipe_error_buffer();
             return response;
         }
     }
 
-    curl_slist* bootstrap_resolve_entries = nullptr;
     if (strategy.has_value() &&
         strategy->mode == DnsMode::Doh &&
         !strategy->bootstrap_resolve_entry.empty()) {
         DarkString expiring_bootstrap_entry =
             detail::MakeCacheExpiringResolveEntry(strategy->bootstrap_resolve_entry);
-        bootstrap_resolve_entries =
-            curl_api.slist_append(nullptr, expiring_bootstrap_entry.c_str());
+        curl_slist* const appended =
+            curl_api.slist_append(resolve_guard.Get(), expiring_bootstrap_entry.c_str());
         SecureWipe(expiring_bootstrap_entry);
-        if (bootstrap_resolve_entries == nullptr) {
+        if (appended == nullptr) {
             response.transport_code = static_cast<int>(CURLE_OUT_OF_MEMORY);
             response.transport_error = ErrorCode::OutOfMemory;
-            WipeHeaderList(headers);
-            wipe_error_buffer();
             return response;
         }
+        resolve_guard.Reset(appended);
         if (curl_api.easy_setopt(
             easy,
             CURLOPT_RESOLVE,
-            bootstrap_resolve_entries) != CURLE_OK) {
+            resolve_guard.Get()) != CURLE_OK) {
             response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
             response.transport_error = ErrorCode::CurlOptionFailed;
-            WipeHeaderList(bootstrap_resolve_entries);
-            WipeHeaderList(headers);
-            wipe_error_buffer();
             return response;
         }
     }
@@ -594,13 +651,9 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         this) != CURLE_OK) {
         response.transport_code = static_cast<int>(CURLE_BAD_FUNCTION_ARGUMENT);
         response.transport_error = ErrorCode::CurlOptionFailed;
-        WipeHeaderList(bootstrap_resolve_entries);
-        WipeHeaderList(headers);
-        wipe_error_buffer();
         return response;
     }
     const CURLcode code = curl_api.easy_perform(easy);
-    WipeHeaderList(bootstrap_resolve_entries);
 
     SecureWipe(protocol_scheme);
     SecureWipe(redirect_protocol_scheme);
@@ -672,11 +725,6 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
 
     curl_api.easy_getinfo(easy, CURLINFO_RESPONSE_CODE, &response.status_code);
 
-    if (headers != nullptr) {
-        WipeHeaderList(headers);
-    }
-
-    wipe_error_buffer();
     return response;
 }
 
@@ -730,14 +778,26 @@ bool CurlHttpClient::ShouldRetry(const HttpRequest& request, const HttpResponse&
         return false;
     }
 
+    // Streamed uploads have no rewind contract: once the provider has been
+    // consumed it may be unable to reproduce bytes, so a streamed request is
+    // never replayed automatically.
+    if (request.stream_payload_provider) {
+        return false;
+    }
+
+    // Non-idempotent methods are replayed only with explicit authorization:
+    // a retried POST/PATCH may otherwise commit server-side effects twice.
+    const bool replay_authorized =
+        IsIdempotentMethod(request.method) || request.retry.allow_non_idempotent_replay;
+
     if (!response.TransportOk() &&
         request.retry.retry_on_transport_error &&
         IsRetryable(response.transport_error)) {
-        return true;
+        return replay_authorized;
     }
 
     if (response.TransportOk() && request.retry.retry_on_5xx && response.status_code >= 500 && response.status_code < 600) {
-        return true;
+        return replay_authorized;
     }
 
     return false;
@@ -748,6 +808,16 @@ bool CurlHttpClient::IsRetryable(ErrorCode error) const noexcept {
     case ErrorCode::DnsResolutionFailed:
     case ErrorCode::ConnectFailed:
     case ErrorCode::TimedOut:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool CurlHttpClient::IsDnsFallbackRetryable(ErrorCode error) const noexcept {
+    switch (error) {
+    case ErrorCode::DnsResolutionFailed:
+    case ErrorCode::ConnectFailed:
         return true;
     default:
         return false;

@@ -38,6 +38,7 @@ private:
     HttpResponse PerformOnceInternal(const HttpRequest& request, const std::optional<DnsStrategy>& strategy);
     HttpResponse PerformOnce(HttpRequest request, std::optional<DnsStrategy> strategy);
     bool IsRetryable(ErrorCode error) const noexcept;
+    bool IsDnsFallbackRetryable(ErrorCode error) const noexcept;
     bool ShouldRetry(const HttpRequest& request, const HttpResponse& response, int attempt) const;
 
     static size_t WriteBodyCallback(void* contents, size_t size, size_t nmemb, void* user_data);
@@ -60,7 +61,6 @@ private:
     ErrorCode ApplyDnsStrategy(const DnsStrategy& strategy);
     ErrorCode ClearDnsStrategy();
     void WipeResponse(HttpResponse& response) const;
-    void WipeHeaderList(curl_slist* headers) const;
 
 private:
     friend class TransportOrchestrator;

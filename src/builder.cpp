@@ -125,6 +125,11 @@ ClientBuilder& ClientBuilder::WithGlobalMaxBodyLimit(std::size_t max_body_bytes)
     return *this;
 }
 
+ClientBuilder& ClientBuilder::AllowUnlimitedResponseBody(bool allowed) {
+    m_config.global_max_body_bytes = allowed ? 0 : kDefaultGlobalMaxBodyBytes;
+    return *this;
+}
+
 ClientBuilder& ClientBuilder::WithCurlModuleName(std::string name) {
     m_config.curl_module_name = std::move(name);
     return *this;

@@ -116,10 +116,28 @@ because streamed bytes are published immediately.
 ## Redirects, retry, and DNS fallback
 
 - Hardened redirects are unsupported in v1.3.
-- Standard rejects redirects when a bearer provider, mTLS provider, or response
-  verifier is configured.
+- Standard rejects redirects when a bearer provider, mTLS provider, response
+  verifier, request guard, custom header set (request or client defaults), or
+  request body is present. curl follows redirects internally without re-running
+  destination policy, so only bare requests follow them.
+- An empty per-request DNS strategy list inherits the client defaults; use
+  `DisableDnsFallback()` on the builder (or `use_client_defaults = false` on
+  a raw request) for an explicit no-fallback policy.
+- Hardened send-time policy requires at least one valid HTTPS DoH strategy;
+  system DNS is accepted only as a trailing fallback after every DoH entry.
+  Malformed DoH URLs are rejected before any network activity on every profile.
+- Response bodies are capped by an 8 MiB global default
+  (`kDefaultGlobalMaxBodyBytes`); the stricter of the per-request and global
+  limits wins. Opt into unlimited buffering explicitly with
+  `WithGlobalMaxBodyLimit(0)` or `AllowUnlimitedResponseBody()`, and prefer
+  `OnChunkReceived(...)` streaming for large payloads.
+- DNS fallback replays only resolution/connect failures known to occur before
+  the request was sent; timeouts never trigger another DNS strategy.
+- Automatic retry replays only idempotent methods (GET, PUT, DELETE) unless
+  `RetryPolicy::allow_non_idempotent_replay` is set, and never replays
+  streamed uploads (no rewind contract). Total transport attempts per send are
+  bounded (retry attempts x DNS strategies, capped).
 - Security and callback failures are terminal.
-- Only transient DNS, connect, timeout, and configured HTTP 5xx outcomes retry.
 - System DNS fallback must be explicit and follows DoH in Hardened.
 
 ## Bootstrap

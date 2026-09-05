@@ -189,17 +189,4 @@ void CurlHttpClient::WipeResponse(HttpResponse& response) const {
     response.ClearSensitiveData();
 }
 
-void CurlHttpClient::WipeHeaderList(curl_slist* headers) const {
-    for (curl_slist* it = headers; it != nullptr; it = it->next) {
-        if (it->data != nullptr) {
-            const size_t len = std::char_traits<char>::length(it->data);
-            obf::secure_wipe(it->data, len);
-        }
-    }
-
-    if (headers != nullptr && m_session != nullptr) {
-        m_session->Api().slist_free_all(headers);
-    }
-}
-
 } // namespace burner::net

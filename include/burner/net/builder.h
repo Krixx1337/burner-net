@@ -22,8 +22,11 @@ public:
         : m_client(&client) {
         m_request.method = method;
         m_request.url = std::move(url);
+        // No explicit DNS policy: an empty strategy list with
+        // use_client_defaults inherits the client's defaults at send time.
         m_request.dns_fallback.enabled = false;
         m_request.dns_fallback.strategies.clear();
+        m_request.dns_fallback.use_client_defaults = true;
     }
 
     RequestBuilder& WithHeader(std::string_view name, std::string_view value) {
@@ -80,6 +83,15 @@ public:
         return *this;
     }
 
+    // Expresses an explicit "no DNS fallback" policy: a single attempt using
+    // system DNS, even when the client was built with DoH defaults.
+    RequestBuilder& DisableDnsFallback() {
+        m_request.dns_fallback.enabled = false;
+        m_request.dns_fallback.strategies.clear();
+        m_request.dns_fallback.use_client_defaults = false;
+        return *this;
+    }
+
     [[nodiscard]] HttpResponse Send() {
         return m_client->Send(std::move(m_request));
     }
@@ -131,9 +143,17 @@ public:
             response.transport_error = m_unavailable_error;
             return response;
         }
-        if (!request.dns_fallback.enabled && !m_default_dns_fallback.strategies.empty()) {
+        // An empty strategy list with use_client_defaults inherits the client
+        // defaults. This covers both builder-created requests and
+        // default-constructed HttpRequest values sent directly, so hardened
+        // DoH policy cannot be bypassed by skipping the builder. A non-empty
+        // list, or use_client_defaults == false, is an explicit per-request
+        // policy and is preserved as-is.
+        if (request.dns_fallback.strategies.empty() &&
+            request.dns_fallback.use_client_defaults &&
+            !m_default_dns_fallback.strategies.empty()) {
             request.dns_fallback = m_default_dns_fallback;
-            request.dns_fallback.enabled = true;
+            request.dns_fallback.use_client_defaults = false;
         }
         return m_transport.Send(request);
     }
@@ -170,6 +190,7 @@ public:
     ClientBuilder& WithConnectedPeerGuard(ConnectedPeerGuard guard);
     ClientBuilder& WithTransferCancellation(TransferCancellation cancellation);
     ClientBuilder& WithGlobalMaxBodyLimit(std::size_t max_body_bytes);
+    ClientBuilder& AllowUnlimitedResponseBody(bool allowed = true);
     ClientBuilder& WithCurlModuleName(std::string name);
     ClientBuilder& WithCasualDefaults();
     ClientBuilder& AllowSystemDns(bool fallback_allowed = true);

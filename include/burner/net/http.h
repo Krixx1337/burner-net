@@ -174,6 +174,12 @@ struct DnsStrategy {
 struct DnsFallbackPolicy {
     bool enabled = true;
     DarkVector<DnsStrategy> strategies;
+    // True means "no explicit per-request policy": an empty strategy list
+    // inherits the client's defaults at send time. Set this to false to
+    // express an explicit policy (including an explicit empty policy, which
+    // performs a single attempt using system DNS). A non-empty strategy list
+    // is always treated as an explicit override.
+    bool use_client_defaults = true;
 };
 
 struct RetryPolicy {
@@ -181,7 +187,17 @@ struct RetryPolicy {
     int backoff_ms = 250;
     bool retry_on_transport_error = true;
     bool retry_on_5xx = true;
+    // Authorizes automatic replay of non-idempotent methods (POST, PATCH)
+    // after transport errors or HTTP 5xx. Defaults to false: without this,
+    // only idempotent methods (GET, PUT, DELETE) are retried automatically.
+    // Streamed uploads are never replayed automatically (no rewind contract).
+    bool allow_non_idempotent_replay = false;
 };
+
+// Default cap applied when no explicit global body limit is configured.
+// Zero means "unlimited" and must be selected explicitly per request or via
+// ClientBuilder::WithGlobalMaxBodyLimit(0) / AllowUnlimitedResponseBody().
+inline constexpr std::size_t kDefaultGlobalMaxBodyBytes = 8u * 1024u * 1024u;
 
 struct MtlsCredentials {
     bool enabled = false;
@@ -252,7 +268,8 @@ struct HttpRequest {
     HeaderMap headers;
     TokenProvider bearer_token_provider;
     ChunkCallback on_chunk_received;
-    // 0 means "no limit".
+    // Per-request cap. 0 means "no per-request cap"; the global client limit
+    // still applies. The effective limit is the stricter of the two.
     std::size_t max_body_bytes = 0;
     long timeout_seconds = 15;
     long connect_timeout_seconds = 10;
@@ -410,7 +427,11 @@ struct ClientConfig {
     TransferCancellation transfer_cancellation;
     ResponseVerifyFn response_verifier;
     bool require_response_verification = false;
-    std::size_t global_max_body_bytes = 0;
+    // Global response-body cap enforced incrementally on received bytes.
+    // Defaults to kDefaultGlobalMaxBodyBytes. Zero means unlimited buffering
+    // and must be selected explicitly (see ClientBuilder::WithGlobalMaxBodyLimit
+    // and AllowUnlimitedResponseBody).
+    std::size_t global_max_body_bytes = kDefaultGlobalMaxBodyBytes;
     DarkVector<DarkString> pinned_public_keys;
     DarkString curl_module_name;
     bool enable_stack_isolation = false;

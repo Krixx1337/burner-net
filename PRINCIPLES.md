@@ -44,8 +44,9 @@ facing a hostile host must explicitly select `ClientProfile::Hardened`.
   It blocks HTTP data, not the earlier TLS/mTLS handshake. Pre-connect address
   enforcement remains a v2 concern.
 - **Redirect Containment:** Hardened forbids redirects. Standard rejects
-  redirects when credentials or response verification could cross origin
-  without an explicit per-hop trust model.
+  redirects when credentials, response verification, the request guard,
+  custom headers, or request bodies could cross origin without an explicit
+  per-hop trust model.
 - **Terminal Security Failures:** Guard rejection, credential failure,
   callback failure, TLS or configured-pin failure, cancellation, size-limit
   failure, and response-verification failure never trigger retry or DNS

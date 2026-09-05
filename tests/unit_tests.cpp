@@ -64,6 +64,24 @@ struct CurlHttpClientTestAccess final {
         ErrorCode error) noexcept {
         return client.IsRetryable(error);
     }
+
+    static bool IsDnsFallbackRetryable(
+        const CurlHttpClient& client,
+        ErrorCode error) noexcept {
+        return client.IsDnsFallbackRetryable(error);
+    }
+
+    static bool ShouldRetry(
+        const CurlHttpClient& client,
+        const HttpRequest& request,
+        const HttpResponse& response,
+        int attempt) {
+        return client.ShouldRetry(request, response, attempt);
+    }
+
+    static std::size_t GlobalMaxBodyBytes(const CurlHttpClient& client) noexcept {
+        return client.m_config.global_max_body_bytes;
+    }
 };
 
 } // namespace burner::net
@@ -1462,6 +1480,267 @@ TEST_CASE("stack isolation executes transport on a distinct thread") {
 
     CHECK(transport_thread_id != std::thread::id{}); // Ensure the callback ran
     CHECK(transport_thread_id != caller_thread_id);  // PROOF OF SEVERED STACK
+}
+
+TEST_CASE("redirects are rejected with guard, custom headers, or bodies") {
+    using namespace burner::net;
+
+    SUBCASE("custom request header") {
+        auto result = ClientBuilder().Build();
+        REQUIRE(result.Ok());
+        const auto response = result.client->Get("https://example.com")
+            .WithHeader("X-Api-Key", "secret")
+            .FollowRedirects(true)
+            .Send();
+        CHECK(response.transport_error == ErrorCode::RedirectAuth);
+    }
+
+    SUBCASE("client default headers") {
+        ClientConfig config{};
+        config.default_headers.insert_or_assign("X-Api-Key", "secret");
+        CurlHttpClient transport(config);
+        REQUIRE(transport.IsInitialized());
+        HttpRequest request{};
+        request.url = "https://example.com";
+        request.follow_redirects = true;
+        const auto response = transport.Send(request);
+        CHECK(response.transport_error == ErrorCode::RedirectAuth);
+    }
+
+    SUBCASE("request guard") {
+        auto result = ClientBuilder()
+            .WithRequestGuard([](const HttpRequest&) { return true; })
+            .Build();
+        REQUIRE(result.Ok());
+        HttpRequest request{};
+        request.url = "https://example.com";
+        request.follow_redirects = true;
+        const auto response = result.client->Send(request);
+        CHECK(response.transport_error == ErrorCode::RedirectAuth);
+    }
+
+    SUBCASE("request body") {
+        auto result = ClientBuilder().Build();
+        REQUIRE(result.Ok());
+        HttpRequest request{};
+        request.method = HttpMethod::Post;
+        request.url = "https://example.com";
+        request.body = "payload";
+        request.follow_redirects = true;
+        const auto response = result.client->Send(request);
+        CHECK(response.transport_error == ErrorCode::RedirectAuth);
+    }
+}
+
+TEST_CASE("empty DNS strategy list inherits client defaults") {
+    using namespace burner::net;
+
+    DnsFallbackPolicy defaults{};
+    DnsStrategy doh{};
+    doh.mode = DnsMode::Doh;
+    doh.doh_url = "https://resolver.example/dns-query";
+    doh.name = "Test DoH";
+    defaults.enabled = true;
+    defaults.strategies.push_back(doh);
+
+    RecordingTransport transport{};
+    FluentClient<RecordingTransport> client(std::move(transport), defaults);
+
+    SUBCASE("default-constructed request inherits") {
+        HttpRequest request{};
+        request.url = "https://example.com";
+        (void)client.Send(request);
+        REQUIRE(client.Raw()->last_request.dns_fallback.strategies.size() == 1);
+        CHECK(client.Raw()->last_request.dns_fallback.strategies[0].doh_url ==
+              "https://resolver.example/dns-query");
+        CHECK_FALSE(client.Raw()->last_request.dns_fallback.use_client_defaults);
+    }
+
+    SUBCASE("explicit empty policy is preserved") {
+        HttpRequest request{};
+        request.url = "https://example.com";
+        request.dns_fallback.use_client_defaults = false;
+        request.dns_fallback.enabled = false;
+        (void)client.Send(request);
+        CHECK(client.Raw()->last_request.dns_fallback.strategies.empty());
+        CHECK_FALSE(client.Raw()->last_request.dns_fallback.enabled);
+    }
+
+    SUBCASE("explicit strategies are preserved") {
+        HttpRequest request{};
+        request.url = "https://example.com";
+        DnsStrategy system{};
+        system.mode = DnsMode::System;
+        request.dns_fallback.strategies.push_back(system);
+        (void)client.Send(request);
+        REQUIRE(client.Raw()->last_request.dns_fallback.strategies.size() == 1);
+        CHECK(client.Raw()->last_request.dns_fallback.strategies[0].mode ==
+              DnsMode::System);
+    }
+
+    SUBCASE("builder can express explicit no-fallback") {
+        (void)client.Get("https://example.com").DisableDnsFallback().Send();
+        CHECK(client.Raw()->last_request.dns_fallback.strategies.empty());
+        CHECK_FALSE(client.Raw()->last_request.dns_fallback.use_client_defaults);
+    }
+}
+
+TEST_CASE("hardened clients validate effective DNS policy before networking") {
+    using namespace burner::net;
+
+    ClientBuilder builder(ClientProfile::Hardened);
+    AddHardenedDohAndVerifier(builder);
+    auto result = builder.Build();
+    REQUIRE(result.Ok());
+
+    SUBCASE("explicit invalid DoH URL") {
+        HttpRequest request{};
+        request.url = "https://example.com";
+        request.dns_fallback.use_client_defaults = false;
+        request.dns_fallback.enabled = true;
+        DnsStrategy bad{};
+        bad.mode = DnsMode::Doh;
+        bad.doh_url = "http://resolver.example/dns-query";
+        request.dns_fallback.strategies.push_back(std::move(bad));
+        const auto response = result.client->Send(request);
+        CHECK(response.transport_error == ErrorCode::InvalidHardenedDoh);
+    }
+
+    SUBCASE("explicit system-only policy") {
+        HttpRequest request{};
+        request.url = "https://example.com";
+        request.dns_fallback.use_client_defaults = false;
+        request.dns_fallback.enabled = true;
+        DnsStrategy system{};
+        system.mode = DnsMode::System;
+        request.dns_fallback.strategies.push_back(std::move(system));
+        const auto response = result.client->Send(request);
+        CHECK(response.transport_error == ErrorCode::HardenedDohRequired);
+    }
+
+    SUBCASE("system DNS before DoH") {
+        HttpRequest request{};
+        request.url = "https://example.com";
+        request.dns_fallback.use_client_defaults = false;
+        request.dns_fallback.enabled = true;
+        DnsStrategy system{};
+        system.mode = DnsMode::System;
+        DnsStrategy doh{};
+        doh.mode = DnsMode::Doh;
+        doh.doh_url = "https://resolver.example/dns-query";
+        request.dns_fallback.strategies.push_back(std::move(system));
+        request.dns_fallback.strategies.push_back(std::move(doh));
+        const auto response = result.client->Send(request);
+        CHECK(response.transport_error == ErrorCode::HardenedSystemDnsOrder);
+    }
+
+    SUBCASE("explicit empty policy") {
+        HttpRequest request{};
+        request.url = "https://example.com";
+        request.dns_fallback.use_client_defaults = false;
+        request.dns_fallback.enabled = false;
+        const auto response = result.client->Send(request);
+        CHECK(response.transport_error == ErrorCode::HardenedDohRequired);
+    }
+}
+
+TEST_CASE("response body buffering is bounded by default with explicit unlimited opt-in") {
+    using namespace burner::net;
+
+    auto standard = ClientBuilder().Build();
+    REQUIRE(standard.Ok());
+    CHECK(
+        CurlHttpClientTestAccess::GlobalMaxBodyBytes(*standard.client->Raw()) ==
+        kDefaultGlobalMaxBodyBytes);
+
+    auto capped = ClientBuilder().WithGlobalMaxBodyLimit(64 * 1024).Build();
+    REQUIRE(capped.Ok());
+    CHECK(
+        CurlHttpClientTestAccess::GlobalMaxBodyBytes(*capped.client->Raw()) ==
+        64 * 1024);
+
+    auto unlimited = ClientBuilder().AllowUnlimitedResponseBody().Build();
+    REQUIRE(unlimited.Ok());
+    CHECK(
+        CurlHttpClientTestAccess::GlobalMaxBodyBytes(*unlimited.client->Raw()) == 0);
+
+    auto relimited = ClientBuilder().AllowUnlimitedResponseBody(false).Build();
+    REQUIRE(relimited.Ok());
+    CHECK(
+        CurlHttpClientTestAccess::GlobalMaxBodyBytes(*relimited.client->Raw()) ==
+        kDefaultGlobalMaxBodyBytes);
+}
+
+TEST_CASE("DNS fallback covers only pre-send failures") {
+    using namespace burner::net;
+
+    auto result = ClientBuilder().Build();
+    REQUIRE(result.Ok());
+    const auto& transport = *result.client->Raw();
+
+    CHECK(CurlHttpClientTestAccess::IsDnsFallbackRetryable(
+        transport, ErrorCode::DnsResolutionFailed));
+    CHECK(CurlHttpClientTestAccess::IsDnsFallbackRetryable(
+        transport, ErrorCode::ConnectFailed));
+    CHECK_FALSE(CurlHttpClientTestAccess::IsDnsFallbackRetryable(
+        transport, ErrorCode::TimedOut));
+    CHECK_FALSE(CurlHttpClientTestAccess::IsDnsFallbackRetryable(
+        transport, ErrorCode::CallbackFailed));
+    // General transport retry still treats timeouts as retryable; DNS
+    // fallback no longer does.
+    CHECK(CurlHttpClientTestAccess::IsRetryable(transport, ErrorCode::TimedOut));
+}
+
+TEST_CASE("automatic replay is limited to idempotent methods and rewindable bodies") {
+    using namespace burner::net;
+
+    auto result = ClientBuilder().Build();
+    REQUIRE(result.Ok());
+    const auto& transport = *result.client->Raw();
+
+    auto transport_failure = [](ErrorCode error) {
+        HttpResponse response{};
+        response.transport_code = 7;
+        response.transport_error = error;
+        return response;
+    };
+    HttpResponse server_error{};
+    server_error.status_code = 503;
+
+    HttpRequest get{};
+    get.retry.max_attempts = 3;
+    get.retry.backoff_ms = 0;
+    CHECK(CurlHttpClientTestAccess::ShouldRetry(
+        transport, get, transport_failure(ErrorCode::TimedOut), 1));
+
+    HttpRequest post = get;
+    post.method = HttpMethod::Post;
+    CHECK_FALSE(CurlHttpClientTestAccess::ShouldRetry(
+        transport, post, transport_failure(ErrorCode::TimedOut), 1));
+
+    post.retry.allow_non_idempotent_replay = true;
+    CHECK(CurlHttpClientTestAccess::ShouldRetry(
+        transport, post, transport_failure(ErrorCode::TimedOut), 1));
+
+    HttpRequest patch = get;
+    patch.method = HttpMethod::Patch;
+    CHECK_FALSE(CurlHttpClientTestAccess::ShouldRetry(
+        transport, patch, server_error, 1));
+    patch.retry.allow_non_idempotent_replay = true;
+    CHECK(CurlHttpClientTestAccess::ShouldRetry(
+        transport, patch, server_error, 1));
+
+    HttpRequest streamed = get;
+    streamed.method = HttpMethod::Post;
+    streamed.stream_payload_provider = [](std::span<char>) -> std::size_t {
+        return 0;
+    };
+    streamed.retry.allow_non_idempotent_replay = true;
+    CHECK_FALSE(CurlHttpClientTestAccess::ShouldRetry(
+        transport, streamed, transport_failure(ErrorCode::ConnectFailed), 1));
+
+    CHECK_FALSE(CurlHttpClientTestAccess::ShouldRetry(
+        transport, get, transport_failure(ErrorCode::TimedOut), 3));
 }
 
 TEST_CASE("transport stays on caller thread when isolation is disabled") {
