@@ -196,7 +196,12 @@ public:
     // Takes ownership of `list`, wiping and freeing the previously owned
     // chain first. Callers pass the previous head to slist_append and adopt
     // the result only on success, so a failed append retains the old chain.
+    // On success the old chain is linked into the result (same head when the
+    // guard already owned a list), so it must not be freed.
     void Reset(curl_slist* list) noexcept {
+        if (list == m_list) {
+            return;
+        }
         if (m_list != nullptr) {
             for (curl_slist* it = m_list; it != nullptr; it = it->next) {
                 if (it->data != nullptr) {
