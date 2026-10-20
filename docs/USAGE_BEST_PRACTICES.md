@@ -132,7 +132,11 @@ because streamed bytes are published immediately.
   `WithGlobalMaxBodyLimit(0)` or `AllowUnlimitedResponseBody()`, and prefer
   `OnChunkReceived(...)` streaming for large payloads.
 - DNS fallback replays only resolution/connect failures known to occur before
-  the request was sent; timeouts never trigger another DNS strategy.
+  the request was sent. A timeout counts as a resolution failure only when curl
+  reports that the name never resolved and no connection opened, as when a DoH
+  resolver drops packets; each such resolver can use the whole connect timeout
+  before the next strategy runs. Any other timeout never triggers another DNS
+  strategy.
 - Automatic retry replays only idempotent methods (GET, PUT, DELETE) unless
   `RetryPolicy::allow_non_idempotent_replay` is set, and never replays
   streamed uploads (no rewind contract). Total transport attempts per send are

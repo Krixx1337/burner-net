@@ -77,6 +77,12 @@ ErrorCode CurlHttpClient::ApplyCommonOptions(
     if (!SetCurlOption(curl_api, easy, CURLOPT_FOLLOWLOCATION, request.follow_redirects ? 1L : 0L)) {
         return ErrorCode::CurlOptionFailed;
     }
+    // Requests use HTTP/1.1 even when libcurl has HTTP/2. Only libcurl's own
+    // DoH lookups use HTTP/2, which some DoH servers require: each probe sets
+    // CURL_HTTP_VERSION_2TLS itself (lib/doh.c) and does not inherit this.
+    if (!SetCurlOption(curl_api, easy, CURLOPT_HTTP_VERSION, static_cast<long>(CURL_HTTP_VERSION_1_1))) {
+        return ErrorCode::CurlOptionFailed;
+    }
     if (!m_config.use_system_proxy) {
         if (!SetCurlOption(curl_api, easy, CURLOPT_PROXY, "") ||
         // Force all hosts to bypass proxies, including any inherited environment configuration.
