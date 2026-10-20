@@ -697,10 +697,13 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
             // connection opened was nothing sent: then it is a resolution
             // failure and the next DNS strategy may run. Any other timeout,
             // or unreadable timers, may have sent the request: it stays
-            // TimedOut, which never moves to the next DNS strategy.
+            // TimedOut, which never moves to the next DNS strategy. Without
+            // a DNS strategy there is nothing to fall back to, so the
+            // timeout keeps its own error code.
             double name_lookup_seconds = -1.0;
             double connect_seconds = -1.0;
             const bool nothing_sent =
+                strategy.has_value() &&
                 curl_api.easy_getinfo(
                     easy,
                     CURLINFO_NAMELOOKUP_TIME,

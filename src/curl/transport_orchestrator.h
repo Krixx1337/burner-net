@@ -13,7 +13,10 @@ public:
     HttpResponse Execute(HttpRequest request);
 
 private:
-    HttpResponse PerformWithDnsFallback(HttpRequest request, int& remaining_attempts);
+    HttpResponse PerformWithDnsFallback(
+        HttpRequest request,
+        int& remaining_attempts,
+        bool& resolution_timed_out);
 
     CurlHttpClient& m_client;
 };

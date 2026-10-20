@@ -135,8 +135,10 @@ because streamed bytes are published immediately.
   the request was sent. A timeout counts as a resolution failure only when curl
   reports that the name never resolved and no connection opened, as when a DoH
   resolver drops packets; each such resolver can use the whole connect timeout
-  before the next strategy runs. Any other timeout never triggers another DNS
-  strategy.
+  before the next strategy runs. Once a resolver has timed out, automatic retry
+  does not run the strategy list again, so one send waits at most about one
+  timeout per strategy. Any other timeout never triggers another DNS strategy.
+  Without DNS fallback a resolve timeout is reported as `TimedOut`.
 - Automatic retry replays only idempotent methods (GET, PUT, DELETE) unless
   `RetryPolicy::allow_non_idempotent_replay` is set, and never replays
   streamed uploads (no rewind contract). Total transport attempts per send are

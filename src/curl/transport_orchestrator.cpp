@@ -128,8 +128,13 @@ HttpResponse TransportOrchestrator::Execute(HttpRequest request) {
 
     int remaining_attempts = kMaxTotalTransportAttempts;
     for (int attempt = 1; attempt <= attempts && remaining_attempts > 0; ++attempt) {
-        response = PerformWithDnsFallback(request, remaining_attempts);
-        if (!m_client.ShouldRetry(request, response, attempt)) {
+        bool resolution_timed_out = false;
+        response = PerformWithDnsFallback(request, remaining_attempts, resolution_timed_out);
+        // A resolver that timed out already used the whole timeout on this
+        // round. Replaying every strategy again would multiply the caller's
+        // timeout by the retry count, so such a round is final.
+        if (resolution_timed_out ||
+            !m_client.ShouldRetry(request, response, attempt)) {
             break;
         }
         m_client.WipeResponse(response);
@@ -143,7 +148,10 @@ HttpResponse TransportOrchestrator::Execute(HttpRequest request) {
     return response;
 }
 
-HttpResponse TransportOrchestrator::PerformWithDnsFallback(HttpRequest request, int& remaining_attempts) {
+HttpResponse TransportOrchestrator::PerformWithDnsFallback(
+    HttpRequest request,
+    int& remaining_attempts,
+    bool& resolution_timed_out) {
     if (!request.dns_fallback.enabled || request.dns_fallback.strategies.empty()) {
         if (remaining_attempts <= 0) {
             HttpResponse response{};
@@ -164,6 +172,10 @@ HttpResponse TransportOrchestrator::PerformWithDnsFallback(HttpRequest request, 
         last_response = m_client.PerformOnce(request, strategy);
         if (last_response.TransportOk()) {
             return last_response;
+        }
+        if (last_response.transport_error == ErrorCode::DnsResolutionFailed &&
+            last_response.transport_code == static_cast<int>(CURLE_OPERATION_TIMEDOUT)) {
+            resolution_timed_out = true;
         }
         // DNS fallback replays only failures known to occur before the
         // application request was sent (resolution/connect). The client
