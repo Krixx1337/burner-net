@@ -692,7 +692,28 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
         } else if (code == CURLE_COULDNT_CONNECT) {
             response.transport_error = ErrorCode::ConnectFailed;
         } else if (code == CURLE_OPERATION_TIMEDOUT) {
-            response.transport_error = ErrorCode::TimedOut;
+            // curl reports an unreachable DoH resolver as "Resolving timed
+            // out". Only when curl confirms the name never resolved and no
+            // connection opened was nothing sent: then it is a resolution
+            // failure and the next DNS strategy may run. Any other timeout,
+            // or unreadable timers, may have sent the request: it stays
+            // TimedOut, which never moves to the next DNS strategy.
+            double name_lookup_seconds = -1.0;
+            double connect_seconds = -1.0;
+            const bool nothing_sent =
+                curl_api.easy_getinfo(
+                    easy,
+                    CURLINFO_NAMELOOKUP_TIME,
+                    &name_lookup_seconds) == CURLE_OK &&
+                curl_api.easy_getinfo(
+                    easy,
+                    CURLINFO_CONNECT_TIME,
+                    &connect_seconds) == CURLE_OK &&
+                name_lookup_seconds == 0.0 &&
+                connect_seconds == 0.0;
+            response.transport_error = nothing_sent
+                ? ErrorCode::DnsResolutionFailed
+                : ErrorCode::TimedOut;
         } else {
             response.transport_error = ErrorCode::CurlGeneric;
         }
