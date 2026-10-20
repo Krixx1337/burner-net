@@ -166,9 +166,12 @@ HttpResponse TransportOrchestrator::PerformWithDnsFallback(HttpRequest request, 
             return last_response;
         }
         // DNS fallback replays only failures known to occur before the
-        // application request was sent (resolution/connect). Timeouts and
-        // other outcomes are ambiguous: the server may already have committed
-        // a non-idempotent request, so they never trigger another strategy.
+        // application request was sent (resolution/connect). The client
+        // reports a timeout from before the name resolved, when nothing was
+        // sent, as DnsResolutionFailed.
+        // Other timeouts and outcomes are ambiguous: the server may already
+        // have committed a non-idempotent request, so they never trigger
+        // another strategy.
         if (!m_client.IsDnsFallbackRetryable(last_response.transport_error)) {
             return last_response;
         }

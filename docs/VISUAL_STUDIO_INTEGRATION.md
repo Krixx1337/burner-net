@@ -42,6 +42,12 @@ So the important distinction is:
 - BurnerNet source-drop usually means **BurnerNet static**
 - curl can still be **dynamic** or **static**
 
+DoH resolvers that accept only HTTP/2, such as Quad9, need curl's `http2`
+feature, for example `vcpkg install curl[openssl,http2]:x64-windows`. That
+install ships `nghttp2.dll`; with `BURNERNET_HARDEN_IMPORTS=1`, list it in
+`dependency_dlls`, because bootstrap rejects any unlisted DLL in the runtime
+folder.
+
 ## Scope
 
 This guide assumes:

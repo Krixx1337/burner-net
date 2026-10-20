@@ -6,7 +6,8 @@
     {
       "name": "curl",
       "features": [
-        "openssl"
+        "openssl",
+        "http2"
       ]
     }
   ]

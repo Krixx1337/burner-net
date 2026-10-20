@@ -10,7 +10,7 @@ The project file is intended to track BurnerNet's current implementation source 
 
 - Visual Studio 2022
 - vcpkg with curl installed for the architecture you want to build
-- `vcpkg install curl[openssl]:x64-windows`
+- `vcpkg install curl[openssl,http2]:x64-windows` (`http2` lets DoH reach resolvers that accept only HTTP/2, such as Quad9)
 
 For 32-bit builds, install the matching x86 triplet instead.
 

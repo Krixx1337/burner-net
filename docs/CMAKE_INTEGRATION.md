@@ -44,6 +44,13 @@ So the important distinction is:
 - BurnerNet via CMake subproject/package is still a normal linked target
 - curl can still be **dynamic** or **static**
 
+DoH resolvers that accept only HTTP/2, such as Quad9, need curl's `http2`
+feature. BurnerNet's manifests enable it, and the overlay triplets in
+`triplets/` link nghttp2 into libcurl so it adds no DLL. If your curl ships
+`nghttp2.dll` instead, list it in `dependency_dlls` when
+`BURNERNET_HARDEN_IMPORTS=1`: bootstrap rejects any unlisted DLL in the runtime
+folder.
+
 ## Scope
 
 This guide assumes:
