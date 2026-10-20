@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <thread>
+#include <vector>
 
 namespace burner::net {
 
@@ -127,9 +128,16 @@ HttpResponse TransportOrchestrator::Execute(HttpRequest request) {
         (std::max)(1, request.retry.max_attempts), 1, kMaxTotalTransportAttempts);
 
     int remaining_attempts = kMaxTotalTransportAttempts;
+    // A resolver that timed out already used the whole timeout. Later retry
+    // rounds skip it, so each resolver times out at most once per send
+    // instead of once per retry attempt.
+    std::vector<bool> timed_out_strategies(request.dns_fallback.strategies.size(), false);
     for (int attempt = 1; attempt <= attempts && remaining_attempts > 0; ++attempt) {
-        response = PerformWithDnsFallback(request, remaining_attempts);
-        if (!m_client.ShouldRetry(request, response, attempt)) {
+        response = PerformWithDnsFallback(request, remaining_attempts, timed_out_strategies);
+        if (!m_client.ShouldRetry(request, response, attempt) ||
+            (!timed_out_strategies.empty() &&
+             std::find(timed_out_strategies.begin(), timed_out_strategies.end(), false) ==
+                 timed_out_strategies.end())) {
             break;
         }
         m_client.WipeResponse(response);
@@ -143,7 +151,10 @@ HttpResponse TransportOrchestrator::Execute(HttpRequest request) {
     return response;
 }
 
-HttpResponse TransportOrchestrator::PerformWithDnsFallback(HttpRequest request, int& remaining_attempts) {
+HttpResponse TransportOrchestrator::PerformWithDnsFallback(
+    HttpRequest request,
+    int& remaining_attempts,
+    std::vector<bool>& timed_out_strategies) {
     if (!request.dns_fallback.enabled || request.dns_fallback.strategies.empty()) {
         if (remaining_attempts <= 0) {
             HttpResponse response{};
@@ -156,14 +167,22 @@ HttpResponse TransportOrchestrator::PerformWithDnsFallback(HttpRequest request, 
     }
 
     HttpResponse last_response{};
-    for (const DnsStrategy& strategy : request.dns_fallback.strategies) {
+    const auto& strategies = request.dns_fallback.strategies;
+    for (std::size_t index = 0; index < strategies.size(); ++index) {
+        if (timed_out_strategies[index]) {
+            continue;
+        }
         if (remaining_attempts <= 0) {
             break;
         }
         --remaining_attempts;
-        last_response = m_client.PerformOnce(request, strategy);
+        last_response = m_client.PerformOnce(request, strategies[index]);
         if (last_response.TransportOk()) {
             return last_response;
+        }
+        if (last_response.transport_error == ErrorCode::DnsResolutionFailed &&
+            last_response.transport_code == static_cast<int>(CURLE_OPERATION_TIMEDOUT)) {
+            timed_out_strategies[index] = true;
         }
         // DNS fallback replays only failures known to occur before the
         // application request was sent (resolution/connect). The client

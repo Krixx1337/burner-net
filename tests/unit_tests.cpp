@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdarg>
 #include <filesystem>
 #include <cstdint>
 #include <limits>
@@ -94,6 +95,38 @@ CURLcode FailEverySetopt(CURL*, CURLoption, ...) {
 
 curl_slist* FailEverySlistAppend(curl_slist*, const char*) {
     return nullptr;
+}
+
+int g_stub_performs = 0;
+// Performs that time out before the stub answers HTTP 503; -1 never answers.
+int g_stub_timeouts_before_503 = -1;
+double g_stub_name_lookup_seconds = 0.0;
+
+CURLcode StubPerform(CURL*) {
+    ++g_stub_performs;
+    if (g_stub_timeouts_before_503 < 0 || g_stub_performs <= g_stub_timeouts_before_503) {
+        return CURLE_OPERATION_TIMEDOUT;
+    }
+    return CURLE_OK;
+}
+
+CURLcode ReportStubTimers(CURL*, CURLINFO info, ...) {
+    va_list args;
+    va_start(args, info);
+    CURLcode result = CURLE_OK;
+    if (info == CURLINFO_NAMELOOKUP_TIME) {
+        *va_arg(args, double*) = g_stub_name_lookup_seconds;
+    } else if (info == CURLINFO_CONNECT_TIME) {
+        *va_arg(args, double*) = 0.0;
+    } else if (info == CURLINFO_RESPONSE_CODE) {
+        const bool answered = g_stub_timeouts_before_503 >= 0 &&
+            g_stub_performs > g_stub_timeouts_before_503;
+        *va_arg(args, long*) = answered ? 503 : 0;
+    } else {
+        result = CURLE_UNKNOWN_OPTION;
+    }
+    va_end(args);
+    return result;
 }
 
 struct NeverCalledTransport final {
@@ -1689,6 +1722,75 @@ TEST_CASE("DNS fallback covers only pre-send failures") {
     // General transport retry still treats timeouts as retryable; DNS
     // fallback no longer does.
     CHECK(CurlHttpClientTestAccess::IsRetryable(transport, ErrorCode::TimedOut));
+}
+
+TEST_CASE("DoH resolution timeouts fall back once per resolver") {
+    using namespace burner::net;
+
+    auto result = ClientBuilder().Build();
+    REQUIRE(result.Ok());
+    auto* api = CurlHttpClientTestAccess::MutableApi(*result.client->Raw());
+    REQUIRE(api != nullptr);
+    const auto original_perform = api->easy_perform.get();
+    const auto original_getinfo = api->easy_getinfo.get();
+    api->easy_perform = &StubPerform;
+    api->easy_getinfo = &ReportStubTimers;
+
+    auto make_request = [](bool with_doh) {
+        HttpRequest request{};
+        request.method = HttpMethod::Get;
+        request.url = "https://example.com";
+        request.retry.max_attempts = 3;
+        request.retry.backoff_ms = 0;
+        request.dns_fallback.use_client_defaults = false;
+        if (with_doh) {
+            for (const char* url : {"https://doh-a.example/dns-query", "https://doh-b.example/dns-query"}) {
+                DnsStrategy strategy{};
+                strategy.mode = DnsMode::Doh;
+                strategy.name = url;
+                strategy.doh_url = url;
+                request.dns_fallback.strategies.push_back(std::move(strategy));
+            }
+        } else {
+            request.dns_fallback.enabled = false;
+        }
+        return request;
+    };
+
+    // Name never resolved: every resolver is tried once, then the send ends.
+    g_stub_performs = 0;
+    g_stub_name_lookup_seconds = 0.0;
+    auto response = result.client->Send(make_request(true));
+    CHECK(response.transport_error == ErrorCode::DnsResolutionFailed);
+    CHECK(g_stub_performs == 2);
+
+    // Name resolved before the timeout: the request may have been sent, so no
+    // DNS fallback, but the idempotent GET still follows the retry policy.
+    g_stub_performs = 0;
+    g_stub_name_lookup_seconds = 0.05;
+    response = result.client->Send(make_request(true));
+    CHECK(response.transport_error == ErrorCode::TimedOut);
+    CHECK(g_stub_performs == 3);
+
+    // Without a DNS strategy a resolve timeout keeps its own error code.
+    g_stub_performs = 0;
+    g_stub_name_lookup_seconds = 0.0;
+    response = result.client->Send(make_request(false));
+    CHECK(response.transport_error == ErrorCode::TimedOut);
+    CHECK(g_stub_performs == 3);
+
+    // First resolver times out, second answers 503: retry_on_5xx still runs,
+    // and later rounds skip the resolver that timed out.
+    g_stub_performs = 0;
+    g_stub_timeouts_before_503 = 1;
+    response = result.client->Send(make_request(true));
+    CHECK(response.TransportOk());
+    CHECK(response.status_code == 503);
+    CHECK(g_stub_performs == 4);
+    g_stub_timeouts_before_503 = -1;
+
+    api->easy_perform = original_perform;
+    api->easy_getinfo = original_getinfo;
 }
 
 TEST_CASE("automatic replay is limited to idempotent methods and rewindable bodies") {
