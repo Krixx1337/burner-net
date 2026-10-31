@@ -120,6 +120,11 @@ ClientBuilder& ClientBuilder::WithTransferCancellation(TransferCancellation canc
     return *this;
 }
 
+ClientBuilder& ClientBuilder::WithCompressedResponses(bool enabled) {
+    m_config.accept_compressed_responses = enabled;
+    return *this;
+}
+
 ClientBuilder& ClientBuilder::WithGlobalMaxBodyLimit(std::size_t max_body_bytes) {
     m_config.global_max_body_bytes = max_body_bytes;
     return *this;

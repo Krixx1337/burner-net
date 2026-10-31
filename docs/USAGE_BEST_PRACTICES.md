@@ -74,6 +74,17 @@ runs after TLS, this prevents HTTP credentials, headers, and body from reaching
 loopback; it does not prevent the TCP/TLS or mTLS handshake. True pre-connect
 address enforcement remains deferred to v2.
 
+## Compressed responses
+
+`WithCompressedResponses()` is opt-in in both profiles. It sends
+`Accept-Encoding` with every encoding the loaded libcurl decodes (gzip and
+deflate with zlib). libcurl decodes before BurnerNet sees the body, so the
+response body, body limits, chunk callbacks, and the response verifier all
+work on the decoded bytes; `TransferProgress` counts the bytes as received.
+Use it for large text replies on slow links. Leave it off for file downloads:
+some servers label `.gz` files `Content-Encoding: gzip`, and the body would
+arrive unpacked.
+
 ## Short-lived secrets
 
 ```cpp
