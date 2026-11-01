@@ -83,6 +83,12 @@ ErrorCode CurlHttpClient::ApplyCommonOptions(
     if (!SetCurlOption(curl_api, easy, CURLOPT_HTTP_VERSION, static_cast<long>(CURL_HTTP_VERSION_1_1))) {
         return ErrorCode::CurlOptionFailed;
     }
+    // "" offers every encoding this libcurl decodes and decodes before the body
+    // callback; null sends no Accept-Encoding, so the body stays as served.
+    if (!SetCurlOption(curl_api, easy, CURLOPT_ACCEPT_ENCODING,
+            m_config.accept_compressed_responses ? "" : static_cast<const char*>(nullptr))) {
+        return ErrorCode::CurlOptionFailed;
+    }
     if (!m_config.use_system_proxy) {
         if (!SetCurlOption(curl_api, easy, CURLOPT_PROXY, "") ||
         // Force all hosts to bypass proxies, including any inherited environment configuration.

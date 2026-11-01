@@ -189,6 +189,7 @@ public:
     ClientBuilder& WithLoopbackPeerRejection(bool enabled = true);
     ClientBuilder& WithConnectedPeerGuard(ConnectedPeerGuard guard);
     ClientBuilder& WithTransferCancellation(TransferCancellation cancellation);
+    ClientBuilder& WithCompressedResponses(bool enabled = true);
     ClientBuilder& WithGlobalMaxBodyLimit(std::size_t max_body_bytes);
     ClientBuilder& AllowUnlimitedResponseBody(bool allowed = true);
     ClientBuilder& WithCurlModuleName(std::string name);

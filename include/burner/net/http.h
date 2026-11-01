@@ -425,6 +425,10 @@ struct ClientConfig {
     bool reject_loopback_peers = false;
     ConnectedPeerGuard connected_peer_guard;
     TransferCancellation transfer_cancellation;
+    // Offers every content encoding this libcurl decodes. Bodies, body limits,
+    // chunk callbacks and the response verifier see the decoded bytes;
+    // TransferProgress counts the bytes as received.
+    bool accept_compressed_responses = false;
     ResponseVerifyFn response_verifier;
     bool require_response_verification = false;
     // Global response-body cap enforced incrementally on received bytes.
