@@ -403,7 +403,9 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
         response.verification_status = VerificationStatus::Failed;
         response.verification_error = ErrorCode::VerifyGeneric;
         WipeResponse(response);
-        response.telemetry = TransportTelemetry{};
+        if (response.TransportOk()) {
+            response.telemetry = TransportTelemetry{};
+        }
         return pending.Publish();
     }
 
