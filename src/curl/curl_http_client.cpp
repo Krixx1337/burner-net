@@ -392,6 +392,8 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
         if (!result.Passed()) {
             response.verification_error = result.error;
             WipeResponse(response);
+            // Stage timings survive a transport failure, not a failed proof.
+            response.telemetry = TransportTelemetry{};
             return pending.Publish();
         }
     }
@@ -401,6 +403,9 @@ HttpResponse CurlHttpClient::Send(const HttpRequest& request) {
         response.verification_status = VerificationStatus::Failed;
         response.verification_error = ErrorCode::VerifyGeneric;
         WipeResponse(response);
+        if (response.TransportOk()) {
+            response.telemetry = TransportTelemetry{};
+        }
         return pending.Publish();
     }
 
@@ -668,6 +673,30 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     SecureWipe(key_type);
 
     response.transport_code = static_cast<int>(code);
+
+    // Filled on failures too: on a bad route these are the only record of how
+    // far a failed connection got.
+    const auto stage_seconds = [&](CURLINFO info) {
+        double seconds = -1.0;
+        return curl_api.easy_getinfo(easy, info, &seconds) == CURLE_OK ? seconds : -1.0;
+    };
+    const auto to_ms = [](double seconds) {
+        return seconds < 0.0 ? -1LL : static_cast<long long>(seconds * 1000.0);
+    };
+    const double name_lookup_stage = stage_seconds(CURLINFO_NAMELOOKUP_TIME);
+    const double connect_stage = stage_seconds(CURLINFO_CONNECT_TIME);
+    const double pretransfer_stage = stage_seconds(CURLINFO_PRETRANSFER_TIME);
+    const double total_stage = stage_seconds(CURLINFO_TOTAL_TIME);
+    response.telemetry.name_lookup_ms = to_ms(name_lookup_stage);
+    response.telemetry.tcp_connect_ms = to_ms(connect_stage);
+    response.telemetry.tls_connect_ms = to_ms(stage_seconds(CURLINFO_APPCONNECT_TIME));
+    response.telemetry.pretransfer_ms = to_ms(pretransfer_stage);
+    response.telemetry.first_byte_ms = to_ms(stage_seconds(CURLINFO_STARTTRANSFER_TIME));
+    response.telemetry.elapsed_ms = to_ms(total_stage);
+    // curl sets the pretransfer time just before it sends the request, so an
+    // exact zero with the name resolved proves that no request byte went out.
+    const bool setup_failed_before_send = name_lookup_stage > 0.0 && pretransfer_stage == 0.0;
+
     if (code != CURLE_OK) {
         if (code == CURLE_OUT_OF_MEMORY) {
             response.transport_error = ErrorCode::OutOfMemory;
@@ -700,23 +729,19 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
             // TimedOut, which never moves to the next DNS strategy. Without
             // a DNS strategy there is nothing to fall back to, so the
             // timeout keeps its own error code.
-            double name_lookup_seconds = -1.0;
-            double connect_seconds = -1.0;
             const bool nothing_sent =
                 strategy.has_value() &&
-                curl_api.easy_getinfo(
-                    easy,
-                    CURLINFO_NAMELOOKUP_TIME,
-                    &name_lookup_seconds) == CURLE_OK &&
-                curl_api.easy_getinfo(
-                    easy,
-                    CURLINFO_CONNECT_TIME,
-                    &connect_seconds) == CURLE_OK &&
-                name_lookup_seconds == 0.0 &&
-                connect_seconds == 0.0;
+                name_lookup_stage == 0.0 &&
+                connect_stage == 0.0;
             response.transport_error = nothing_sent
                 ? ErrorCode::DnsResolutionFailed
-                : ErrorCode::TimedOut;
+                : setup_failed_before_send ? ErrorCode::ConnectSetupFailed
+                                           : ErrorCode::TimedOut;
+        } else if ((code == CURLE_SEND_ERROR || code == CURLE_RECV_ERROR) && setup_failed_before_send) {
+            // The socket broke on the way to sending. A failed TLS handshake
+            // (curl 35) stays CurlGeneric: it can be the server's own refusal,
+            // and TLS failures are terminal.
+            response.transport_error = ErrorCode::ConnectSetupFailed;
         } else {
             response.transport_error = ErrorCode::CurlGeneric;
         }
@@ -724,12 +749,8 @@ HttpResponse CurlHttpClient::PerformOnceInternal(
     }
 
     if (response.TransportOk()) {
-        double total_time = 0.0;
-        if (curl_api.easy_getinfo(
-                easy,
-                CURLINFO_TOTAL_TIME,
-                &total_time) == CURLE_OK) {
-            response.telemetry.total_time_seconds = total_time;
+        if (total_stage >= 0.0) {
+            response.telemetry.total_time_seconds = total_stage;
         }
 
         curl_certinfo* cert_info = nullptr;
@@ -837,6 +858,7 @@ bool CurlHttpClient::IsRetryable(ErrorCode error) const noexcept {
     case ErrorCode::DnsResolutionFailed:
     case ErrorCode::ConnectFailed:
     case ErrorCode::TimedOut:
+    case ErrorCode::ConnectSetupFailed:
         return true;
     default:
         return false;

@@ -78,6 +78,14 @@ public:
         return *this;
     }
 
+    // After a connection setup failure with nothing sent, try this many more
+    // times, each with `connect_timeout_seconds` to connect.
+    RequestBuilder& WithConnectRetry(int attempts, long connect_timeout_seconds) {
+        m_request.connect_retry.attempts = attempts;
+        m_request.connect_retry.connect_timeout_seconds = connect_timeout_seconds;
+        return *this;
+    }
+
     RequestBuilder& FollowRedirects(bool enabled) {
         m_request.follow_redirects = enabled;
         return *this;

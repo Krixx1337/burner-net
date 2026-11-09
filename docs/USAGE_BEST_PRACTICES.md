@@ -149,6 +149,14 @@ because streamed bytes are published immediately.
   before the next strategy runs. Automatic retry skips a resolver that has
   already timed out, so one send waits at most about one timeout per strategy. Any other timeout never triggers another DNS strategy.
   Without DNS fallback a resolve timeout is reported as `TimedOut`.
+- `ConnectSetupFailed` means the name resolved but TCP or TLS setup timed out,
+  or its socket broke, before the request was sent. A TLS handshake that fails
+  any other way stays `CurlGeneric`. It never moves to another DNS strategy.
+  `RequestBuilder::WithConnectRetry(attempts, seconds)` tries that strategy
+  again with a longer connect timeout, for any method, because nothing was
+  sent. Keep the plain connect timeout short: it also bounds a resolver that
+  does not answer. Telemetry records how far the last attempt got, also on
+  failures.
 - Automatic retry replays only idempotent methods (GET, PUT, DELETE) unless
   `RetryPolicy::allow_non_idempotent_replay` is set, and never replays
   streamed uploads (no rewind contract). Total transport attempts per send are
