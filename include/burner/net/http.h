@@ -194,6 +194,15 @@ struct RetryPolicy {
     bool allow_non_idempotent_replay = false;
 };
 
+// Extra attempts after ErrorCode::ConnectSetupFailed, each with its own, longer
+// connect timeout. The request had not been sent, so this replays any method.
+// A resolver that does not answer costs the plain connect timeout, so that one
+// stays short; these attempts run only once the name has resolved.
+struct ConnectRetryPolicy {
+    int attempts = 0;
+    long connect_timeout_seconds = 0;
+};
+
 // Default cap applied when no explicit global body limit is configured.
 // Zero means "unlimited" and must be selected explicitly per request or via
 // ClientBuilder::WithGlobalMaxBodyLimit(0) / AllowUnlimitedResponseBody().
@@ -228,6 +237,7 @@ struct HttpRequest {
             connect_timeout_seconds = other.connect_timeout_seconds;
             follow_redirects = other.follow_redirects;
             retry = other.retry;
+            connect_retry = other.connect_retry;
             dns_fallback = std::move(other.dns_fallback);
         }
         return *this;
@@ -250,6 +260,7 @@ struct HttpRequest {
             connect_timeout_seconds = other.connect_timeout_seconds;
             follow_redirects = other.follow_redirects;
             retry = other.retry;
+            connect_retry = other.connect_retry;
             dns_fallback = other.dns_fallback;
         }
         return *this;
@@ -275,12 +286,25 @@ struct HttpRequest {
     long connect_timeout_seconds = 10;
     bool follow_redirects = false;
     RetryPolicy retry{};
+    ConnectRetryPolicy connect_retry{};
     DnsFallbackPolicy dns_fallback{};
 };
 
 struct TransportTelemetry {
     double total_time_seconds = 0.0;
     DarkVector<DarkString> tls_chain;
+    // How far the last attempt got, in milliseconds from its start; filled on
+    // failures too, -1 when curl could not report a stage, 0 when not reached.
+    long long name_lookup_ms = -1;
+    long long tcp_connect_ms = -1;
+    long long tls_connect_ms = -1;
+    long long pretransfer_ms = -1;
+    long long first_byte_ms = -1;
+    long long elapsed_ms = -1;
+    // Which DNS strategy the last attempt used (-1 for none) and how many
+    // transport attempts this send made.
+    int dns_strategy_index = -1;
+    int transport_attempts = 0;
 };
 
 enum class VerificationStatus : std::uint8_t {

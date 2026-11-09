@@ -87,7 +87,11 @@ enum class ErrorCode : uint32_t {
     WorkerThreadStartFailed = 63,
     // Reserved for source/ABI compatibility; opportunistic hooks no longer emit it.
     MaximumGhostRuntimeRequired = 64,
-    ResponseHeadersTooLarge = 65
+    ResponseHeadersTooLarge = 65,
+    // The name resolved, but TCP or TLS setup timed out or lost its socket
+    // before any request byte was sent, so replaying the request cannot commit
+    // anything twice. A TLS handshake that fails any other way is not this.
+    ConnectSetupFailed = 66
 };
 
 inline constexpr bool IsSuccessCode(ErrorCode code) {

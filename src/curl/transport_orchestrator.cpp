@@ -148,7 +148,33 @@ HttpResponse TransportOrchestrator::Execute(HttpRequest request) {
         }
     }
 
+    response.telemetry.transport_attempts = kMaxTotalTransportAttempts - remaining_attempts;
     return response;
+}
+
+// The name resolved and nothing was sent, so this link is slow rather than
+// misrouted: moving to another resolver would return the same addresses. Each
+// attempt gets the longer connect timeout, because a lost connection packet
+// alone costs 1 s, then 2 s, then 4 s of TCP retransmission.
+HttpResponse TransportOrchestrator::RetryConnectSetup(
+    HttpRequest& request,
+    const std::optional<DnsStrategy>& strategy,
+    int& remaining_attempts,
+    HttpResponse last_response) {
+    const ConnectRetryPolicy policy = request.connect_retry;
+    if (policy.attempts <= 0 || policy.connect_timeout_seconds <= 0) {
+        return last_response;
+    }
+    request.connect_timeout_seconds = policy.connect_timeout_seconds;
+    for (int attempt = 0;
+         attempt < policy.attempts && remaining_attempts > 0 &&
+         last_response.transport_error == ErrorCode::ConnectSetupFailed;
+         ++attempt) {
+        m_client.WipeResponse(last_response);
+        --remaining_attempts;
+        last_response = m_client.PerformOnce(request, strategy);
+    }
+    return last_response;
 }
 
 HttpResponse TransportOrchestrator::PerformWithDnsFallback(
@@ -163,7 +189,11 @@ HttpResponse TransportOrchestrator::PerformWithDnsFallback(
             return response;
         }
         --remaining_attempts;
-        return m_client.PerformOnce(std::move(request), std::nullopt);
+        HttpResponse response = m_client.PerformOnce(request, std::nullopt);
+        if (response.transport_error == ErrorCode::ConnectSetupFailed) {
+            return RetryConnectSetup(request, std::nullopt, remaining_attempts, std::move(response));
+        }
+        return response;
     }
 
     HttpResponse last_response{};
@@ -177,6 +207,11 @@ HttpResponse TransportOrchestrator::PerformWithDnsFallback(
         }
         --remaining_attempts;
         last_response = m_client.PerformOnce(request, strategies[index]);
+        if (last_response.transport_error == ErrorCode::ConnectSetupFailed) {
+            const DnsStrategy strategy = strategies[index];
+            last_response = RetryConnectSetup(request, strategy, remaining_attempts, std::move(last_response));
+        }
+        last_response.telemetry.dns_strategy_index = static_cast<int>(index);
         if (last_response.TransportOk()) {
             return last_response;
         }
