@@ -165,6 +165,7 @@ HttpResponse TransportOrchestrator::RetryConnectSetup(
     if (policy.attempts <= 0 || policy.connect_timeout_seconds <= 0) {
         return last_response;
     }
+    const long plain_connect_timeout = request.connect_timeout_seconds;
     request.connect_timeout_seconds = policy.connect_timeout_seconds;
     for (int attempt = 0;
          attempt < policy.attempts && remaining_attempts > 0 &&
@@ -174,6 +175,7 @@ HttpResponse TransportOrchestrator::RetryConnectSetup(
         --remaining_attempts;
         last_response = m_client.PerformOnce(request, strategy);
     }
+    request.connect_timeout_seconds = plain_connect_timeout;
     return last_response;
 }
 
@@ -189,11 +191,8 @@ HttpResponse TransportOrchestrator::PerformWithDnsFallback(
             return response;
         }
         --remaining_attempts;
-        HttpResponse response = m_client.PerformOnce(request, std::nullopt);
-        if (response.transport_error == ErrorCode::ConnectSetupFailed) {
-            return RetryConnectSetup(request, std::nullopt, remaining_attempts, std::move(response));
-        }
-        return response;
+        return RetryConnectSetup(
+            request, std::nullopt, remaining_attempts, m_client.PerformOnce(request, std::nullopt));
     }
 
     HttpResponse last_response{};
@@ -206,11 +205,8 @@ HttpResponse TransportOrchestrator::PerformWithDnsFallback(
             break;
         }
         --remaining_attempts;
-        last_response = m_client.PerformOnce(request, strategies[index]);
-        if (last_response.transport_error == ErrorCode::ConnectSetupFailed) {
-            const DnsStrategy strategy = strategies[index];
-            last_response = RetryConnectSetup(request, strategy, remaining_attempts, std::move(last_response));
-        }
+        last_response = RetryConnectSetup(
+            request, strategies[index], remaining_attempts, m_client.PerformOnce(request, strategies[index]));
         last_response.telemetry.dns_strategy_index = static_cast<int>(index);
         if (last_response.TransportOk()) {
             return last_response;
